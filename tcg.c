@@ -24,6 +24,12 @@ typedef int16_t i16;
 typedef int32_t i32;
 typedef int64_t i64;
 
+#define garena_array(arena, type) \
+	((type *) garena_mem((arena)))
+
+#define garena_array_from(arena, start, type) \
+	((type *) garena_from((arena), (start), alignof(type)))
+
 #define container_of(member_ptr, type, member) \
 	((type *) ((u8 *)(member_ptr) - offsetof(type, member)))
 
@@ -119,8 +125,8 @@ typedef struct {
 typedef struct {
 	Type base;
 	Type *ret_type;
-	size_t parameter_cnt;
-	Type **parameter_types;
+	size_t param_cnt;
+	Type **param_types;
 } FunctionType;
 
 typedef struct {
@@ -130,6 +136,27 @@ typedef struct {
 
 Type TYPE_VOID = { .kind = TY_VOID };
 Type TYPE_INT = { .kind = TY_INT };
+
+static Type *
+type_pointer(Arena *arena, Type *child)
+{
+	PointerType *ptr_type = arena_alloc(arena, sizeof(*ptr_type));
+	ptr_type->base.kind = TY_POINTER;
+	ptr_type->child = child;
+	return &ptr_type->base;
+}
+
+static Type *
+type_function(Arena *arena, Type *ret_type, Type **param_types, size_t param_cnt)
+{
+	FunctionType *fun_type = arena_alloc(arena, sizeof(*fun_type));
+	fun_type->base.kind = TY_FUNCTION;
+	fun_type->ret_type = ret_type;
+	fun_type->param_types = param_types;
+	fun_type->param_cnt = param_cnt;
+	return &fun_type->base;
+}
+
 
 static size_t
 type_size(Type *type)
@@ -144,74 +171,81 @@ type_size(Type *type)
 	UNREACHABLE();
 }
 
+#define VALUE_KINDS(OT, OP, TERM) \
+	OT(UNDEFINED, "undefined") \
+	OT(NOP, "nop") \
+	OT(IDENTITY, "identity") \
+	OT(CONSTANT, "constant") \
+	OT(ALLOCA, "alloca") \
+	OT(ARGUMENT, "argument") \
+	OT(BLOCK, "block") \
+	OT(FUNCTION, "function") \
+	\
+	OP(ADD, "add", 2) \
+	OP(SUB, "sub", 2) \
+	OP(MUL, "mul", 2) \
+	OP(DIV, "div", 2) \
+	OP(MOD, "mod", 2) \
+	OP(AND, "and", 2) \
+	OP(OR,  "or",  2) \
+	OP(SHL, "shl", 2) \
+	OP(SHR, "shr", 2) \
+	\
+	OP(NEG, "neg", 1) \
+	OP(NOT, "not", 1) \
+	\
+	OP(EQ,  "eq",  2)  \
+	OP(NEQ, "neq", 2) \
+	OP(LT,  "lt",  2) \
+	OP(LEQ, "leq", 2) \
+	OP(GT,  "gt",  2) \
+	OP(GEQ, "geq", 2) \
+	\
+	OP(LOAD, "load", 1) \
+	OP(STORE, "store", 2) \
+	OP(GET_INDEX_PTR, "get_index_ptr", 2) \
+	OP(CALL, "call", 0) \
+	TERM(JUMP, "jump", 1) \
+	TERM(BRANCH, "branch", 3) \
+	TERM(RET, "ret", 1) \
+	TERM(RETVOID, "retvoid", 0) \
 
 typedef enum {
-	VK_CONST,
-	VK_ARG,
-	VK_INST,
-	VK_ALLOCA,
+#define ENUM(kind, ...) VK_##kind,
+VALUE_KINDS(ENUM, ENUM, ENUM)
+#undef ENUM
 } ValueKind;
 
 typedef struct Value Value;
 
 struct Value {
 	ValueKind kind;
+	u8 visited;
 	Type *type;
 	size_t index;
+	Value *parent;
 	Value *prev;
 	Value *next;
 };
 
-#define INST_KINDS(_) \
-	_(UNDEFINED, "undefined", 0) \
-	_(NOP, "nop", 0) \
-	_(IDENTITY, "identity", 0) \
-	_(CONSTANT, "constant", 0) \
-	_(ARGUMENT, "argument", 0) \
-	\
-	_(ADD, "add", 2) \
-	_(SUB, "sub", 2) \
-	_(MUL, "mul", 2) \
-	_(DIV, "div", 2) \
-	_(MOD, "mod", 2) \
-	_(AND, "and", 2) \
-	_(OR,  "or",  2) \
-	_(SHL, "shl", 2) \
-	_(SHR, "shr", 2) \
-	\
-	_(NEG, "neg", 1) \
-	_(NOT, "not", 1) \
-	\
-	_(EQ,  "eq",  2)  \
-	_(NEQ, "neq", 2) \
-	_(LT,  "lt",  2) \
-	_(LEQ, "leq", 2) \
-	_(GT,  "gt",  2) \
-	_(GEQ, "geq", 2) \
-	\
-	_(LOAD, "load", 1) \
-	_(STORE, "store", 2) \
-	_(GET_INDEX_PTR, "get_index_ptr", 2) \
-	_(CALL, "call", 0) \
-	_(JUMP, "jump", 1) \
-	_(BRANCH, "branch", 2) \
+void
+value_init(Value *value, ValueKind kind, Type *type, Value *parent)
+{
+	*value = (Value) { .kind = kind, .type = type, .parent = parent };
+}
 
-typedef enum {
-#define INST_ENUM(kind, ...) IK_##kind,
-INST_KINDS(INST_ENUM)
-#undef INST_ENUM
-} InstructionKind;
-
-char *inst_kind_repr[] = {
-#define INST_REPR(_, repr, ...) repr,
-INST_KINDS(INST_REPR)
-#undef INST_REPR
+char *value_kind_repr[] = {
+#define REPR(kind, repr, ...) repr,
+VALUE_KINDS(REPR, REPR, REPR)
+#undef REPR
 };
 
-u8 inst_kind_param_cnt[] = {
-#define INST_PARAM_CNT(_a, _b, param_cnt) param_cnt,
-INST_KINDS(INST_PARAM_CNT)
-#undef INST_PARAM_CNT
+u8 value_kind_param_cnt[] = {
+#define OP_PARAM_CNT(kind, repr, param_cnt) param_cnt,
+#define NO_PARAM(...) 0,
+VALUE_KINDS(NO_PARAM, OP_PARAM_CNT, OP_PARAM_CNT)
+#undef OP_PARAM_CNT
+#undef NO_PARAM
 };
 
 typedef struct {
@@ -229,30 +263,22 @@ typedef struct {
 	uint64_t index;
 } Argument;
 
-
-typedef struct Block Block;
-typedef struct Function Function;
+typedef struct {
+	Value base;
+	Value *operands[];
+} Operation;
 
 typedef struct {
 	Value base;
-	InstructionKind kind;
-	Block *block;
-	Value *operands[];
-} Instruction;
-
-struct Block {
-	Value base;
-	Function *function;
 	Value *head;
 	Value *tail;
-};
+} Block;
 
-struct Function {
+typedef struct {
 	Value base;
-	Type *type;
-	Block *blocks;
-};
-
+	Block *entry;
+	size_t block_cnt;
+} Function;
 
 
 // A simple hash table.
@@ -420,6 +446,8 @@ typedef struct {
 	Value *value;
 } CValue;
 
+Value NOP = { .kind = VK_NOP };
+
 static CValue
 rvalue(Value *value)
 {
@@ -444,6 +472,7 @@ typedef struct {
 	bool panic_mode;
 	Environment *env;
 	Value **prev_pos;
+	Function *current_function;
 	Block *current_block;
 	Block *continue_block;
 	Block *break_block;
@@ -506,79 +535,116 @@ try_eat(Parser *parser, TokenKind kind)
 	return false;
 }
 
+static Str
+eat_identifier(Parser *parser)
+{
+	eat(parser, TK_IDENTIFIER);
+	return prev_tok(parser).str;
+}
+
 static Block *
 add_block(Parser *parser)
 {
 	Block *block = arena_alloc(parser->arena, sizeof(*block));
+	value_init(&block->base, VK_BLOCK, type_pointer(parser->arena, &TYPE_VOID), &parser->current_function->base);
+	parser->current_function->block_cnt += 1;
 	return block;
 }
 
 static void
 add_to_block(Parser *parser, Value *value)
 {
+	if (!parser->current_block) {
+		return;
+	}
 	if (parser->prev_pos != &parser->current_block->head) {
 		value->prev = container_of(parser->prev_pos, Value, next);
 	} else {
 		value->prev = NULL;
 	}
 	*parser->prev_pos = value;
+	value->next = NULL;
 	parser->prev_pos = &value->next;
 	parser->current_block->tail = value;
 }
 
-static Instruction *
-add_instruction(Parser *parser, InstructionKind kind, size_t operand_cnt)
+static Operation *
+add_operation(Parser *parser, ValueKind kind, size_t operand_cnt)
 {
-	Instruction *inst = arena_alloc(parser->arena, sizeof(*inst) + sizeof(inst->operands[0]) * operand_cnt);
-	add_to_block(parser, &inst->base);
-	inst->base.kind = VK_INST;
-	inst->kind = kind;
-	return inst;
+	Operation *op = arena_alloc(parser->arena, sizeof(*op) + sizeof(op->operands[0]) * operand_cnt);
+	value_init(&op->base, kind, &TYPE_INT, &parser->current_block->base);
+	add_to_block(parser, &op->base);
+	op->base.kind = kind;
+	op->base.type = &TYPE_INT;
+	return op;
 }
 
 static Value *
-add_unary(Parser *parser, InstructionKind kind, Value *arg)
+add_unary(Parser *parser, ValueKind kind, Value *arg)
 {
-	Instruction *inst = add_instruction(parser, kind, 1);
-	inst->operands[0] = arg;
-	return &inst->base;
+	Operation *op = add_operation(parser, kind, 1);
+	op->operands[0] = arg;
+	return &op->base;
 }
 
 static Value *
-add_binary(Parser *parser, InstructionKind kind, Value *left, Value *right)
+add_binary(Parser *parser, ValueKind kind, Value *left, Value *right)
 {
-	Instruction *inst = add_instruction(parser, kind, 2);
-	inst->operands[0] = left;
-	inst->operands[1] = right;
-	return &inst->base;
+	Operation *op = add_operation(parser, kind, 2);
+	op->operands[0] = left;
+	op->operands[1] = right;
+	return &op->base;
 }
 
-static Type *
-create_pointer(Arena *arena, Type *child)
+static void
+switch_to_block(Parser *parser, Block *new_block)
 {
-	PointerType *ptr_type = arena_alloc(arena, sizeof(*ptr_type));
-	ptr_type->base.kind = TY_POINTER;
-	ptr_type->child = child;
-	return &ptr_type->base;
+	parser->current_block = new_block;
+	parser->prev_pos = &new_block->head;
+}
+
+static void
+add_jump(Parser *parser, Block *destination, Block *new_block)
+{
+	add_unary(parser, VK_JUMP, &destination->base);
+	switch_to_block(parser, new_block);
+}
+
+static void
+add_cond_jump(Parser *parser, Value *cond, Block *true_block, Block *false_block, Block *new_block)
+{
+	Operation *op = add_operation(parser, VK_BRANCH, 3);
+	op->operands[0] = cond;
+	op->operands[1] = &true_block->base;
+	op->operands[2] = &false_block->base;
+	switch_to_block(parser, new_block);
 }
 
 static Value *
 add_alloca(Parser *parser, Type *type)
 {
 	Alloca *alloca = arena_alloc(parser->arena, sizeof(*alloca));
+	value_init(&alloca->base, VK_ALLOCA, type_pointer(parser->arena, type), &parser->current_block->base);
 	add_to_block(parser, &alloca->base);
-	alloca->base.kind = VK_ALLOCA;
-	alloca->base.type = create_pointer(parser->arena, type);
 	alloca->size = type_size(type);
 	return &alloca->base;
 }
 
+static Value *
+add_argument(Parser *parser, Type *type, size_t index)
+{
+	Argument *arg = arena_alloc(parser->arena, sizeof(*arg));
+	value_init(&arg->base, VK_ARGUMENT, type, &parser->current_block->base);
+	add_to_block(parser, &arg->base);
+	arg->index = index;
+	return &arg->base;
+}
 
 static Value *
 as_rvalue(Parser *parser, CValue cvalue)
 {
 	if (cvalue.lvalue) {
-		return add_unary(parser, IK_LOAD, cvalue.value);
+		return add_unary(parser, VK_LOAD, cvalue.value);
 	} else {
 		return cvalue.value;
 	}
@@ -591,8 +657,32 @@ as_lvalue(Parser *parser, CValue cvalue, char *msg)
 		return cvalue.value;
 	} else {
 		parser_error(parser, parser->lookahead, false, msg);
+		return &NOP;
+	}
+}
+
+
+static Type *
+parse_type(Parser *parser, bool allow_void)
+{
+	Type *type;
+	Token token = discard(parser);
+	switch (token.kind) {
+	case TK_VOID: type = &TYPE_VOID; break;
+	case TK_INT:  type = &TYPE_INT;  break;
+	case TK_IDENTIFIER:  assert(false);
+	default: return NULL;
+	}
+
+	while (try_eat(parser, TK_ASTERISK)) {
+		type = type_pointer(parser->arena, type);
+	}
+
+	if (!allow_void && type == &TYPE_VOID) {
 		return NULL;
 	}
+
+	return type;
 }
 
 static CValue expression_bp(Parser *parser, int bp);
@@ -619,9 +709,8 @@ static Value *
 add_const(Parser *parser, i64 value)
 {
 	Constant *k = arena_alloc(parser->arena, sizeof(*k));
+	value_init(&k->base, VK_CONSTANT, &TYPE_INT, &parser->current_block->base);
 	add_to_block(parser, &k->base);
-	k->base.kind = VK_CONST;
-	k->base.type = &TYPE_INT;
 	k->k = value;
 	return &k->base;
 }
@@ -631,7 +720,7 @@ nullerr(Parser *parser)
 {
 	TokenKind tok = peek(parser);
 	parser_error(parser, parser->lookahead, true, "Invalid start of expression %s", tok_repr[tok]);
-	return rvalue(NULL);
+	return rvalue(&NOP);
 }
 
 static CValue
@@ -665,6 +754,9 @@ ident(Parser *parser)
 	Str ident = prev_tok(parser).str;
 	Value **value = env_lookup(parser->env, ident);
 	assert(value);
+	if ((*value)->kind == VK_FUNCTION) {
+	     return rvalue(*value);
+	}
 	return lvalue(*value);
 }
 
@@ -692,8 +784,7 @@ pre(Parser *parser)
 static CValue
 empty(Parser *parser)
 {
-	// TODO: ?
-	return rvalue(NULL);
+	return rvalue(&NOP);
 }
 
 static CValue
@@ -709,7 +800,7 @@ unop(Parser *parser)
 		result = arg;
 		break;
 	case TK_MINUS:
-		result = add_unary(parser, IK_NEG, arg);
+		result = add_unary(parser, VK_NEG, arg);
 		break;
 	default:
 		UNREACHABLE();
@@ -742,7 +833,7 @@ lognot(Parser *parser)
 	CValue carg = expression_bp(parser, 14);
 	Value *arg = as_rvalue(parser, carg);
 	Value *zero = add_const(parser, 0);
-	return rvalue(add_binary(parser, IK_NEQ, arg, zero));
+	return rvalue(add_binary(parser, VK_NEQ, arg, zero));
 }
 
 static CValue
@@ -751,7 +842,7 @@ bitnot(Parser *parser)
 	eat(parser, TK_TILDE);
 	CValue carg = expression_bp(parser, 14);
 	Value *arg = as_rvalue(parser, carg);
-	return rvalue(add_unary(parser, IK_NOT, arg));
+	return rvalue(add_unary(parser, VK_NOT, arg));
 }
 
 static CValue
@@ -761,14 +852,14 @@ cmp(Parser *parser, CValue cleft, int rbp)
 	CValue cright = expression_bp(parser, rbp);
 	Value *left = as_rvalue(parser, cleft);
 	Value *right = as_rvalue(parser, cright);
-	InstructionKind kind;
+	ValueKind kind;
 	switch (tok) {
-	case TK_EQUAL_EQUAL:   kind = IK_EQ;  break;
-	case TK_BANG_EQUAL:    kind = IK_NEQ; break;
-	case TK_LESS:          kind = IK_LT;  break;
-	case TK_LESS_EQUAL:    kind = IK_LEQ; break;
-	case TK_GREATER:       kind = IK_GT;  break;
-	case TK_GREATER_EQUAL: kind = IK_GEQ; break;
+	case TK_EQUAL_EQUAL:   kind = VK_EQ;  break;
+	case TK_BANG_EQUAL:    kind = VK_NEQ; break;
+	case TK_LESS:          kind = VK_LT;  break;
+	case TK_LESS_EQUAL:    kind = VK_LEQ; break;
+	case TK_GREATER:       kind = VK_GT;  break;
+	case TK_GREATER_EQUAL: kind = VK_GEQ; break;
 	default: UNREACHABLE();
 	}
 	return rvalue(add_binary(parser, kind, left, right));
@@ -781,13 +872,13 @@ binop(Parser *parser, CValue cleft, int rbp)
 	CValue cright = expression_bp(parser, rbp);
 	Value *left = as_rvalue(parser, cleft);
 	Value *right = as_rvalue(parser, cright);
-	InstructionKind kind;
+	ValueKind kind;
 	switch (tok) {
-	case TK_PLUS:     kind = IK_ADD; break;
-	case TK_MINUS:    kind = IK_SUB; break;
-	case TK_ASTERISK: kind = IK_MUL; break;
-	case TK_SLASH:    kind = IK_DIV; break;
-	case TK_PERCENT:  kind = IK_MOD; break;
+	case TK_PLUS:     kind = VK_ADD; break;
+	case TK_MINUS:    kind = VK_SUB; break;
+	case TK_ASTERISK: kind = VK_MUL; break;
+	case TK_SLASH:    kind = VK_DIV; break;
+	case TK_PERCENT:  kind = VK_MOD; break;
 	default: UNREACHABLE();
 	}
 	return rvalue(add_binary(parser, kind, left, right));
@@ -800,12 +891,12 @@ bitbinop(Parser *parser, CValue cleft, int rbp)
 	CValue cright = expression_bp(parser, rbp);
 	Value *left = as_rvalue(parser, cleft);
 	Value *right = as_rvalue(parser, cright);
-	InstructionKind kind;
+	ValueKind kind;
 	switch (tok) {
-	case TK_AMP:             kind = IK_AND; break;
-	case TK_BAR:             kind = IK_OR;  break;
-	case TK_LESS_LESS:       kind = IK_SHL; break;
-	case TK_GREATER_GREATER: kind = IK_SHR; break;
+	case TK_AMP:             kind = VK_AND; break;
+	case TK_BAR:             kind = VK_OR;  break;
+	case TK_LESS_LESS:       kind = VK_SHL; break;
+	case TK_GREATER_GREATER: kind = VK_SHR; break;
 	default: UNREACHABLE();
 	}
 	return rvalue(add_binary(parser, kind, left, right));
@@ -820,7 +911,7 @@ indexing(Parser *parser, CValue cleft, int rbp)
 	eat(parser, TK_RBRACKET);
 	Value *left = as_rvalue(parser, cleft);
 	Value *right = as_rvalue(parser, cright);
-	return rvalue(add_binary(parser, IK_GET_INDEX_PTR, left, right));
+	return rvalue(add_binary(parser, VK_GET_INDEX_PTR, left, right));
 }
 
 static CValue
@@ -833,15 +924,16 @@ call(Parser *parser, CValue cleft, int rbp)
 		parser_error(parser, parser->lookahead, false, "Expected function call target to have function type");
 	}
 	FunctionType *fun_type = (void*) left->type;
-	size_t argument_cnt = fun_type->parameter_cnt;
-	Instruction *call = add_instruction(parser, IK_CALL, argument_cnt);
+	size_t argument_cnt = fun_type->param_cnt;
+	Operation *call = add_operation(parser, VK_CALL, 1 + argument_cnt);
 
 	size_t i = 0;
+	call->operands[i++] = left;
 	while (!try_eat(parser, TK_RPAREN)) {
 		CValue carg = expression_no_comma(parser);
 		if (i < argument_cnt) {
 			call->operands[i] = as_rvalue(parser, carg);
-			if (call->operands[i]->type != fun_type->parameter_types[i]) {
+			if (call->operands[i]->type != fun_type->param_types[i]) {
 				parser_error(parser, parser->lookahead, false, "Argument type doesn't equal parameter type");
 			}
 		}
@@ -851,7 +943,7 @@ call(Parser *parser, CValue cleft, int rbp)
 			break;
 		}
 	}
-	if (i != argument_cnt) {
+	if (i - 1 != argument_cnt) {
 		parser_error(parser, parser->lookahead, false, "Invalid number of arguments: expected %zu, got %zu", argument_cnt, i);
 	}
 	return rvalue(&call->base);
@@ -891,7 +983,7 @@ assign(Parser *parser, CValue cleft, int rbp)
 	CValue cright = expression_bp(parser, rbp);
 	Value *left = as_lvalue(parser, cleft, "Expected lvalue on left hand side of assignment");
 	Value *right = as_rvalue(parser, cright);
-	add_binary(parser, IK_STORE, left, right);
+	add_binary(parser, VK_STORE, left, right);
 	return lvalue(left);
 }
 
@@ -907,10 +999,241 @@ typedef_declaration(Parser *parser)
 	UNREACHABLE();
 }
 
+static Value *
+condition(Parser *parser)
+{
+	CValue ccond = expression(parser);
+	Value *cond = as_rvalue(parser, ccond);
+	Value *zero = add_const(parser, 0);
+	return add_binary(parser, VK_NEQ, cond, zero);
+}
+
+static void statement(Parser *parser);
+static void expression_or_variable_declaration(Parser *parser);
+
+static void
+statements(Parser *parser)
+{
+	while (!try_eat(parser, TK_RBRACE)) {
+		statement(parser);
+	}
+}
+
+
+static void
+loop_body(Parser *parser, Block *continue_block, Block *break_block)
+{
+	Block *saved_break_block = parser->break_block;
+	Block *saved_continue_block = parser->continue_block;
+	parser->break_block = break_block;
+	parser->continue_block = continue_block;
+	statement(parser);
+	parser->break_block = saved_break_block;
+	parser->continue_block = saved_continue_block;
+}
+
+static void
+statement(Parser *parser)
+{
+	switch (peek(parser)) {
+	case TK_LBRACE:
+		eat(parser, TK_LBRACE);
+		env_push(&parser->env);
+		statements(parser);
+		env_pop(&parser->env);
+		break;
+	case TK_IF: {
+		eat(parser, TK_IF);
+		Block *cond_block = add_block(parser);
+		Block *true_block = add_block(parser);
+		Block *false_block = add_block(parser);
+		Block *after_block = add_block(parser);
+
+		add_jump(parser, cond_block, cond_block);
+
+		eat(parser, TK_LPAREN);
+		Value *cond = condition(parser);
+		eat(parser, TK_RPAREN);
+
+		add_cond_jump(parser, cond, true_block, false_block, true_block);
+
+		statement(parser);
+		add_jump(parser, after_block, false_block);
+
+		if (try_eat(parser, TK_ELSE)) {
+			statement(parser);
+		}
+		add_jump(parser, after_block, after_block);
+
+		break;
+	}
+	case TK_SWITCH:
+		UNREACHABLE();
+		break;
+	case TK_WHILE: {
+		eat(parser, TK_WHILE);
+		Block *cond_block = add_block(parser);
+		Block *body_block = add_block(parser);
+		Block *after_block = add_block(parser);
+
+		add_jump(parser, cond_block, cond_block);
+
+		eat(parser, TK_LPAREN);
+		Value *cond = condition(parser);
+		eat(parser, TK_RPAREN);
+
+		add_cond_jump(parser, cond, body_block, after_block, body_block);
+
+		loop_body(parser, cond_block, after_block);
+
+		add_jump(parser, cond_block, after_block);
+		break;
+	}
+	case TK_DO: {
+		eat(parser, TK_DO);
+		Block *body_block = add_block(parser);
+		Block *cond_block = add_block(parser);
+		Block *after_block = add_block(parser);
+
+		add_jump(parser, body_block, body_block);
+
+		loop_body(parser, cond_block, after_block);
+
+		add_jump(parser, cond_block, cond_block);
+
+		eat(parser, TK_WHILE);
+		eat(parser, TK_LPAREN);
+		Value *cond = condition(parser);
+		eat(parser, TK_RPAREN);
+		eat(parser, TK_SEMICOLON);
+
+		add_cond_jump(parser, cond, body_block, after_block, after_block);
+		break;
+	}
+	case TK_FOR: {
+		eat(parser, TK_FOR);
+		Block *init_block = add_block(parser);
+		Block *cond_block = add_block(parser);
+		Block *body_block = add_block(parser);
+		Block *incr_block = add_block(parser);
+		Block *after_block = add_block(parser);
+
+		add_jump(parser, init_block, init_block);
+
+		if (peek(parser) != TK_SEMICOLON) {
+			expression_or_variable_declaration(parser);
+		}
+		eat(parser, TK_SEMICOLON);
+
+		add_jump(parser, cond_block, cond_block);
+
+		if (peek(parser) != TK_SEMICOLON) {
+			Value *cond = condition(parser);
+			add_cond_jump(parser, cond, body_block, after_block, incr_block);
+		} else {
+			add_jump(parser, body_block, incr_block);
+		}
+		eat(parser, TK_SEMICOLON);
+
+		if (peek(parser) != TK_RPAREN) {
+			expression(parser);
+		}
+		eat(parser, TK_RPAREN);
+
+		add_jump(parser, cond_block, body_block);
+
+		loop_body(parser, incr_block, after_block);
+
+		add_jump(parser, incr_block, after_block);
+		break;
+	}
+	case TK_BREAK: {
+		Token tok = discard(parser);
+		if (parser->break_block) {
+			add_jump(parser, parser->break_block, NULL);
+		} else {
+			parser_error(parser, tok, true, "'break' outside of loop or switch");
+		}
+		eat(parser, TK_SEMICOLON);
+		break;
+	}
+	case TK_CONTINUE: {
+		Token tok = discard(parser);
+		if (parser->continue_block) {
+			add_jump(parser, parser->continue_block, NULL);
+		} else {
+			parser_error(parser, tok, true, "'continue' outside of loop");
+		}
+		eat(parser, TK_SEMICOLON);
+		break;
+	}
+	case TK_RETURN: {
+		Token tok = discard(parser);
+		Type *return_type = ((FunctionType *) parser->current_function->base.type)->ret_type;
+		if (peek(parser) != TK_SEMICOLON) {
+			Value *value = as_rvalue(parser, expression(parser));
+			if (value->type != return_type) {
+				parser_error(parser, tok, false, "Type of 'return'ed value does not match nominal type");
+			}
+			add_unary(parser, VK_RET, value);
+		} else if (return_type == &TYPE_VOID) {
+			add_operation(parser, VK_RETVOID, 0);
+		} else {
+			parser_error(parser, tok, false, "Expected some value to be 'return'ed");
+		}
+		eat(parser, TK_SEMICOLON);
+		break;
+	}
+	default:
+		expression_or_variable_declaration(parser);
+		eat(parser, TK_SEMICOLON);
+		break;
+	}
+}
+
 static void
 function_declaration(Parser *parser)
 {
-	UNREACHABLE();
+	Type *ret_type = parse_type(parser, true);
+	Str function_name = eat_identifier(parser);
+	eat(parser, TK_LPAREN);
+	typedef struct {
+		Type *type;
+		Str name;
+	} TypedName;
+	size_t start = garena_save(parser->scratch);
+	while (!try_eat(parser, TK_RPAREN)) {
+		Type *param_type = parse_type(parser, false);
+		Str param_name = eat_identifier(parser);
+		garena_push_value(parser->scratch, TypedName, ((TypedName) { .type = param_type, .name = param_name }));
+		if (!try_eat(parser, TK_COMMA)) {
+			eat(parser, TK_RPAREN);
+			break;
+		}
+	}
+	size_t param_cnt = garena_cnt_from(parser->scratch, start, TypedName);
+	TypedName *params = garena_array_from(parser->scratch, start, TypedName);
+	Type **param_types = arena_alloc(parser->arena, param_cnt * sizeof(*param_types));
+	Type *fun_type = type_function(parser->arena, ret_type, param_types, param_cnt);
+	Function *function = arena_alloc(parser->arena, sizeof(*function));
+	value_init(&function->base, VK_FUNCTION, fun_type, NULL);
+	env_define(parser->env, function_name, &function->base);
+	eat(parser, TK_LBRACE);
+	parser->current_function = function;
+	function->block_cnt = 0;
+	function->entry = add_block(parser);
+	switch_to_block(parser, function->entry);
+	env_push(&parser->env);
+	for (size_t i = 0; i < param_cnt; i++) {
+		param_types[i] = params[i].type;
+		Value *arg = add_argument(parser, param_types[i], i);
+		Value *addr = add_alloca(parser, param_types[i]);
+		add_binary(parser, VK_STORE, addr, arg);
+		env_define(parser->env, params[i].name, arg);
+	}
+	statements(parser);
+	garena_restore(parser->scratch, start);
+	env_pop(&parser->env);
 }
 
 static void
@@ -926,29 +1249,6 @@ external_declaration(Parser *parser)
 	}
 }
 
-static Type *
-parse_type(Parser *parser, bool allow_void)
-{
-	Type *type;
-	Token token = discard(parser);
-	switch (token.kind) {
-	case TK_VOID: type = &TYPE_VOID; break;
-	case TK_INT:  type = &TYPE_INT;  break;
-	case TK_IDENTIFIER:  assert(false);
-	default: return NULL;
-	}
-
-	while (try_eat(parser, TK_ASTERISK)) {
-		type = create_pointer(parser->arena, type);
-	}
-
-	if (!allow_void && type == &TYPE_VOID) {
-		return NULL;
-	}
-
-	return type;
-}
-
 static void
 variable_declaration(Parser *parser)
 {
@@ -957,7 +1257,7 @@ variable_declaration(Parser *parser)
 	Str name = prev_tok(parser).str;
 	Value *addr = add_alloca(parser, type);
 	assign(parser, lvalue(addr), 2);
-	eat(parser, TK_SEMICOLON);
+	//eat(parser, TK_SEMICOLON);
 	env_define(parser->env, name, addr);
 }
 
@@ -973,18 +1273,31 @@ variable_declarations(Parser *parser)
 }
 
 static void
+expression_or_variable_declaration(Parser *parser)
+{
+	switch (peek(parser)) {
+	case TK_INT:
+		variable_declarations(parser);
+		break;
+	default:
+		expression(parser);
+	}
+}
+
+static void
 parse_program(Parser *parser)
 {
 	while (peek(parser) != TK_EOF) {
+		function_declaration(parser);
 		//external_declaration(parser);
-		switch (peek(parser)) {
-		case TK_INT:
-			variable_declarations(parser);
-			break;
-		default:
-			expression(parser);
-			eat(parser, TK_SEMICOLON);
-		}
+		//switch (peek(parser)) {
+		//case TK_INT:
+		//	variable_declarations(parser);
+		//	break;
+		//default:
+		//	expression(parser);
+		//	eat(parser, TK_SEMICOLON);
+		//}
 	}
 }
 
@@ -1007,7 +1320,7 @@ lefterr(Parser *parser, CValue left, int rbp)
 	// Set the current token to something with low binding power to not get
 	// into infinite loop of `lefterr`s on the same token.
 	parser->lookahead.kind = TK_EOF;
-	return rvalue(NULL);
+	return rvalue(&NOP);
 }
 
 typedef struct {
@@ -1065,26 +1378,29 @@ expression_bp(Parser *parser, int bp)
 }
 
 size_t
-instruction_arg_cnt(Instruction *inst)
+instruction_arg_cnt(Value *value)
 {
-	switch (inst->kind) {
-	case IK_CALL:
-		return ((FunctionType *) inst->operands[0]->type)->parameter_cnt;
-	default:
-		return inst_kind_param_cnt[inst->kind];
+	switch (value->kind) {
+	case VK_CALL: {
+		Operation *op = (void *) value;
+		return 1 + ((FunctionType *) op->operands[0]->type)->param_cnt;
 	}
+	default:
+		return value_kind_param_cnt[value->kind];
+	}
+	UNREACHABLE();
 }
 
 void
 for_each_operand(Value *value, void (*fun)(void *user_data, Value *operand), void *user_data)
 {
-	if (value->kind != VK_INST) {
-		return;
+	size_t operand_cnt = instruction_arg_cnt(value);
+	if (operand_cnt == 0) {
+	     return;
 	}
-	Instruction *inst = (void *) value;
-	size_t operand_cnt = instruction_arg_cnt(inst);
+	Operation *op = (void *) value;
 	for (size_t i = 0; i < operand_cnt; i++) {
-		fun(user_data, inst->operands[i]);
+		fun(user_data, op->operands[i]);
 	}
 }
 
@@ -1092,8 +1408,56 @@ void
 print_index(void *user_data, Value *operand)
 {
 	bool *first = user_data;
-	printf("%sv%zu", *first ? "" : ", ", operand->index);
+	if (!*first) {
+		printf(", ");
+	}
 	*first = false;
+	switch (operand->kind) {
+	case VK_BLOCK:
+		printf("block");
+		break;
+	case VK_FUNCTION:
+		printf("function");
+		break;
+	default:
+		printf("v");
+		break;
+	}
+	printf("%zu", operand->index);
+}
+
+static void
+dfs(Block *block, size_t *index, Block **post_order)
+{
+	if (block->base.visited > 0) {
+		return;
+	}
+	block->base.visited = 1;
+	switch (block->tail->kind) {
+	case VK_JUMP: {
+		Operation *op = (void *) block->tail;
+		assert(op->operands[0]->kind == VK_BLOCK);
+		dfs((Block *) op->operands[0], index, post_order);
+		break;
+	}
+	case VK_BRANCH: {
+		Operation *op = (void *) block->tail;
+		assert(op->operands[1]->kind == VK_BLOCK);
+		assert(op->operands[2]->kind == VK_BLOCK);
+		dfs((Block *) op->operands[1], index, post_order);
+		dfs((Block *) op->operands[2], index, post_order);
+		break;
+	}
+	case VK_RET:
+	case VK_RETVOID:
+		break;
+	default:
+	     break;
+	     UNREACHABLE();
+	}
+	block->base.visited = 2;
+	block->base.index = (*index)++;
+	post_order[block->base.index] = block;
 }
 
 void
@@ -1111,40 +1475,59 @@ parse(Arena *arena, GArena *scratch, Str source, void (*error_callback)(void *us
 	};
 	discard(&parser);
 
-	Block *block = add_block(&parser);
-	parser.current_block = block;
-	parser.prev_pos = &block->head;
-
 	env_push(&parser.env);
 	parse_program(&parser);
 	env_pop(&parser.env);
 
+	Function *function = parser.current_function;
+	Block *block = function->entry;
+	Block **post_order = arena_alloc(parser.arena, sizeof(*post_order) * function->block_cnt);
 	size_t i = 0;
-	for (Value *v = block->head; v; v = v->next, i++) {
-		v->index = i;
-	}
-	for (Value *v = block->tail; v; v = v->prev) {
-		printf("v%zu = ", v->index);
-		switch (v->kind) {
-		case VK_CONST: {
-			Constant *k = (void*) v;
-			printf("loadimm %"PRIi64"\n", k->k);
-			break;
+	dfs(block, &i, post_order);
+
+	//for (size_t i = function->block_cnt; i--;) {
+	for (size_t j = function->block_cnt; j--;) {
+	//for (size_t j = 0; j < function->block_cnt; j++) {
+		Block *block = post_order[j];
+		printf("block%zu:\n", function->block_cnt - j - 1);
+		//printf("block%zu:\n", block->base.index);
+
+		for (Value *v = block->head; v; v = v->next, i++) {
+			v->index = i;
 		}
-		case VK_INST: {
-			Instruction *i = (void*) v;
-			printf("%s ", inst_kind_repr[i->kind]);
-			bool first = true;
-			for_each_operand(v, print_index, &first);
-			printf("\n");
-			break;
-		}
-		case VK_ALLOCA: {
-			Alloca *a = (void*) v;
-			printf("alloca %zu\n", a->size);
-			break;
-		}
-		default: UNREACHABLE();
+
+		for (Value *v = block->head; v; v = v->next) {
+			printf("\tv%zu = ", v->index);
+			switch (v->kind) {
+			case VK_CONSTANT: {
+				Constant *k = (void*) v;
+				printf("loadimm %"PRIi64"\n", k->k);
+				break;
+			}
+#define CASE_OP(kind, ...) case VK_##kind:
+#define OTHER(...)
+	VALUE_KINDS(OTHER, CASE_OP, CASE_OP)
+#undef CASE_OP
+#undef OTHER
+			{
+				printf("%s ", value_kind_repr[v->kind]);
+				bool first = true;
+				for_each_operand(v, print_index, &first);
+				printf("\n");
+				break;
+			}
+			case VK_ALLOCA: {
+				Alloca *a = (void*) v;
+				printf("alloca %zu\n", a->size);
+				break;
+			}
+			case VK_ARGUMENT: {
+				Argument *a = (void*) v;
+				printf("argument %zu\n", a->index);
+				break;
+			}
+			default: UNREACHABLE();
+			}
 		}
 	}
 
