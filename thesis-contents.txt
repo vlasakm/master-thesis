@@ -1,0 +1,95 @@
+Introduction
+
+1. The Tinyverse / modern compiler design
+
+ - frontend/middleend/backend split
+
+ - tiny C
+   - promenne maji adresu (lvalue/rvalue)
+   - signed integers vs unsigned pointers
+      - add, sub - unsigned i signed
+      - mul div - signed vs unsigned
+   - externi deklarace / builtin funkce
+
+ - tiny IR (detailne)
+   - Control Flow Graph - Basic Block, Instruction / Temporary / Value
+   - SSA
+   - alloca / stack slots
+   - integers, functions, pointers, structs
+
+ - tiny 86
+
+
+
+2. x86-64 architecture
+
+ - Characteristics, history, overview
+
+ - Mnemonics, opcodes, instructions
+
+ - Available instructions
+
+ - Instruction encoding
+
+ - Activation frame, calling conventions
+
+
+
+3. ELF format
+
+ - Characeteristics, existing use
+
+ - Static vs dynamic linking
+
+ - Positionally independent executable (PIE)
+
+
+
+4. Compiler backend
+
+ - Goals, phases
+   - usual order, phase dependency,...
+   - "unlimited amount of registers" until register allocation
+
+ - Instruction Selection
+   - top down, bottom up
+   - peephole (Davidson & Fraser)
+     - "symbolic execution"
+     - static rules
+       - rule induction
+   - SSA?
+
+ - Instruction Scheduling
+   - obsolete for x86-64
+
+ -  Register allocation
+   - why
+   - usual approaches
+   - Graph Coloring
+     - flexibility
+     - calling conventions
+     - register allocation even for spill code
+     - expensive
+     - basic idea (Chaitin)
+     - Coalescing (Briggs vs Appel), Live range splitting
+     - Liveness analysis
+       - live ranges
+       - SSA?
+
+
+5. Design and implementation
+
+  - custom frontend
+
+  - Naive translation + calling convention lowering
+  - Instruction selection by peephole optimization
+  - Liveness analysis
+  - Register allocation by graph coloring
+  - Assembly printing (NASM?) or ELF executable generation
+
+
+
+6. Testing
+
+  - General approaches
+  - Black box
