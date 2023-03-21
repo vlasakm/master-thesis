@@ -1,14 +1,15 @@
 // vim: ft=c et sw=4
 
-int one() {
-    return 1;
-}
+//int one() {
+//    return 1;
+//}
 
-int fun(int n) {
+int fun() {
+    int n = 10;
     int a = 0;
-    while (n > 0) {
+    while (n) {
         a = a + 1;
         n = n - 1;
     }
-    return a + one();
+    return a;// + one();
 }
