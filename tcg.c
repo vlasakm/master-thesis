@@ -90,58 +90,6 @@ arena_aprintf(Arena *arena, const char *fmt, ...)
 	return str;
 }
 
-/*
-
-typedef struct Value Value;
-
-struct Value {
-	enum {
-		VK_LOADIMM,
-		VK_ADD,
-		VK_SUB,
-		VK_MUL,
-		VK_STORE,
-		VK_LOAD,
-	} kind;
-	union {
-		int64_t imm;
-		struct { Value *arg; };
-		struct { Value *left; Value *right; };
-	};
-};
-
-typedef enum {
-	RAX,
-	RBX,
-	RCX,
-} Reg;
-
-typedef int Imm;
-
-typedef struct {
-	enum {
-		AK_REG,
-		AK_IMM,
-		AK_INDIR,
-	};
-
-} Arg;
-
-typedef struct {
-	enum {
-		IK_STORE,
-		IK_LOAD,
-		IK_ADD,
-		IK_SUB,
-		IK_MUL,
-	} kind;
-	Arg args[2];
-	//union {
-	//	struct { Reg dest; Reg src; };
-	//}
-} Inst;
-*/
-
 typedef enum {
 	TY_VOID,
 	TY_INT,
@@ -202,165 +150,24 @@ type_size(Type *type)
 	UNREACHABLE();
 }
 
-#define VALUE_KINDS(OT, OP, TERM) \
-	OT(UNDEFINED, "undefined") \
-	OT(NOP, "nop") \
-	OT(IDENTITY, "identity") \
-	OT(CONSTANT, "constant") \
-	OT(ALLOCA, "alloca") \
-	OT(ARGUMENT, "argument") \
-	OT(BLOCK, "block") \
-	OT(FUNCTION, "function") \
-	\
-	OP(ADD, "add", 2) \
-	OP(SUB, "sub", 2) \
-	OP(MUL, "mul", 2) \
-	OP(DIV, "div", 2) \
-	OP(MOD, "mod", 2) \
-	OP(AND, "and", 2) \
-	OP(OR,  "or",  2) \
-	OP(SHL, "shl", 2) \
-	OP(SHR, "shr", 2) \
-	\
-	OP(NEG, "neg", 1) \
-	OP(NOT, "not", 1) \
-	\
-	OP(EQ,  "eq",  2)  \
-	OP(NEQ, "neq", 2) \
-	OP(LT,  "lt",  2) \
-	OP(LEQ, "leq", 2) \
-	OP(GT,  "gt",  2) \
-	OP(GEQ, "geq", 2) \
-	\
-	OP(LOAD, "load", 1) \
-	OP(STORE, "store", 2) \
-	OP(GET_INDEX_PTR, "get_index_ptr", 2) \
-	OP(CALL, "call", 0) \
-	TERM(JUMP, "jump", 1) \
-	TERM(BRANCH, "branch", 3) \
-	TERM(RET, "ret", 1) \
-	TERM(RETVOID, "retvoid", 0) \
+#include "defs.c"
 
 typedef enum {
-#define ENUM(kind, ...) VK_##kind,
-VALUE_KINDS(ENUM, ENUM, ENUM)
-#undef ENUM
-} ValueKind;
-
-typedef struct Value Value;
-
-struct Value {
-	ValueKind kind;
-	u8 visited;
-	Type *type;
-	size_t index;
-	Value *parent;
-	Value *prev;
-	Value *next;
-};
-
-void
-value_init(Value *value, ValueKind kind, Type *type, Value *parent)
-{
-	*value = (Value) { .kind = kind, .type = type, .parent = parent };
-}
-
-char *value_kind_repr[] = {
-#define REPR(kind, repr, ...) repr,
-VALUE_KINDS(REPR, REPR, REPR)
-#undef REPR
-};
-
-u8 value_kind_param_cnt[] = {
-#define OP_PARAM_CNT(kind, repr, param_cnt) param_cnt,
-#define NO_PARAM(...) 0,
-VALUE_KINDS(NO_PARAM, OP_PARAM_CNT, OP_PARAM_CNT)
-#undef OP_PARAM_CNT
-#undef NO_PARAM
-};
-
-typedef struct {
-	Value base;
-	int64_t k;
-} Constant;
-
-typedef struct {
-	Value base;
-	size_t size;
-} Alloca;
-
-typedef struct {
-	Value base;
-	uint64_t index;
-} Argument;
-
-typedef struct {
-	Value base;
-	Value *operands[];
-} Operation;
-
-typedef struct {
-	Value base;
-	Value *head;
-	Value *tail;
-} Block;
-
-typedef struct {
-	Value base;
-	Str name;
-	Block *entry;
-	size_t block_cnt;
-} Function;
-
-
-#define INST_KINDS(_) \
-	_(ADD) \
-	_(OR) \
-	_(AND) \
-	_(SUB) \
-	_(XOR) \
-	_(CMP) \
-	_(TEST) \
-	_(NOT) \
-	_(NEG) \
-	_(IMUL) \
-	_(IDIV) \
-	_(SHL) \
-	_(SHR) \
-	_(CALL) \
-	_(JMP) \
-	_(RET) \
-	_(NOP) \
-	_(JZ) \
-	_(MOV) \
-	_(LABEL)
-
-typedef enum {
-#define ENUM(kind, ...) IK_##kind,
-INST_KINDS(ENUM)
-#undef ENUM
-} InstKind;
-
-char *inst_kind_repr[] = {
-#define REPR(kind, ...) #kind,
-INST_KINDS(REPR)
-#undef REPR
-};
-
-typedef enum {
+	R_NONE = 0,
 	R_RAX,
 	R_RBX,
 	R_RCX,
+	R_RDX,
 	R_RBP,
-	R_CL,
 } Reg;
 
 const char *reg_repr[] = {
+	"NONE",
 	"rax",
 	"rbx",
 	"rcx",
+	"rdx",
 	"rbp",
-	"cl",
 };
 
 typedef struct {
@@ -388,7 +195,6 @@ struct Instruction {
 	Instruction *next;
 	Operand op[3];
 };
-
 
 // A simple hash table.
 // Inspired by: http://www.craftinginterpreters.com/hash-tables.html
@@ -1352,11 +1158,13 @@ external_declaration(Parser *parser)
 {
 	switch (peek(parser)) {
 	case TK_STRUCT:
-		return struct_declaration(parser);
+		struct_declaration(parser);
+		break;
 	case TK_TYPEDEF:
-		return typedef_declaration(parser);
+		typedef_declaration(parser);
+		break;
 	default:
-		return function_declaration(parser);
+		function_declaration(parser);
 	}
 }
 
@@ -1578,108 +1386,142 @@ dfs(Block *block, size_t *index, Block **post_order)
 	post_order[block->base.index] = block;
 }
 
+
+
+void
+print_reg(Oper reg)
+{
+	if (reg <= 0) {
+		reg = -reg;
+		printf("%s", reg_repr[reg]);
+	} else {
+		printf("t%"PRIi32, reg);
+	}
+}
+
+void
+print_inst(Inst *inst)
+{
+	InstDesc *desc = &inst_desc[inst->op];
+	printf("%s", desc->mnemonic);
+	size_t i = 0;
+	for (; i < desc->src_cnt; i++) {
+		printf(" ");
+		print_reg(inst->ops[i]);
+	}
+	for (; i < desc->imm_cnt; i++) {
+		printf(" ");
+		printf("%"PRIi32, inst->ops[i]);
+	}
+	for (; i < desc->label_cnt; i++) {
+		printf(" ");
+		printf(".L%"PRIi32, inst->ops[i]);
+	}
+}
+
 typedef struct {
+	Arena *arena;
 	GArena insts;
 } TranslationState;
 
-static Operand
-op_vreg(Value *v)
+static void
+add_inst(TranslationState *ts, OpCode op, ...)
 {
-	return (Operand) { .kind = OK_VREG, .vreg = v };
-}
-
-static Operand
-op_ivreg(Value *v)
-{
-	return (Operand) { .kind = OK_INDIR_VREG, .vreg = v };
-}
-
-static Operand
-op_const(i64 c)
-{
-	return (Operand) { .kind = OK_CONST, .constant = c };
-}
-
-static Operand
-op_label(Str label)
-{
-	return (Operand) { .kind = OK_LABEL, .label = label };
-}
-
-static Operand
-op_reg(Reg r)
-{
-	return (Operand) { .kind = OK_REG, .reg = r };
-}
-
-static Operand
-op_none(void)
-{
-	return (Operand) { .kind = OK_NONE };
+	va_list ap;
+	InstDesc *desc = &inst_desc[op];
+	size_t operand_cnt = desc->label_cnt;
+	Inst *inst = arena_alloc(ts->arena, sizeof(*inst) + operand_cnt * sizeof(inst->ops[0]));
+	inst->op = op;
+	va_start(ap, op);
+	size_t i = 0;
+	for (;i < operand_cnt; i++) {
+		inst->ops[i] = va_arg(ap, Oper);
+	}
+	va_end(ap);
+	garena_push_value(&ts->insts, Inst *, inst);
 }
 
 static void
-add_inst3(TranslationState *ts, InstKind kind, Operand op1, Operand op2, Operand op3)
+add_copy(TranslationState *ts, Oper dest, Oper src)
 {
-	Instruction *ins = garena_push(&ts->insts, Instruction);
-	ins->kind = kind;
-	ins->op[0] = op1;
-	ins->op[1] = op2;
-	ins->op[2] = op3;
+	add_inst(ts, OP_MOV, dest, src);
 }
 
 static void
-add_inst0(TranslationState *ts, InstKind kind)
+add_set_zero(TranslationState *ts, Oper oper)
 {
-	add_inst3(ts, kind, op_none(), op_none(), op_none());
+	add_inst(ts, OP_XOR, oper, oper, oper);
 }
 
 static void
-add_inst1(TranslationState *ts, InstKind kind, Operand op1)
+add_unop(TranslationState *ts, OpCode op, Oper op1)
 {
-	add_inst3(ts, kind, op1, op_none(), op_none());
+	add_inst(ts, op, op1, op1);
 }
 
 static void
-add_inst2(TranslationState *ts, InstKind kind, Operand op1, Operand op2)
+add_binop(TranslationState *ts, OpCode op, Oper op1, Oper op2)
 {
-	add_inst3(ts, kind, op1, op2, op_none());
+	add_inst(ts, op, op1, op1, op2);
 }
 
 static void
-add_mov_const(TranslationState *ts, Value *target, i64 k)
+add_vunop(TranslationState *ts, OpCode op, Value *op1)
 {
-	add_inst2(ts, IK_MOV, op_vreg(target), op_const(k));
+	add_unop(ts, op, op1->index);
 }
 
 static void
-add_copy(TranslationState *ts, Value *target, Value *source)
+add_vbinop(TranslationState *ts, OpCode op, Value *op1, Value *op2)
 {
-	add_inst2(ts, IK_MOV, op_vreg(target), op_vreg(source));
+	add_binop(ts, op, op1->index, op2->index);
 }
 
 static void
-add_load(TranslationState *ts, Value *target, Value *source)
+add_vcopy(TranslationState *ts, Value *dest, Value *src)
 {
-	add_inst2(ts, IK_MOV, op_vreg(target), op_ivreg(source));
+	add_inst(ts, OP_MOV, dest->index, src->index);
 }
 
 static void
-add_store(TranslationState *ts, Value *target, Value *source)
+add_return(TranslationState *ts, Value *ret_val)
 {
-	add_inst2(ts, IK_MOV, op_ivreg(target), op_vreg(source));
+	if (ret_val) {
+		add_copy(ts, -R_RAX, ret_val->index);
+	}
+	add_inst(ts, OP_RET);
 }
 
 static void
-add_binop(TranslationState *ts, InstKind kind, Value *left, Value *right)
+translate_unop(TranslationState *ts, OpCode op, Value *v, Value **ops)
 {
-	add_inst2(ts, kind, op_vreg(left), op_vreg(right));
+	add_vcopy(ts, v, ops[0]);
+	add_vunop(ts, op, v);
 }
 
 static void
-add_unop(TranslationState *ts, InstKind kind, Value *arg)
+translate_binop(TranslationState *ts, OpCode op, Value *v, Value **ops)
 {
-	add_inst1(ts, kind, op_vreg(arg));
+	add_vcopy(ts, v, ops[0]);
+	add_vbinop(ts, op, v, ops[1]);
+}
+
+static void
+translate_shift(TranslationState *ts, OpCode op, Value *v, Value **ops)
+{
+	add_vcopy(ts, v, ops[0]);
+	add_copy(ts, -R_RCX, ops[1]->index);
+	add_inst(ts, op, v, -R_RCX);
+}
+
+static void
+translate_div(TranslationState *ts, Value *v, Value **ops, bool modulo)
+{
+	add_set_zero(ts, -R_RDX);
+	add_copy(ts, -R_RAX, ops[0]->index);
+	add_inst(ts, OP_IDIV, -R_RDX, -R_RAX, -R_RDX, -R_RAX, ops[1]->index);
+	Oper result = modulo ? -R_RAX : -R_RDX;
+	add_copy(ts, v->index, result);
 }
 
 void
@@ -1697,7 +1539,7 @@ translate_operand(void *user_data, Value *operand)
 	}
 	case VK_CONSTANT: {
 		Constant *k = (void*) operand;
-		add_mov_const(ts, operand, k->k);
+		add_inst(ts, OP_MOVIMM, operand->index, k->k);
 		break;
 	}
 	default:
@@ -1706,52 +1548,24 @@ translate_operand(void *user_data, Value *operand)
 		break;
 	}
 }
-		  /*
-typedef struct Instruction Instruction;
-struct Instruction {
-	InstKind kind;
-	Instruction *prev;
-	Instruction *next;
-	Operand op[3];
-};
-*/
 
 void
-print_arg(Operand *op)
+number_operand(void *user_data, Value *operand)
 {
-	switch (op->kind) {
-	case OK_NONE:
-		UNREACHABLE();
+	size_t *i = user_data;
+	switch (operand->kind) {
+	case VK_CONSTANT:
+		operand->index = (*i)++;
 		break;
-	case OK_VREG:
-		printf("t%zu", op->vreg->index);
-		break;
-	case OK_INDIR_VREG:
-		printf("[t%zu]", op->vreg->index);
-		break;
-	case OK_REG:
-		printf("%s", reg_repr[op->reg]);
-		break;
-	case OK_INDIR_REG:
-		printf("[%s]", reg_repr[op->reg]);
-		break;
-	case OK_LABEL:
-		printf("%.*s", (int) (op->label.len), op->label.str);
-		break;
-	case OK_CONST:
-		printf("%"PRIi64, op->constant);
+	default:;
 	}
 }
 
-void
-print_inst(Instruction *inst)
-{
-	printf("%s", inst_kind_repr[inst->kind]);
-	for (size_t i = 0; i < 3 && inst->op[i].kind != OK_NONE; i++) {
-		printf(" ");
-		print_arg(&inst->op[i]);
-	}
-}
+typedef struct {
+	size_t index;
+	Inst **insts;
+	size_t inst_cnt;
+} MBlock;
 
 void
 parse(Arena *arena, GArena *scratch, Str source, void (*error_callback)(void *user_data, const u8 *err_pos, const char *msg, va_list ap), void *user_data)
@@ -1791,6 +1605,7 @@ parse(Arena *arena, GArena *scratch, Str source, void (*error_callback)(void *us
 			//printf("block%zu:\n", block->base.index);
 
 			for (Value *v = block->head; v; v = v->next, i++) {
+				for_each_operand(v, number_operand, &i);
 				v->index = i;
 			}
 
@@ -1830,15 +1645,19 @@ parse(Arena *arena, GArena *scratch, Str source, void (*error_callback)(void *us
 	Function *function = parser.current_function;
 	Block **post_order = post_orders[1];
 
-	TranslationState ts_;
+	TranslationState ts_ = {
+		.arena = arena,
+	};
 	TranslationState *ts = &ts_;
+	garena_init(&ts->insts);
+	GArena gmblocks = {0};
 
-	add_inst1(ts, IK_LABEL, op_label(function->name));
 	for (size_t b = function->block_cnt; b--;) {
 	//for (size_t j = 0; j < function->block_cnt; j++) {
 		Block *block = post_order[b];
 		//printf(".L%zu:\n", function->block_cnt - b - 1);
-		add_inst1(ts, IK_LABEL, op_label(arena_aprintf(parser.arena, ".L%zu", function->block_cnt - b - 1)));
+		MBlock *mblock = garena_push(&gmblocks, MBlock);
+		mblock->index = function->block_cnt - b - 1;
 		for (Value *v = block->head; v; v = v->next) {
 			for_each_operand(v, translate_operand, ts);
 			Value **ops = ((Operation *) v)->operands;
@@ -1855,48 +1674,38 @@ parse(Arena *arena, GArena *scratch, Str source, void (*error_callback)(void *us
 				break;
 
 			case VK_ADD:
-				add_copy(ts, v, ops[0]);
-				add_binop(ts, IK_ADD, ops[0], ops[1]);
+				translate_binop(ts, OP_ADD, v, ops);
 				break;
 			case VK_SUB:
-				add_copy(ts, v, ops[0]);
-				add_binop(ts, IK_SUB, ops[0], ops[1]);
+				translate_binop(ts, OP_SUB, v, ops);
 				break;
 			case VK_MUL:
-				add_copy(ts, v, ops[0]);
-				add_binop(ts, IK_IMUL, ops[0], ops[1]);
+				translate_binop(ts, OP_IMUL, v, ops);
 				break;
 			case VK_DIV:
+				translate_div(ts, v, ops, false);
+				break;
 			case VK_MOD:
-				UNREACHABLE();
-				UNREACHABLE();
+				translate_div(ts, v, ops, true);
 				break;
 			case VK_AND:
-				add_copy(ts, v, ops[0]);
-				add_binop(ts, IK_AND, ops[0], ops[1]);
+				translate_binop(ts, OP_AND, v, ops);
 				break;
 			case VK_OR:
-				add_copy(ts, v, ops[0]);
-				add_binop(ts, IK_OR, ops[0], ops[1]);
+				translate_binop(ts, OP_OR, v, ops);
 				break;
 			case VK_SHL:
-				add_copy(ts, v, ops[0]);
-				add_binop(ts, IK_SHL, ops[0], ops[1]);
+				translate_shift(ts, OP_SHL, v, ops);
 				break;
 			case VK_SHR:
-				add_copy(ts, v, ops[0]);
-				add_binop(ts, IK_SHR, ops[0], ops[1]);
+				translate_shift(ts, OP_SHR, v, ops);
 				break;
-
 			case VK_NEG:
-				add_copy(ts, v, ops[0]);
-				add_unop(ts, IK_NEG, ops[0]);
+				translate_unop(ts, OP_NEG, v, ops);
 				break;
 			case VK_NOT:
-				add_copy(ts, v, ops[0]);
-				add_unop(ts, IK_NOT, ops[0]);
+				translate_unop(ts, OP_NOT, v, ops);
 				break;
-
 			case VK_EQ:
 				break;
 			case VK_NEQ:
@@ -1911,46 +1720,48 @@ parse(Arena *arena, GArena *scratch, Str source, void (*error_callback)(void *us
 				break;
 
 			case VK_LOAD:
-				add_load(ts, v, ops[0]);
+				add_inst(ts, OP_MOV_RM, v->index, ops[0]->index);
 				break;
 			case VK_STORE:
-				add_store(ts, ops[0], ops[1]);
+				add_inst(ts, OP_MOV_MR, ops[0]->index, ops[1]->index);
 				break;
 			case VK_GET_INDEX_PTR:
 				break;
 			case VK_CALL:
-				add_inst1(ts, IK_CALL, op_label(((Function*)ops[0])->name));
+				//add_inst1(ts, IK_CALL, op_label(((Function*)ops[0])->name));
 				break;
 			case VK_JUMP:
-				add_inst1(ts, IK_JMP, op_label(arena_aprintf(parser.arena, ".L%zu", ops[0]->index)));
+				add_inst(ts, OP_JMP, ops[0]->index);
 				break;
 			case VK_BRANCH:
-				add_binop(ts, IK_TEST, ops[0], ops[0]);
-				add_inst1(ts, IK_JZ, op_label(arena_aprintf(parser.arena, ".L%zu", ops[2]->index)));
-				add_inst1(ts, IK_JMP, op_label(arena_aprintf(parser.arena, ".L%zu", ops[1]->index)));
+				add_inst(ts, OP_TEST, ops[0]->index, ops[0]->index, ops[0]->index);
+				add_inst(ts, OP_JZ, ops[2]->index);
+				add_inst(ts, OP_JMP, ops[1]->index);
 				break;
 			case VK_RET:
-				add_inst2(ts, IK_MOV, op_reg(R_RAX), op_vreg(ops[0]));
-				add_inst0(ts, IK_RET);
+				add_return(ts, ops[0]);
 				break;
 			case VK_RETVOID:
-				add_inst0(ts, IK_RET);
+				add_return(ts, NULL);
 				break;
 			default: UNREACHABLE();
 			}
 		}
+		mblock->inst_cnt = garena_cnt(&ts->insts, Inst *);
+		mblock->insts = move_to_arena(arena, &ts->insts, 0, Inst *);
 	}
 
-	size_t inst_cnt = garena_cnt(&ts->insts, Instruction);
-	Instruction *insts = garena_array(&ts->insts, Instruction);
-	for (size_t i = 0; i < inst_cnt; i++) {
-		if (insts[i].kind == IK_LABEL) {
-			printf("\n%.*s:\n", (int) (insts[i].op[0].label.len), insts[i].op[0].label.str);
-			continue;
+	size_t mblock_cnt = garena_cnt(&gmblocks, MBlock);
+	MBlock *mblocks = garena_array(&gmblocks, MBlock);
+
+	for (size_t b = 0; b < mblock_cnt; b++) {
+		MBlock *mblock = &mblocks[b];
+		printf(".L%zu:\n", mblock->index);
+		for (size_t i = 0; i < mblock->inst_cnt; i++) {
+			printf("\t");
+			print_inst(mblock->insts[i]);
+			printf("\n");
 		}
-		printf("\t");
-		print_inst(&insts[i]);
-		printf("\n");
 	}
 
 	if (parser.had_error) {
