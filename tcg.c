@@ -1163,13 +1163,18 @@ function_declaration(Parser *parser)
 	function->entry = add_block(parser);
 	switch_to_block(parser, function->entry);
 	env_push(&parser->env);
+	Value **args = calloc(param_cnt, sizeof(args[0]));
 	for (size_t i = 0; i < param_cnt; i++) {
 		param_types[i] = params[i].type;
-		Value *arg = add_argument(parser, param_types[i], i);
+		args[i] = add_argument(parser, param_types[i], i);
+	}
+	for (size_t i = 0; i < param_cnt; i++) {
+		Value *arg = args[i];
 		Value *addr = add_alloca(parser, param_types[i]);
 		add_binary(parser, VK_STORE, addr, arg);
 		env_define(parser->env, params[i].name, arg);
 	}
+	free(args);
 	statements(parser);
 	garena_restore(parser->scratch, start);
 	function_finalize(parser->arena, function);
@@ -1637,8 +1642,19 @@ translate_value(TranslationState *ts, Value *v)
 		ts->stack_space += size;
 		break;
 	}
-	case VK_ARGUMENT:
+	case VK_ARGUMENT: {
+		Argument *argument = (Argument *) v;
+		Oper src = 0;
+		switch (argument->index) {
+		case 0: src = R_RDI; break;
+		case 1: src = R_RSI; break;
+		case 2: src = R_RDX; break;
+		case 3: src = R_RCX; break;
+		default: UNREACHABLE();
+		}
+		add_copy(ts, res, src);
 		break;
+	}
 	case VK_BLOCK:
 		break;
 	case VK_FUNCTION:
