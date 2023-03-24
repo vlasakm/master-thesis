@@ -1124,6 +1124,9 @@ function_finalize(Arena *arena, Function *function)
 	function->post_order = arena_alloc(arena, sizeof(*function->post_order) * function->block_cnt);
 	function->block_cnt = 0;
 	dfs(function->entry, &function->block_cnt, function->post_order);
+	for (size_t b = function->block_cnt, i = 0; b--; i++) {
+		function->post_order[b]->base.index = i;
+	}
 }
 
 static void
@@ -1412,8 +1415,9 @@ dfs(Block *block, size_t *index, Block **post_order)
 void
 print_reg(Oper reg)
 {
-	if (reg <= 0) {
-		reg = -reg;
+	//if (reg <= 0) {
+		//reg = -reg;
+	if (reg < R__MAX) {
 		printf("%s", reg_repr[reg]);
 	} else {
 		printf("t%"PRIi32, reg);
@@ -1525,17 +1529,17 @@ add_binop(TranslationState *ts, OpCode op, Oper op1, Oper op2)
 static void
 add_return(TranslationState *ts, Oper *ret_val)
 {
-	add_inst(ts, OP_MOVIMM, -R_RAX, 60);
+	add_inst(ts, OP_MOVIMM, R_RAX, 60);
 	if (ret_val) {
-		add_copy(ts, -R_RDI, *ret_val);
+		add_copy(ts, R_RDI, *ret_val);
 	} else {
-		add_inst(ts, OP_MOVIMM, -R_RDI, 0);
+		add_inst(ts, OP_MOVIMM, R_RDI, 0);
 	}
 	add_inst(ts, OP_SYSCALL);
 	return;
 
 	if (ret_val) {
-		add_copy(ts, -R_RAX, *ret_val);
+		add_copy(ts, R_RAX, *ret_val);
 	}
 	add_inst(ts, OP_RET);
 }
@@ -1558,17 +1562,17 @@ static void
 translate_shift(TranslationState *ts, OpCode op, Oper res, Oper *ops)
 {
 	add_copy(ts, res, ops[0]);
-	add_copy(ts, -R_RCX, ops[1]);
-	add_inst(ts, op, res, -R_RCX);
+	add_copy(ts, R_RCX, ops[1]);
+	add_inst(ts, op, res, R_RCX);
 }
 
 static void
 translate_div(TranslationState *ts, Oper res, Oper *ops, bool modulo)
 {
-	add_set_zero(ts, -R_RDX);
-	add_copy(ts, -R_RAX, ops[0]);
-	add_inst(ts, OP_IDIV, -R_RDX, -R_RAX, -R_RDX, -R_RAX, ops[1]);
-	Oper result = modulo ? -R_RDX : -R_RAX;
+	add_set_zero(ts, R_RDX);
+	add_copy(ts, R_RAX, ops[0]);
+	add_inst(ts, OP_IDIV, R_RDX, R_RAX, R_RDX, R_RAX, ops[1]);
+	Oper result = modulo ? R_RDX : R_RAX;
 	add_copy(ts, res, result);
 }
 
@@ -1601,7 +1605,7 @@ translate_operand(void *user_data, size_t i, Value *operand)
 	case VK_ALLOCA: {
 		Alloca *alloca = (Alloca *) operand;
 		res = tos->ts->index++;
-		add_inst(tos->ts, OP_LEA_RMC, res, -R_RBP, 8 + alloca->size);
+		add_inst(tos->ts, OP_LEA_RMC, res, R_RBP, 8 + alloca->size);
 		break;
 	}
 	default:
@@ -1748,7 +1752,6 @@ typedef struct {
 InterferenceGraph *
 ig_create(Arena *arena, size_t size)
 {
-	size += R__MAX;
 	InterferenceGraph *ig = arena_alloc(arena, sizeof(*ig) + size * size * sizeof(ig->matrix[0]));
 	ig->n = size;
 	ig->N = size * size;
@@ -1782,8 +1785,6 @@ ig_add(InterferenceGraph *ig, Oper op1, Oper op2)
 	printf(" ");
 	print_reg(op2);
 	printf("\n");
-	op1 += R__MAX;
-	op2 += R__MAX;
 	ig->matrix[op1 * ig->n + op2] = 1;
 	ig->matrix[op2 * ig->n + op1] = 1;
 }
@@ -1799,8 +1800,6 @@ ig_remove(InterferenceGraph *ig, Oper op1, Oper op2)
 	printf(" ");
 	print_reg(op2);
 	printf("\n");
-	op1 += R__MAX;
-	op2 += R__MAX;
 	assert(ig->matrix[op1 * ig->n + op2] == 1);
 	assert(ig->matrix[op2 * ig->n + op1] == 1);
 	ig->matrix[op1 * ig->n + op2] = 0;
@@ -1810,8 +1809,6 @@ ig_remove(InterferenceGraph *ig, Oper op1, Oper op2)
 bool
 ig_interfere(InterferenceGraph *ig, Oper op1, Oper op2)
 {
-	op1 += R__MAX;
-	op2 += R__MAX;
 	u8 one = ig->matrix[op1 * ig->n + op2];
 	u8 two = ig->matrix[op2 * ig->n + op1];
 	assert(one == two);
@@ -1822,7 +1819,6 @@ size_t
 ig_interfere_cnt(InterferenceGraph *ig, Oper op)
 {
 	assert(op >= 0);
-	op += R__MAX;
 	size_t cnt = 0;
 	for (size_t i = op * ig->n; i < ig->n; i++) {
 		cnt += ig->matrix[i];
@@ -1846,7 +1842,6 @@ set_reset(OperandSet *set)
 OperandSet *
 set_create(Arena *arena, size_t size)
 {
-	size += R__MAX;
 	OperandSet *set = arena_alloc(arena, sizeof(*set) + size * sizeof(set->memb[0]));
 	set->n = size;
 	set_reset(set);
@@ -1859,13 +1854,13 @@ set_add(OperandSet *set, Oper op)
 	printf("Adding live ");
 	print_reg(op);
 	printf("\n");
-	set->memb[op + R__MAX] = 1;
+	set->memb[op] = 1;
 }
 
 bool
 set_has(OperandSet *set, Oper op)
 {
-	return set->memb[op + R__MAX];
+	return set->memb[op];
 }
 
 void
@@ -1874,7 +1869,7 @@ set_remove(OperandSet *set, Oper op)
 	printf("Removing live ");
 	print_reg(op);
 	printf("\n");
-	set->memb[op + R__MAX] = 0;
+	set->memb[op] = 0;
 }
 
 void
@@ -1905,18 +1900,18 @@ live_step(TranslationState *ts, OperandSet *live_set, InterferenceGraph *ig, Ins
 		if (!live_set->memb[j]) {
 			continue;
 		}
-		print_reg(j - R__MAX);
+		print_reg(j);
 		printf(" ");
 	}
 	printf("\n\n");
 
 	// Add interferences of all definitions with all live.
-	for (size_t j = R__MAX; j < live_set->n; j++) {
+	for (size_t j = 0; j < live_set->n; j++) {
 		if (!live_set->memb[j]) {
 			continue;
 		}
 		for (size_t i = 0; i < desc->dest_cnt; i++) {
-			ig_add(ig, inst->ops[i], j - R__MAX);
+			ig_add(ig, inst->ops[i], j);
 		}
 	}
 	// Add interferences between all destinations
@@ -1942,23 +1937,25 @@ apply_reg_alloc(Oper *reg_alloc, Inst *inst)
 	//printf("%s", desc->mnemonic);
 	size_t i = 0;
 	for (; i < desc->src_cnt; i++) {
-		assert(inst->ops[i] != 0);
-		if (inst->ops[i] < 0) {
-			continue;
-		}
-		inst->ops[i] = -reg_alloc[inst->ops[i]];
+		//assert(inst->ops[i] != 0);
+		//if (inst->ops[i] < 0) {
+		//	continue;
+		//}
+		//inst->ops[i] = -reg_alloc[inst->ops[i]];
+		assert(inst->ops[i] > 0);
+		inst->ops[i] = reg_alloc[inst->ops[i]];
 	}
 }
 
 size_t
-number_values(Function *function)
+number_values(Function *function, size_t start_index)
 {
-	size_t i = 1;
+	size_t i = start_index;
 	for (size_t b = function->block_cnt; b--;) {
 		Block *block = function->post_order[b];
-		for (Value *v = block->head; v; v = v->next, i++) {
+		for (Value *v = block->head; v; v = v->next) {
 			//for_each_operand(v, number_operand, &i);
-			v->index = i;
+			v->index = i++;
 		}
 	}
 	return i;
@@ -2055,6 +2052,7 @@ reg_alloc_function(Arena *arena, Function *function, size_t start_index)
 	garena_init(&ts->insts);
 	GArena gmblocks = {0};
 
+	add_copy(ts, R_RBP, R_RSP);
 	for (size_t b = function->block_cnt; b--;) {
 	//for (size_t j = 0; j < function->block_cnt; j++) {
 		Block *block = post_order[b];
@@ -2095,11 +2093,14 @@ reg_alloc_function(Arena *arena, Function *function, size_t start_index)
 	size_t reg_avail = 6;
 
 	InterferenceGraph *ig_orig = ig_copy(arena, ig);
+	for (size_t i = 0; i < R__MAX; i++) {
+		reg_alloc[i] = i;
+	}
 
 	bool changed = true;
 	while (changed) {
 		changed = false;
-		for (size_t i = 0; i < ts->index; i++) {
+		for (size_t i = R__MAX; i < ts->index; i++) {
 			if (on_stack[i]) {
 				continue;
 			}
@@ -2110,7 +2111,7 @@ reg_alloc_function(Arena *arena, Function *function, size_t start_index)
 			changed = true;
 			on_stack[i] = true;
 			stack[stack_idx++] = i;
-			for (size_t j = 0; j < ts->index; j++) {
+			for (size_t j = R__MAX; j < ts->index; j++) {
 				if (ig_interfere(ig, i, j)) {
 					ig_remove(ig, i, j);
 				}
@@ -2141,7 +2142,7 @@ reg_alloc_function(Arena *arena, Function *function, size_t start_index)
 		printf("allocated ");
 		print_reg(i);
 		printf(" to ");
-		print_reg(-reg);
+		print_reg(reg);
 		printf("\n");
 		for (size_t j = 0; j < ts->index; j++) {
 			if (ig_interfere(ig_orig, i, j)) {
@@ -2157,6 +2158,10 @@ reg_alloc_function(Arena *arena, Function *function, size_t start_index)
 		}
 	}
 
+	printf("section .text\n");
+	printf("	global _start\n");
+	printf("\n");
+	printf("_start:\n");
 	print_blocks(mblocks, mblock_cnt);
 
 	//return ast;
@@ -2290,7 +2295,7 @@ main(int argc, char **argv)
 
 	Str source = read_file(&ec, arena, argv[1]);
 	Function *function = parse_source(&ec, arena, source);
-	size_t index = number_values(function);
+	size_t index = number_values(function, R__MAX);
 	print_function(function);
 	reg_alloc_function(arena, function, index);
 
