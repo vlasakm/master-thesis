@@ -105,6 +105,7 @@ typedef struct {
 	Value base;
 	Str name;
 	Block *entry;
+	Block **post_order;
 	size_t block_cnt;
 } Function;
 
@@ -154,13 +155,13 @@ typedef struct {
 } InstDesc;
 
 #define INSTRUCTIONS(_) \
-	_(ADD, "add D0 S1", 1, 2, 0, 0) \
+	_(ADD, "add D0, S1", 1, 2, 0, 0) \
 	_(OR, "or D0, S1", 1, 2, 0, 0) \
 	_(AND, "and D0, S1", 1, 2, 0, 0) \
 	_(SUB, "sub D0, S1", 1, 2, 0, 0) \
 	_(XOR, "xor D0, S1", 1, 2, 0, 0) \
-	_(CMP, "cmp D0, S1", 1, 2, 0, 0) \
-	_(TEST, "test D0, S1", 1, 2, 0, 0) \
+	_(CMP, "cmp S0, S1", 0, 2, 0, 0) \
+	_(TEST, "test S0, S1", 0, 2, 0, 0) \
 	_(NOT, "not D0, S0", 1, 1, 0, 0) \
 	_(NEG, "neg D0, S0", 1, 1, 0, 0) \
 	_(IMUL, "imul D0, S1", 1, 2, 0, 0) \
@@ -170,6 +171,7 @@ typedef struct {
 	_(CALL, "call L0", 0, 0, 0, 1) \
 	_(JMP, "jmp L0", 0, 0, 0, 1) \
 	_(RET, "ret", 0, 0, 0, 0) \
+	_(SYSCALL, "syscall", 0, 0, 0, 0) \
 	_(NOP, "nop", 0, 0, 0, 0) \
 	_(JZ, "jz L0", 0, 0, 0, 1) \
 	_(MOV, "mov D0, S0", 1, 1, 0, 0) \

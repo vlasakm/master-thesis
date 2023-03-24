@@ -163,9 +163,11 @@ typedef enum {
 
 	R_RSP,
 	R_RBP,
+
+	R__MAX,
 } Reg;
 
-const char *reg_repr[] = {
+static const char *reg_repr[] = {
 	"NONE",
 	"rax",
 	"rbx",
@@ -1114,6 +1116,16 @@ statement(Parser *parser)
 	}
 }
 
+static void dfs(Block *block, size_t *index, Block **post_order);
+
+void
+function_finalize(Arena *arena, Function *function)
+{
+	function->post_order = arena_alloc(arena, sizeof(*function->post_order) * function->block_cnt);
+	function->block_cnt = 0;
+	dfs(function->entry, &function->block_cnt, function->post_order);
+}
+
 static void
 function_declaration(Parser *parser)
 {
@@ -1157,6 +1169,7 @@ function_declaration(Parser *parser)
 	}
 	statements(parser);
 	garena_restore(parser->scratch, start);
+	function_finalize(parser->arena, function);
 	garena_push_value(&parser->functions, Function *, function);
 	env_pop(&parser->env);
 }
@@ -1491,7 +1504,10 @@ add_copy(TranslationState *ts, Oper dest, Oper src)
 static void
 add_set_zero(TranslationState *ts, Oper oper)
 {
-	add_inst(ts, OP_XOR, oper, oper, oper);
+	// Set zero with `mov` so that we don't introduce additional constraints
+	// on the register through XOR register uses.
+	add_inst(ts, OP_MOVIMM, oper, 0);
+	//add_inst(ts, OP_XOR, oper, oper, oper);
 }
 
 static void
@@ -1509,6 +1525,15 @@ add_binop(TranslationState *ts, OpCode op, Oper op1, Oper op2)
 static void
 add_return(TranslationState *ts, Oper *ret_val)
 {
+	add_inst(ts, OP_MOVIMM, -R_RAX, 60);
+	if (ret_val) {
+		add_copy(ts, -R_RDI, *ret_val);
+	} else {
+		add_inst(ts, OP_MOVIMM, -R_RDI, 0);
+	}
+	add_inst(ts, OP_SYSCALL);
+	return;
+
 	if (ret_val) {
 		add_copy(ts, -R_RAX, *ret_val);
 	}
@@ -1543,7 +1568,7 @@ translate_div(TranslationState *ts, Oper res, Oper *ops, bool modulo)
 	add_set_zero(ts, -R_RDX);
 	add_copy(ts, -R_RAX, ops[0]);
 	add_inst(ts, OP_IDIV, -R_RDX, -R_RAX, -R_RDX, -R_RAX, ops[1]);
-	Oper result = modulo ? -R_RAX : -R_RDX;
+	Oper result = modulo ? -R_RDX : -R_RAX;
 	add_copy(ts, res, result);
 }
 
@@ -1560,6 +1585,7 @@ translate_operand(void *user_data, size_t i, Value *operand)
 	switch (operand->kind) {
 	case VK_BLOCK:
 		//printf(".L%zu:", operand->index);
+		res = operand->index;
 		break;
 	case VK_FUNCTION: {
 		//Function *function = (void *) operand;
@@ -1595,7 +1621,8 @@ translate_value(TranslationState *ts, Value *v)
 	tos->ts = ts;
 	for_each_operand(v, translate_operand, tos);
 	Oper *ops = &tos->opers[0];
-	Oper res = ts->index++;
+	//Oper res = ts->index++;
+	Oper res = v->index;
 	switch (v->kind) {
 	case VK_CONSTANT:
 		break;
@@ -1666,7 +1693,7 @@ translate_value(TranslationState *ts, Value *v)
 		break;
 
 	case VK_LOAD:
-		add_inst(ts, OP_MOV_RM, v->index, ops[0]);
+		add_inst(ts, OP_MOV_RM, res, ops[0]);
 		break;
 	case VK_STORE:
 		add_inst(ts, OP_MOV_MR, ops[0], ops[1]);
@@ -1680,7 +1707,7 @@ translate_value(TranslationState *ts, Value *v)
 		add_inst(ts, OP_JMP, ops[0]);
 		break;
 	case VK_BRANCH:
-		add_inst(ts, OP_TEST, ops[0], ops[0], ops[0]);
+		add_inst(ts, OP_TEST, ops[0], ops[0]);
 		add_inst(ts, OP_JZ, ops[2]);
 		add_inst(ts, OP_JMP, ops[1]);
 		break;
@@ -1721,6 +1748,7 @@ typedef struct {
 InterferenceGraph *
 ig_create(Arena *arena, size_t size)
 {
+	size += R__MAX;
 	InterferenceGraph *ig = arena_alloc(arena, sizeof(*ig) + size * size * sizeof(ig->matrix[0]));
 	ig->n = size;
 	ig->N = size * size;
@@ -1754,10 +1782,8 @@ ig_add(InterferenceGraph *ig, Oper op1, Oper op2)
 	printf(" ");
 	print_reg(op2);
 	printf("\n");
-	if (op1 < 0 || op2 < 0) {
-		return;
-	}
-
+	op1 += R__MAX;
+	op2 += R__MAX;
 	ig->matrix[op1 * ig->n + op2] = 1;
 	ig->matrix[op2 * ig->n + op1] = 1;
 }
@@ -1773,9 +1799,8 @@ ig_remove(InterferenceGraph *ig, Oper op1, Oper op2)
 	printf(" ");
 	print_reg(op2);
 	printf("\n");
-	if (op1 < 0 || op2 < 0) {
-		return;
-	}
+	op1 += R__MAX;
+	op2 += R__MAX;
 	assert(ig->matrix[op1 * ig->n + op2] == 1);
 	assert(ig->matrix[op2 * ig->n + op1] == 1);
 	ig->matrix[op1 * ig->n + op2] = 0;
@@ -1785,10 +1810,8 @@ ig_remove(InterferenceGraph *ig, Oper op1, Oper op2)
 bool
 ig_interfere(InterferenceGraph *ig, Oper op1, Oper op2)
 {
-	if (op1 < 0 || op2 < 0) {
-		return true;
-	}
-
+	op1 += R__MAX;
+	op2 += R__MAX;
 	u8 one = ig->matrix[op1 * ig->n + op2];
 	u8 two = ig->matrix[op2 * ig->n + op1];
 	assert(one == two);
@@ -1799,6 +1822,7 @@ size_t
 ig_interfere_cnt(InterferenceGraph *ig, Oper op)
 {
 	assert(op >= 0);
+	op += R__MAX;
 	size_t cnt = 0;
 	for (size_t i = op * ig->n; i < ig->n; i++) {
 		cnt += ig->matrix[i];
@@ -1822,6 +1846,7 @@ set_reset(OperandSet *set)
 OperandSet *
 set_create(Arena *arena, size_t size)
 {
+	size += R__MAX;
 	OperandSet *set = arena_alloc(arena, sizeof(*set) + size * sizeof(set->memb[0]));
 	set->n = size;
 	set_reset(set);
@@ -1834,19 +1859,13 @@ set_add(OperandSet *set, Oper op)
 	printf("Adding live ");
 	print_reg(op);
 	printf("\n");
-	if (op < 0) {
-		return;
-	}
-	set->memb[op] = 1;
+	set->memb[op + R__MAX] = 1;
 }
 
 bool
 set_has(OperandSet *set, Oper op)
 {
-	if (op < 0) {
-		return false; // TODO
-	}
-	return set->memb[op];
+	return set->memb[op + R__MAX];
 }
 
 void
@@ -1855,10 +1874,7 @@ set_remove(OperandSet *set, Oper op)
 	printf("Removing live ");
 	print_reg(op);
 	printf("\n");
-	if (op < 0) {
-		return;
-	}
-	set->memb[op] = 0;
+	set->memb[op + R__MAX] = 0;
 }
 
 void
@@ -1883,13 +1899,24 @@ live_step(TranslationState *ts, OperandSet *live_set, InterferenceGraph *ig, Ins
 	printf("\n");
 	InstDesc *desc = &inst_desc[inst->op];
 	size_t i = 0;
-	// Add interferences of all definitions with all live.
+
+	printf("Live:\n");
 	for (size_t j = 0; j < live_set->n; j++) {
 		if (!live_set->memb[j]) {
 			continue;
 		}
+		print_reg(j - R__MAX);
+		printf(" ");
+	}
+	printf("\n\n");
+
+	// Add interferences of all definitions with all live.
+	for (size_t j = R__MAX; j < live_set->n; j++) {
+		if (!live_set->memb[j]) {
+			continue;
+		}
 		for (size_t i = 0; i < desc->dest_cnt; i++) {
-			ig_add(ig, inst->ops[i], j);
+			ig_add(ig, inst->ops[i], j - R__MAX);
 		}
 	}
 	// Add interferences between all destinations
@@ -1923,7 +1950,62 @@ apply_reg_alloc(Oper *reg_alloc, Inst *inst)
 	}
 }
 
+size_t
+number_values(Function *function)
+{
+	size_t i = 1;
+	for (size_t b = function->block_cnt; b--;) {
+		Block *block = function->post_order[b];
+		for (Value *v = block->head; v; v = v->next, i++) {
+			//for_each_operand(v, number_operand, &i);
+			v->index = i;
+		}
+	}
+	return i;
+}
+
 void
+print_function(Function *function)
+{
+	//for (size_t i = function->block_cnt; i--;) {
+	for (size_t j = function->block_cnt; j--;) {
+	//for (size_t j = 0; j < function->block_cnt; j++) {
+		Block *block = function->post_order[j];
+		printf("block%zu:\n", function->block_cnt - j - 1);
+		//printf("block%zu:\n", block->base.index);
+
+		for (Value *v = block->head; v; v = v->next) {
+			printf("\tv%zu = ", v->index);
+			switch (v->kind) {
+#define CASE_OP(kind, ...) case VK_##kind:
+#define OTHER(...)
+	VALUE_KINDS(OTHER, CASE_OP, CASE_OP)
+#undef CASE_OP
+#undef OTHER
+			{
+				printf("%s ", value_kind_repr[v->kind]);
+				bool first = true;
+				for_each_operand(v, print_index, &first);
+				printf("\n");
+				break;
+			}
+			case VK_ALLOCA: {
+				Alloca *a = (void*) v;
+				printf("alloca %zu\n", a->size);
+				break;
+			}
+			case VK_ARGUMENT: {
+				Argument *a = (void*) v;
+				printf("argument %zu\n", a->index);
+				break;
+			}
+			default: UNREACHABLE();
+			}
+		}
+	}
+}
+
+Function *
 parse(Arena *arena, GArena *scratch, Str source, void (*error_callback)(void *user_data, const u8 *err_pos, const char *msg, va_list ap), void *user_data)
 {
 	Parser parser = {
@@ -1942,68 +2024,32 @@ parse(Arena *arena, GArena *scratch, Str source, void (*error_callback)(void *us
 	parse_program(&parser);
 	env_pop(&parser.env);
 
-	size_t function_cnt = garena_cnt(&parser.functions, Function *);
-	Function **functions = garena_array(&parser.functions, Function *);
-	Block ***post_orders = arena_alloc(parser.arena, sizeof(*post_orders) * function_cnt);
-	for (size_t f = 0; f < function_cnt; f++) {
-		Function *function = functions[f];
-		Block *block = function->entry;
-		Block **post_order = arena_alloc(parser.arena, sizeof(*post_order) * function->block_cnt);
-		post_orders[f] = post_order;
-		size_t i = 0;
-		dfs(block, &i, post_order);
+	//size_t function_cnt = garena_cnt(&parser.functions, Function *);
+	//Function **functions = move_to_arena(arena, &parser.functions, 0, Function *);
+	//Block ***post_orders = arena_alloc(parser.arena, sizeof(*post_orders) * function_cnt);
 
-		//for (size_t i = function->block_cnt; i--;) {
-		for (size_t j = function->block_cnt; j--;) {
-		//for (size_t j = 0; j < function->block_cnt; j++) {
-			Block *block = post_order[j];
-			printf("block%zu:\n", function->block_cnt - j - 1);
-			//printf("block%zu:\n", block->base.index);
+	//for (size_t f = 0; f < function_cnt; f++) {
+	//	Function *function = functions[f];
+	//	Block *block = function->entry;
+	//	Block **post_order = arena_alloc(parser.arena, sizeof(*post_order) * function->block_cnt);
+	//	post_orders[f] = post_order;
+	//	size_t i = 0;
+	//	dfs(block, &i, post_order);
 
-			for (Value *v = block->head; v; v = v->next, i++) {
-				for_each_operand(v, number_operand, &i);
-				v->index = i;
-			}
-
-			for (Value *v = block->head; v; v = v->next) {
-				printf("\tv%zu = ", v->index);
-				switch (v->kind) {
-#define CASE_OP(kind, ...) case VK_##kind:
-#define OTHER(...)
-		VALUE_KINDS(OTHER, CASE_OP, CASE_OP)
-#undef CASE_OP
-#undef OTHER
-				{
-					printf("%s ", value_kind_repr[v->kind]);
-					bool first = true;
-					for_each_operand(v, print_index, &first);
-					printf("\n");
-					break;
-				}
-				case VK_ALLOCA: {
-					Alloca *a = (void*) v;
-					printf("alloca %zu\n", a->size);
-					break;
-				}
-				case VK_ARGUMENT: {
-					Argument *a = (void*) v;
-					printf("argument %zu\n", a->index);
-					break;
-				}
-				default: UNREACHABLE();
-				}
-			}
-		}
-
+	if (parser.had_error) {
+		return NULL;
 	}
+	return parser.current_function;
+}
 
-
-	Function *function = parser.current_function;
-	Block **post_order = post_orders[0];
+void
+reg_alloc_function(Arena *arena, Function *function, size_t start_index)
+{
+	Block **post_order = function->post_order;
 
 	TranslationState ts_ = {
 		.arena = arena,
-		.index = 25,
+		.index = start_index,
 	};
 	TranslationState *ts = &ts_;
 	garena_init(&ts->insts);
@@ -2106,7 +2152,6 @@ parse(Arena *arena, GArena *scratch, Str source, void (*error_callback)(void *us
 
 	for (size_t b = 0; b < mblock_cnt; b++) {
 		MBlock *mblock = &mblocks[b];
-		printf(".L%zu:\n", mblock->index);
 		for (size_t i = 0; i < mblock->inst_cnt; i++) {
 			apply_reg_alloc(reg_alloc, mblock->insts[i]);
 		}
@@ -2114,18 +2159,6 @@ parse(Arena *arena, GArena *scratch, Str source, void (*error_callback)(void *us
 
 	print_blocks(mblocks, mblock_cnt);
 
-	//for (size_t i = 0; i < ts->index; i++) {
-	//	printf("allocated ");
-	//	print_reg(i);
-	//	printf(" to ");
-	//	print_reg(-reg_alloc[i]);
-	//	printf("\n");
-	//}
-
-
-	if (parser.had_error) {
-		//return NULL;
-	}
 	//return ast;
 }
 
@@ -2181,22 +2214,21 @@ parser_verror(void *user_data, const u8 *err_pos, const char *msg, va_list ap)
 	verror(ec, err_pos, "parse", false, msg, ap);
 }
 
-void
+Function *
 parse_source(ErrorContext *ec, Arena *arena, Str source)
 {
-	//size_t arena_start = arena_save(arena);
+	size_t arena_start = arena_save(arena);
 	GArena scratch;
 	garena_init(&scratch);
 	ec->source = source;
-	parse(arena, &scratch, source, parser_verror, ec);
+	Function *function = parse(arena, &scratch, source, parser_verror, ec);
 	garena_destroy(&scratch);
-	/*
-	if (!ast) {
+
+	if (!function) {
 		arena_restore(arena, arena_start);
 		longjmp(ec->loc, 1);
 	}
-	return ast;
-	*/
+	return function;
 }
 
 static void
@@ -2257,7 +2289,10 @@ main(int argc, char **argv)
 	}
 
 	Str source = read_file(&ec, arena, argv[1]);
-	parse_source(&ec, arena, source);
+	Function *function = parse_source(&ec, arena, source);
+	size_t index = number_values(function);
+	print_function(function);
+	reg_alloc_function(arena, function, index);
 
 end:
 	for (Error *err = ec.error_head; err; err = err->next) {
