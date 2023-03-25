@@ -180,6 +180,28 @@ static const char *reg_repr[] = {
 	"rbp",
 };
 
+static const char *reg_repr8[] = {
+	"NONE",
+	"al",
+	"bl",
+	"cl",
+	"dl",
+	"sil",
+	"dil",
+
+	"spl",
+	"bpl",
+};
+
+typedef enum {
+	CC_Z = 0x04,
+	CC_NZ = 0x05,
+	CC_L = 0x0C,
+	CC_GE = 0x0D,
+	CC_LE = 0x0E,
+	CC_G = 0x0F,
+} CondCode;
+
 typedef struct {
 	enum {
 		OK_NONE,
@@ -929,8 +951,9 @@ condition(Parser *parser)
 {
 	CValue ccond = expression(parser);
 	Value *cond = as_rvalue(parser, ccond);
-	Value *zero = create_const(parser, 0);
-	return add_binary(parser, VK_NEQ, cond, zero);
+	return cond;
+	//Value *zero = create_const(parser, 0);
+	//return add_binary(parser, VK_NEQ, cond, zero);
 }
 
 static void statement(Parser *parser);
@@ -1430,6 +1453,18 @@ print_reg(Oper reg)
 }
 
 void
+print_reg8(Oper reg)
+{
+	//if (reg <= 0) {
+		//reg = -reg;
+	if (reg < R__MAX) {
+		printf("%s", reg_repr8[reg]);
+	} else {
+		printf("t%"PRIi32, reg);
+	}
+}
+
+void
 print_inst_d(Inst *inst)
 {
 	InstDesc *desc = &inst_desc[inst->op];
@@ -1462,6 +1497,10 @@ print_inst(Inst *inst)
 			print_reg(inst->ops[i]);
 			in++;
 			break;
+		case 'E':
+			print_reg8(inst->ops[i]);
+			in++;
+			break;
 		case 'S':
 			print_reg(inst->ops[desc->dest_cnt + i]);
 			in++;
@@ -1470,6 +1509,21 @@ print_inst(Inst *inst)
 			printf("%"PRIi32, inst->ops[desc->src_cnt + i]);
 			in++;
 			break;
+		case 'C': {
+			const char *cc;
+			switch (inst->ops[desc->src_cnt + i]) {
+			case CC_Z: cc = "z"; break;
+			case CC_NZ: cc = "nz"; break;
+			case CC_L: cc = "l"; break;
+			case CC_GE: cc = "ge"; break;
+			case CC_LE: cc = "le"; break;
+			case CC_G: cc = "g"; break;
+			default: UNREACHABLE();
+			}
+			printf("%s", cc);
+			in++;
+			break;
+		}
 		case 'L':
 			printf(".L%"PRIi32, inst->ops[desc->imm_cnt + i]);
 			in++;
@@ -1579,6 +1633,14 @@ translate_div(TranslationState *ts, Oper res, Oper *ops, bool modulo)
 	add_inst(ts, OP_IDIV, R_RDX, R_RAX, R_RDX, R_RAX, ops[1]);
 	Oper result = modulo ? R_RDX : R_RAX;
 	add_copy(ts, res, result);
+}
+
+static void
+translate_cmpop(TranslationState *ts, CondCode cc, Oper res, Oper *ops)
+{
+	add_set_zero(ts, res);
+	add_inst(ts, OP_CMP, ops[0], ops[1]);
+	add_inst(ts, OP_SETCC, res, cc);
 }
 
 typedef struct {
@@ -1694,22 +1756,22 @@ translate_value(TranslationState *ts, Value *v)
 		translate_unop(ts, OP_NOT, res, ops);
 		break;
 	case VK_EQ:
-		UNREACHABLE();
+		translate_cmpop(ts, CC_Z, res, ops);
 		break;
 	case VK_NEQ:
-		add_copy(ts, res, ops[0]);
+		translate_cmpop(ts, CC_NZ, res, ops);
 		break;
 	case VK_LT:
-		UNREACHABLE();
+		translate_cmpop(ts, CC_L, res, ops);
 		break;
 	case VK_LEQ:
-		UNREACHABLE();
+		translate_cmpop(ts, CC_LE, res, ops);
 		break;
 	case VK_GT:
-		UNREACHABLE();
+		translate_cmpop(ts, CC_G, res, ops);
 		break;
 	case VK_GEQ:
-		UNREACHABLE();
+		translate_cmpop(ts, CC_GE, res, ops);
 		break;
 
 	case VK_LOAD:
@@ -1728,7 +1790,7 @@ translate_value(TranslationState *ts, Value *v)
 		break;
 	case VK_BRANCH:
 		add_inst(ts, OP_TEST, ops[0], ops[0]);
-		add_inst(ts, OP_JZ, ops[2]);
+		add_inst(ts, OP_JCC, CC_Z, ops[2]);
 		add_inst(ts, OP_JMP, ops[1]);
 		break;
 	case VK_RET:

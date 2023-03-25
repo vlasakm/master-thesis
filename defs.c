@@ -173,12 +173,13 @@ typedef struct {
 	_(RET, "ret", 0, 0, 0, 0) \
 	_(SYSCALL, "syscall", 0, 0, 0, 0) \
 	_(NOP, "nop", 0, 0, 0, 0) \
-	_(JZ, "jz L0", 0, 0, 0, 1) \
+	_(JCC, "jC0 L0", 0, 0, 1, 1) \
 	_(MOV, "mov D0, S0", 1, 1, 0, 0) \
 	_(MOV_MR, "mov [S0], S1", 0, 2, 0, 0) \
 	_(MOV_RM, "mov D0, [S0]", 1, 1, 0, 0) \
 	_(LEA_RMC, "lea D0, [S0-I0]", 1, 1, 1, 0) \
 	_(MOVIMM, "mov D0, I0", 1, 0, 1, 0) \
+	_(SETCC, "setC0 E0", 1, 0, 1, 0) \
 
 typedef enum {
 #define ENUM(kind, ...) OP_##kind,

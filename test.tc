@@ -4,10 +4,10 @@
 //    return 1;
 //}
 
-int fun() {
+int fun(int c, int d) {
     int n = 10;
     int a = 0;
-    while (n) {
+    while (n > 0) {
         a = a + 1;
         n = n - 1;
     }
