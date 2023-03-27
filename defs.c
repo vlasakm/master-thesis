@@ -178,6 +178,8 @@ typedef struct {
 	_(MOV_MR, "mov [S0], S1", 0, 2, 0, 0) \
 	_(MOV_RM, "mov D0, [S0]", 1, 1, 0, 0) \
 	_(LEA_RMC, "lea D0, [S0-I0]", 1, 1, 1, 0) \
+	_(MOV_RMC, "mov D0, [S0-I0]", 1, 1, 1, 0) \
+	_(MOV_MCR, "mov [S0-I0], S1", 0, 2, 1, 0) \
 	_(MOVIMM, "mov D0, I0", 1, 0, 1, 0) \
 	_(SETCC, "setC0 E0", 1, 0, 1, 0) \
 
@@ -197,5 +199,7 @@ typedef struct Inst Inst;
 
 struct Inst {
 	OpCode op;
+	Inst *prev;
+	Inst *next;
 	Oper ops[];
 };
