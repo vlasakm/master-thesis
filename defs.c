@@ -182,6 +182,8 @@ typedef struct {
 	_(MOV_MCR, "mov [S0-I0], S1", 0, 2, 1, 0) \
 	_(MOVIMM, "mov D0, I0", 1, 0, 1, 0) \
 	_(SETCC, "setC0 E0", 1, 0, 1, 0) \
+	_(PUSH, "push S0", 0, 1, 0, 0) \
+	_(POP, "pop D0", 1, 0, 0, 0) \
 
 typedef enum {
 #define ENUM(kind, ...) OP_##kind,

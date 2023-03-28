@@ -58,6 +58,11 @@ int str_cmp(Str a, Str b)
 	return cmp == 0 ? (a.len > b.len) - (b.len > a.len) : cmp;
 }
 
+void print_str(FILE *f, Str s)
+{
+	fwrite(s.str, 1, s.len, f);
+}
+
 Str
 arena_vaprintf(Arena *arena, const char *fmt, va_list ap)
 {
@@ -1613,20 +1618,25 @@ add_binop(TranslationState *ts, OpCode op, Oper op1, Oper op2)
 }
 
 static void
+add_push(TranslationState *ts, Oper oper)
+{
+	add_inst(ts, OP_PUSH, oper);
+}
+
+static void
+add_pop(TranslationState *ts, Oper oper)
+{
+	add_inst(ts, OP_POP, oper);
+}
+
+static void
 add_return(TranslationState *ts, Oper *ret_val)
 {
-	add_inst(ts, OP_MOVIMM, R_RAX, 60);
-	if (ret_val) {
-		add_copy(ts, R_RDI, *ret_val);
-	} else {
-		add_inst(ts, OP_MOVIMM, R_RDI, 0);
-	}
-	add_inst(ts, OP_SYSCALL);
-	return;
-
 	if (ret_val) {
 		add_copy(ts, R_RAX, *ret_val);
 	}
+	add_copy(ts, R_RSP, R_RBP);
+	add_pop(ts, R_RBP);
 	add_inst(ts, OP_RET);
 }
 
@@ -1971,11 +1981,21 @@ set_remove(OperandSet *set, Oper op)
 	set->memb[op] = 0;
 }
 
+typedef struct {
+	Function *func;
+	MBlock *mblocks;
+	size_t mblock_cnt;
+	size_t stack_space;
+	size_t vreg_cnt;
+} MFunction;
+
 void
-print_blocks(MBlock *mblocks, size_t mblock_cnt)
+print_mfunction(MFunction *mfunction)
 {
-	for (size_t b = 0; b < mblock_cnt; b++) {
-		MBlock *mblock = &mblocks[b];
+	print_str(stdout, mfunction->func->name);
+	printf(":\n");
+	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
+		MBlock *mblock = &mfunction->mblocks[b];
 		printf(".L%zu:\n", mblock->index);
 		//for (Inst *inst = mblock->first; inst; inst = inst->next) {
 		for (Inst *inst = mblock->first; inst; inst = inst->next) {
@@ -1987,7 +2007,7 @@ print_blocks(MBlock *mblocks, size_t mblock_cnt)
 }
 
 void
-live_step(TranslationState *ts, OperandSet *live_set, InterferenceGraph *ig, Inst *inst)
+live_step(OperandSet *live_set, InterferenceGraph *ig, Inst *inst)
 {
 	printf("\n");
 	print_inst(inst);
@@ -2031,11 +2051,11 @@ live_step(TranslationState *ts, OperandSet *live_set, InterferenceGraph *ig, Ins
 }
 
 void
-spill(TranslationState *ts, u8 *to_spill, MBlock *mblocks, size_t mblock_cnt)
+spill(Arena *arena, u8 *to_spill, MFunction *mfunction)
 {
-	print_blocks(mblocks, mblock_cnt);
-	for (size_t b = 0; b < mblock_cnt; b++) {
-		MBlock *mblock = &mblocks[b];
+	print_mfunction(mfunction);
+	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
+		MBlock *mblock = &mfunction->mblocks[b];
 		for (Inst *inst = mblock->first; inst; inst = inst->next) {
 			printf("\n");
 			print_inst(inst);
@@ -2049,8 +2069,8 @@ spill(TranslationState *ts, u8 *to_spill, MBlock *mblocks, size_t mblock_cnt)
 				printf("load ");
 				print_reg(inst->ops[i]);
 				printf("\n");
-				Oper temp = ts->index++;
-				Inst *load = make_inst(ts->arena, OP_MOV_RMC, temp, R_RBP, 8 + to_spill[inst->ops[i]]);
+				Oper temp = mfunction->vreg_cnt++;
+				Inst *load = make_inst(arena, OP_MOV_RMC, temp, R_RBP, 8 + to_spill[inst->ops[i]]);
 				load->prev = inst->prev;
 				load->next = inst;
 				inst->prev->next = load;
@@ -2065,8 +2085,8 @@ spill(TranslationState *ts, u8 *to_spill, MBlock *mblocks, size_t mblock_cnt)
 				printf("store ");
 				print_reg(inst->ops[i]);
 				printf("\n");
-				Oper temp = ts->index++;
-				Inst *store = make_inst(ts->arena, OP_MOV_MCR, R_RBP, temp, 8 + to_spill[inst->ops[i]]);
+				Oper temp = mfunction->vreg_cnt++;
+				Inst *store = make_inst(arena, OP_MOV_MCR, R_RBP, temp, 8 + to_spill[inst->ops[i]]);
 				store->prev = inst;
 				store->next = inst->next;
 				inst->next->prev = store;
@@ -2076,7 +2096,7 @@ spill(TranslationState *ts, u8 *to_spill, MBlock *mblocks, size_t mblock_cnt)
 		}
 		}
 	}
-	print_blocks(mblocks, mblock_cnt);
+	print_mfunction(mfunction);
 }
 
 void
@@ -2189,10 +2209,10 @@ parse(Arena *arena, GArena *scratch, Str source, void (*error_callback)(void *us
 }
 
 void
-calculate_spill_cost(TranslationState *ts, MBlock *mblocks, size_t mblock_cnt, u8 *def_counts, u8 *use_counts)
+calculate_spill_cost(MFunction *mfunction, u8 *def_counts, u8 *use_counts)
 {
-	for (size_t b = 0; b < mblock_cnt; b++) {
-		MBlock *mblock = &mblocks[b];
+	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
+		MBlock *mblock = &mfunction->mblocks[b];
 		for (Inst *inst = mblock->first; inst; inst = inst->next) {
 			print_inst(inst);
 			printf("\n");
@@ -2214,8 +2234,8 @@ calculate_spill_cost(TranslationState *ts, MBlock *mblocks, size_t mblock_cnt, u
 	}
 }
 
-void
-reg_alloc_function(Arena *arena, Function *function, size_t start_index)
+MFunction *
+translate_function(Arena *arena, Function *function, size_t start_index)
 {
 	Block **post_order = function->post_order;
 
@@ -2238,6 +2258,7 @@ reg_alloc_function(Arena *arena, Function *function, size_t start_index)
 		ts->prev_pos = &mblock->first;
 		ts->block = mblock;
 		if (b == function->block_cnt - 1) {
+			add_push(ts, R_RBP);
 			add_copy(ts, R_RBP, R_RSP);
 		}
 		for (Value *v = block->head; v; v = v->next) {
@@ -2246,32 +2267,43 @@ reg_alloc_function(Arena *arena, Function *function, size_t start_index)
 		mblock->last = ts->prev_pos == &mblock->first ? NULL : container_of(ts->prev_pos, Inst, next);
 	}
 
-	size_t mblock_cnt = garena_cnt(&gmblocks, MBlock);
-	MBlock *mblocks = garena_array(&gmblocks, MBlock);
+	MFunction *mfunction = arena_alloc(arena, sizeof(*mfunction));
+	*mfunction = (MFunction) {
+		.func = function,
+		.mblocks = garena_array(&gmblocks, MBlock),
+		.mblock_cnt = garena_cnt(&gmblocks, MBlock),
+		.vreg_cnt = ts->index,
+		.stack_space = ts->stack_space,
+	};
+	return mfunction;
+}
 
-	print_blocks(mblocks, mblock_cnt);
+void
+reg_alloc_function(Arena *arena, MFunction *mfunction)
+{
+	print_mfunction(mfunction);
 
 	bool have_spill = false;
 	u8 *to_spill;
 handle_spill:;
 	if (have_spill) {
-		spill(ts, to_spill, mblocks, mblock_cnt);
+		spill(arena, to_spill, mfunction);
 		have_spill = false;
 	}
 
-	Oper *reg_alloc = arena_alloc(arena, ts->index * sizeof(reg_alloc[0]));
-	Oper *stack = arena_alloc(arena, ts->index * sizeof(stack[0]));
-	u8 *on_stack = arena_alloc(arena, ts->index * sizeof(on_stack[0]));
-	to_spill = arena_alloc(arena, ts->index * sizeof(to_spill[0]));
-	u8 *def_counts = arena_alloc(arena, ts->index * sizeof(def_counts[0]));
-	u8 *use_counts = arena_alloc(arena, ts->index * sizeof(def_counts[0]));
-	memset(to_spill, 0, ts->index * sizeof(to_spill[0]));
-	memset(def_counts, 0, ts->index * sizeof(def_counts[0]));
-	memset(use_counts, 0, ts->index * sizeof(use_counts[0]));
-	calculate_spill_cost(ts, mblocks, mblock_cnt, def_counts, use_counts);
+	Oper *reg_alloc = arena_alloc(arena, mfunction->vreg_cnt * sizeof(reg_alloc[0]));
+	Oper *stack = arena_alloc(arena, mfunction->vreg_cnt * sizeof(stack[0]));
+	u8 *on_stack = arena_alloc(arena, mfunction->vreg_cnt * sizeof(on_stack[0]));
+	to_spill = arena_alloc(arena, mfunction->vreg_cnt * sizeof(to_spill[0]));
+	u8 *def_counts = arena_alloc(arena, mfunction->vreg_cnt * sizeof(def_counts[0]));
+	u8 *use_counts = arena_alloc(arena, mfunction->vreg_cnt * sizeof(def_counts[0]));
+	memset(to_spill, 0, mfunction->vreg_cnt * sizeof(to_spill[0]));
+	memset(def_counts, 0, mfunction->vreg_cnt * sizeof(def_counts[0]));
+	memset(use_counts, 0, mfunction->vreg_cnt * sizeof(use_counts[0]));
+	calculate_spill_cost(mfunction, def_counts, use_counts);
 
-	OperandSet *live_set = set_create(arena, ts->index);
-	InterferenceGraph *ig = ig_create(arena, ts->index);
+	OperandSet *live_set = set_create(arena, mfunction->vreg_cnt);
+	InterferenceGraph *ig = ig_create(arena, mfunction->vreg_cnt);
 
 	// Move all arguments and callee saved registers to temporaries at the
 	// start of the function. Then restore callee saved registers at the end
@@ -2280,22 +2312,22 @@ handle_spill:;
 	// Make all caller saved registers interfere with calls.
 
 
-	for (size_t b = 0; b < mblock_cnt; b++) {
-		MBlock *mblock = &mblocks[b];
+	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
+		MBlock *mblock = &mfunction->mblocks[b];
 		// live-out is nothing for each block
 		set_reset(live_set);
 		for (Inst *inst = mblock->last; inst; inst = inst->prev) {
-			live_step(ts, live_set, ig, inst);
+			live_step(live_set, ig, inst);
 		}
 	}
 
-	for (size_t i = 0; i < ts->index; i++) {
+	for (size_t i = 0; i < mfunction->vreg_cnt; i++) {
 		printf("Spill cost for ");
 		print_reg(i);
 		printf(" defs: %zu, uses: %zu\n", (size_t) def_counts[i], (size_t) use_counts[i]);
 	}
 
-	for (size_t i = 0; i < ts->index; i++) {
+	for (size_t i = 0; i < mfunction->vreg_cnt; i++) {
 		on_stack[i] = false;
 	}
 	size_t stack_idx = 0;
@@ -2310,7 +2342,7 @@ handle_spill:;
 		bool had_low = true;
 		while (had_low) {
 			had_low = false;
-			for (size_t i = R__MAX; i < ts->index; i++) {
+			for (size_t i = R__MAX; i < mfunction->vreg_cnt; i++) {
 				if (on_stack[i]) {
 					continue;
 				}
@@ -2324,24 +2356,24 @@ handle_spill:;
 				had_low = true;
 				on_stack[i] = true;
 				stack[stack_idx++] = i;
-				for (size_t j = R__MAX; j < ts->index; j++) {
+				for (size_t j = R__MAX; j < mfunction->vreg_cnt; j++) {
 					if (ig_interfere(ig, i, j)) {
 						ig_remove(ig, i, j);
 					}
 				}
 			}
 		}
-		if (stack_idx == ts->index - R__MAX) {
+		if (stack_idx == mfunction->vreg_cnt - R__MAX) {
 			break;
 		}
-		printf("remaining %zu\n", ts->index - R__MAX - stack_idx);
-		for (size_t i = R__MAX; i < ts->index; i++) {
+		printf("remaining %zu\n", mfunction->vreg_cnt - R__MAX - stack_idx);
+		for (size_t i = R__MAX; i < mfunction->vreg_cnt; i++) {
 			if (on_stack[i]) {
 				continue;
 			}
 			on_stack[i] = true;
 			stack[stack_idx++] = i;
-			for (size_t j = R__MAX; j < ts->index; j++) {
+			for (size_t j = R__MAX; j < mfunction->vreg_cnt; j++) {
 				if (ig_interfere(ig, i, j)) {
 					ig_remove(ig, i, j);
 				}
@@ -2353,7 +2385,7 @@ handle_spill:;
 	while (stack_idx--) {
 		Oper i = stack[stack_idx];
 		Oper used = 0;
-		for (size_t j = 0; j < ts->index; j++) {
+		for (size_t j = 0; j < mfunction->vreg_cnt; j++) {
 			if (ig_interfere(ig, i, j)) {
 				used |= 1 << (reg_alloc[j] - 1);
 			}
@@ -2370,9 +2402,9 @@ handle_spill:;
 			printf("Out of registers at ");
 			print_reg(i);
 			printf("\n");
-			to_spill[i] = ts->stack_space;
-			assert(ts->stack_space < 240);
-			ts->stack_space += 8;
+			to_spill[i] = mfunction->stack_space;
+			assert(mfunction->stack_space < 240);
+			mfunction->stack_space += 8;
 			have_spill = true;
 		}
 		reg_alloc[i] = reg;
@@ -2381,7 +2413,7 @@ handle_spill:;
 		printf(" to ");
 		print_reg(reg);
 		printf("\n");
-		for (size_t j = 0; j < ts->index; j++) {
+		for (size_t j = 0; j < mfunction->vreg_cnt; j++) {
 			if (ig_interfere(ig_orig, i, j)) {
 				ig_add(ig, i, j);
 			}
@@ -2392,19 +2424,12 @@ handle_spill:;
 		goto handle_spill;
 	}
 
-	for (size_t b = 0; b < mblock_cnt; b++) {
-		MBlock *mblock = &mblocks[b];
+	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
+		MBlock *mblock = &mfunction->mblocks[b];
 		for (Inst *inst = mblock->first; inst; inst = inst->next) {
 			apply_reg_alloc(reg_alloc, inst);
 		}
 	}
-
-	printf("section .text\n");
-	printf("	global _start\n");
-	printf("\n");
-	printf("_start:\n");
-	print_blocks(mblocks, mblock_cnt);
-
 	//return ast;
 }
 
@@ -2538,7 +2563,20 @@ main(int argc, char **argv)
 	Function *function = parse_source(&ec, arena, source);
 	size_t index = number_values(function, R__MAX);
 	print_function(function);
-	reg_alloc_function(arena, function, index);
+	MFunction *mfunction = translate_function(arena, function, index);
+	reg_alloc_function(arena, mfunction);
+
+	printf("section .text\n");
+	printf("\tglobal _start\n");
+	printf("\n");
+	printf("_start:\n");
+	printf("\txor rbp, rbp\n");
+	printf("\tand rsp, -8\n");
+	printf("\tcall main\n");
+	printf("\tmov rdi, rax\n");
+	printf("\tmov rax, 60\n");
+	printf("\tsyscall\n");
+	print_mfunction(mfunction);
 
 end:
 	for (Error *err = ec.error_head; err; err = err->next) {

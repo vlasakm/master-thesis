@@ -13,3 +13,8 @@ int fun(int c, int d) {
     }
     return a;// + one();
 }
+
+int main() {
+    return 0;
+}
+
