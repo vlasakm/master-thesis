@@ -101,14 +101,17 @@ typedef struct {
 	Value *tail;
 } Block;
 
-typedef struct {
+typedef struct Function Function;
+typedef struct MFunction MFunction;
+
+struct Function {
 	Value base;
 	Str name;
 	Block *entry;
 	Block **post_order;
 	size_t block_cnt;
-} Function;
-
+	MFunction *mfunc;
+};
 
 #define INST_KINDS(_) \
 	_(ADD) \
@@ -204,4 +207,18 @@ struct Inst {
 	Inst *prev;
 	Inst *next;
 	Oper ops[];
+};
+
+typedef struct {
+	size_t index;
+	Inst *first;
+	Inst *last;
+} MBlock;
+
+struct MFunction {
+	Function *func;
+	MBlock *mblocks;
+	size_t mblock_cnt;
+	size_t stack_space;
+	size_t vreg_cnt;
 };
