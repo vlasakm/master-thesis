@@ -503,6 +503,9 @@ add_block(Parser *parser)
 {
 	Block *block = arena_alloc(parser->arena, sizeof(*block));
 	value_init(&block->base, VK_BLOCK, type_pointer(parser->arena, &TYPE_VOID), &parser->current_function->base);
+	block->preds = NULL;
+	block->pred_cnt = 0;
+	block->succ_cnt = 0;
 	parser->current_function->block_cnt += 1;
 	return block;
 }
@@ -1156,8 +1159,16 @@ function_finalize(Arena *arena, Function *function)
 	function->block_cnt = 0;
 	dfs(function->entry, &function->block_cnt, function->post_order);
 	for (size_t b = function->block_cnt, i = 0; b--; i++) {
+		// Number the blocks in RPO
 		function->post_order[b]->base.index = i;
+		// Allocate storage for predecessors
+		function->post_order[b]->preds = arena_alloc(arena, function->post_order[b]->pred_cnt * sizeof(function->post_order[b]->preds[0]));
+		function->post_order[b]->base.visited = 0;
+		function->post_order[b]->pred_cnt = 0;
+		function->post_order[b]->succ_cnt = 0;
 	}
+	function->block_cnt = 0;
+	dfs(function->entry, &function->block_cnt, function->post_order);
 }
 
 static void
@@ -1412,6 +1423,21 @@ print_index(void *user_data, size_t i, Value *operand)
 }
 
 static void
+block_add_edge(Block *pred, Block *succ)
+{
+	assert(pred->base.kind == VK_BLOCK);
+	assert(succ->base.kind == VK_BLOCK);
+	// succs is static array of 2, so no need to worry about allocation
+	pred->succs[pred->succ_cnt++] = succ;
+	// only add to preds if someone allocated storage (second pass)
+	if (succ->preds) {
+		succ->preds[succ->pred_cnt++] = pred;
+	} else {
+		succ->pred_cnt++;
+	}
+}
+
+static void
 dfs(Block *block, size_t *index, Block **post_order)
 {
 	if (block->base.visited > 0) {
@@ -1422,6 +1448,7 @@ dfs(Block *block, size_t *index, Block **post_order)
 	case VK_JUMP: {
 		Operation *op = (void *) block->tail;
 		assert(op->operands[0]->kind == VK_BLOCK);
+		block_add_edge(block, (Block *) op->operands[0]);
 		dfs((Block *) op->operands[0], index, post_order);
 		break;
 	}
@@ -1429,20 +1456,22 @@ dfs(Block *block, size_t *index, Block **post_order)
 		Operation *op = (void *) block->tail;
 		assert(op->operands[1]->kind == VK_BLOCK);
 		assert(op->operands[2]->kind == VK_BLOCK);
+		block_add_edge(block, (Block *) op->operands[1]);
+		block_add_edge(block, (Block *) op->operands[2]);
 		dfs((Block *) op->operands[1], index, post_order);
 		dfs((Block *) op->operands[2], index, post_order);
 		break;
 	}
 	case VK_RET:
 	case VK_RETVOID:
+		block->succ_cnt = 0;
 		break;
 	default:
 	     break;
 	     UNREACHABLE();
 	}
 	block->base.visited = 2;
-	block->base.index = (*index)++;
-	post_order[block->base.index] = block;
+	post_order[(*index)++] = block;
 }
 
 
@@ -1487,7 +1516,7 @@ print_inst_d(FILE *f, Inst *inst)
 	}
 	for (; i < desc->label_cnt; i++) {
 		fprintf(f, " ");
-		fprintf(f, ".L%"PRIi32, inst->ops[i]);
+		fprintf(f, ".BB%"PRIi32, inst->ops[i]);
 	}
 }
 
@@ -1531,8 +1560,8 @@ print_inst(FILE *f, Inst *inst)
 			in++;
 			break;
 		}
-		case 'L':
-			fprintf(f, ".L%"PRIi32, inst->ops[desc->imm_cnt + i]);
+		case 'B':
+			fprintf(f, ".BB%"PRIi32, inst->ops[desc->imm_cnt + i]);
 			in++;
 			break;
 		default:
@@ -1634,7 +1663,7 @@ add_return(TranslationState *ts, Oper *ret_val)
 		add_copy(ts, R_RAX, *ret_val);
 	}
 	size_t callee_saved_reg = ts->callee_saved_reg_start;
-	add_copy(ts, R_RBX, callee_saved_reg++);
+	//add_copy(ts, R_RBX, callee_saved_reg++);
 	add_copy(ts, R_RSP, R_RBP);
 	add_pop(ts, R_RBP);
 	add_inst(ts, OP_RET);
@@ -1983,6 +2012,29 @@ set_remove(OperandSet *set, Oper op)
 	set->memb[op] = 0;
 }
 
+bool
+set_empty(OperandSet *set)
+{
+	for (size_t i = 0; i < set->n; i++) {
+		if (set->memb[i]) {
+			return false;
+		}
+	}
+	return true;
+}
+
+Oper
+set_take(OperandSet *set)
+{
+	for (size_t i = 0; i < set->n; i++) {
+		if (set->memb[i]) {
+			set->memb[i] = 0;
+			return i;
+		}
+	}
+	return 0;
+}
+
 void
 print_mfunction(FILE *f, MFunction *mfunction)
 {
@@ -1990,7 +2042,7 @@ print_mfunction(FILE *f, MFunction *mfunction)
 	fprintf(f, ":\n");
 	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
 		MBlock *mblock = &mfunction->mblocks[b];
-		fprintf(f, ".L%zu:\n", mblock->index);
+		fprintf(f, ".BB%zu:\n", mblock->index);
 		//for (Inst *inst = mblock->first; inst; inst = inst->next) {
 		for (Inst *inst = mblock->first; inst; inst = inst->next) {
 			fprintf(f, "\t");
@@ -2129,10 +2181,18 @@ print_function(FILE *f, Function *function)
 {
 	//for (size_t i = function->block_cnt; i--;) {
 	for (size_t j = function->block_cnt; j--;) {
-	//for (size_t j = 0; j < function->block_cnt; j++) {
 		Block *block = function->post_order[j];
-		fprintf(f, "block%zu:\n", function->block_cnt - j - 1);
-		//printf("block%zu:\n", block->base.index);
+		fprintf(f, "block%zu: ", block->base.index);
+		if (block->preds) {
+			for (size_t p = 0; p < block->pred_cnt; p++) {
+				if (p != 0) {
+					fprintf(f, ", ");
+				}
+				Block *pred = block->preds[p];
+				fprintf(f, "block%zu", pred->base.index);
+			}
+		}
+		fprintf(f, "\n");
 
 		for (Value *v = block->head; v; v = v->next) {
 			fprintf(f, "\tv%zu = ", v->index);
@@ -2236,7 +2296,7 @@ calculate_spill_cost(MFunction *mfunction, u8 *def_counts, u8 *use_counts)
 }
 
 MFunction *
-translate_function(Arena *arena, Function *function, size_t *label_cnt, size_t start_index)
+translate_function(Arena *arena, Function *function, size_t start_index)
 {
 	Block **post_order = function->post_order;
 
@@ -2248,11 +2308,6 @@ translate_function(Arena *arena, Function *function, size_t *label_cnt, size_t s
 	};
 	TranslationState *ts = &ts_;
 	GArena gmblocks = {0};
-
-	for (size_t b = function->block_cnt; b--;) {
-		Block *block = post_order[b];
-		block->base.index = (*label_cnt)++;
-	}
 
 	for (size_t b = function->block_cnt; b--;) {
 	//for (size_t j = 0; j < function->block_cnt; j++) {
@@ -2267,7 +2322,8 @@ translate_function(Arena *arena, Function *function, size_t *label_cnt, size_t s
 			ts->callee_saved_reg_start = ts->index;
 			add_push(ts, R_RBP);
 			add_copy(ts, R_RBP, R_RSP);
-			add_copy(ts, ts->index++, R_RBX);
+			// rbx, r12, r13, r14, r15
+			//add_copy(ts, ts->index++, R_RBX);
 		}
 		for (Value *v = block->head; v; v = v->next) {
 			translate_value(ts, v);
@@ -2320,7 +2376,15 @@ handle_spill:;
 
 	// Make all caller saved registers interfere with calls.
 
+	OperandSet *work_list = set_create(arena, mfunction->mblock_cnt);
+	OperandSet **live_in = arena_alloc(arena, mfunction->mblock_cnt * sizeof(live_in[0]));
 	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
+		set_add(work_list, b);
+		live_in[b] = set_create(arena, mfunction->vreg_cnt);
+	}
+
+	while (!set_empty(work_list)) {
+		size_t b = set_take(work_list);
 		MBlock *mblock = &mfunction->mblocks[b];
 		// live-out is nothing for each block
 		set_reset(live_set);
@@ -2339,7 +2403,7 @@ handle_spill:;
 		on_stack[i] = false;
 	}
 	size_t stack_idx = 0;
-	size_t reg_avail = 2;
+	size_t reg_avail = 6;
 
 	InterferenceGraph *ig_orig = ig_copy(arena, ig);
 	for (size_t i = 0; i < R__MAX; i++) {
@@ -2572,12 +2636,10 @@ main(int argc, char **argv)
 	Function **functions = module->functions;
 	size_t function_cnt = module->function_cnt;
 
-	size_t label_cnt = 0;
-
 	for (size_t i = 0; i < function_cnt; i++) {
 		size_t index = number_values(functions[i], R__MAX);
 		print_function(stderr, functions[i]);
-		translate_function(arena, functions[i], &label_cnt, index);
+		translate_function(arena, functions[i], index);
 		reg_alloc_function(arena, functions[i]->mfunc);
 	}
 

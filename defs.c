@@ -95,11 +95,17 @@ typedef struct {
 	Value *operands[];
 } Operation;
 
-typedef struct {
+typedef struct Block Block;
+
+struct Block {
 	Value base;
 	Value *head;
 	Value *tail;
-} Block;
+	Block **preds;
+	size_t pred_cnt;
+	Block *succs[2];
+	size_t succ_cnt;
+};
 
 typedef struct Function Function;
 typedef struct MFunction MFunction;
@@ -172,11 +178,11 @@ typedef struct {
 	_(SHL, "shl D0, S1", 1, 2, 0, 0) \
 	_(SHR, "shr D0, S1", 1, 2, 0, 0) \
 	_(CALL, "call L0", 0, 0, 0, 1) \
-	_(JMP, "jmp L0", 0, 0, 0, 1) \
+	_(JMP, "jmp B0", 0, 0, 0, 1) \
 	_(RET, "ret", 0, 0, 0, 0) \
 	_(SYSCALL, "syscall", 0, 0, 0, 0) \
 	_(NOP, "nop", 0, 0, 0, 0) \
-	_(JCC, "jC0 L0", 0, 0, 1, 1) \
+	_(JCC, "jC0 B0", 0, 0, 1, 1) \
 	_(MOV, "mov D0, S0", 1, 1, 0, 0) \
 	_(MOV_MR, "mov [S0], S1", 0, 2, 0, 0) \
 	_(MOV_RM, "mov D0, [S0]", 1, 1, 0, 0) \
