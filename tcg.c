@@ -2014,6 +2014,48 @@ typedef struct {
 } WorkList;
 
 void
+wl_init_all(WorkList *wl, Oper op)
+{
+	if (wl->capacity <= op) {
+		wl->capacity = wl->capacity ? wl->capacity : 8;
+		do {
+			wl->capacity *= 2;
+		} while (wl->capacity <= op);
+		wl->sparse = realloc(wl->sparse, wl->capacity * sizeof(wl->sparse[0]));
+		wl->dense = realloc(wl->dense, wl->capacity * sizeof(wl->sparse[0]));
+	}
+	wl->tail = op;
+	for (size_t i = 0; i < op; i++) {
+		wl->dense[i] = i;
+		wl->sparse[i] = i;
+	}
+	for (size_t i = wl->head; i < wl->tail; i++) {
+		assert(wl->sparse[wl->dense[i]] == (Oper) i);
+	}
+}
+
+void
+wl_init_all_reverse(WorkList *wl, Oper op)
+{
+	if (wl->capacity <= op) {
+		wl->capacity = wl->capacity ? wl->capacity : 8;
+		do {
+			wl->capacity *= 2;
+		} while (wl->capacity <= op);
+		wl->sparse = realloc(wl->sparse, wl->capacity * sizeof(wl->sparse[0]));
+		wl->dense = realloc(wl->dense, wl->capacity * sizeof(wl->sparse[0]));
+	}
+	wl->tail = op;
+	for (size_t i = 0; i < op; i++) {
+		wl->dense[i] = op - i + 1;
+		wl->sparse[op - i + 1] = i;
+	}
+	for (size_t i = wl->head; i < wl->tail; i++) {
+		assert(wl->sparse[wl->dense[i]] == (Oper) i);
+	}
+}
+
+bool
 wl_add(WorkList *wl, Oper op)
 {
 	if (wl->capacity <= op) {
@@ -2028,14 +2070,16 @@ wl_add(WorkList *wl, Oper op)
 		wl->sparse[op] = wl->tail;
 		wl->dense[wl->tail] = op;
 		wl->tail += 1;
+		for (size_t i = wl->head; i < wl->tail; i++) {
+			assert(wl->sparse[wl->dense[i]] == (Oper) i);
+		}
+		return true;
 	}
-	for (size_t i = wl->head; i < wl->tail; i++) {
-		assert(wl->sparse[wl->dense[i]] == (Oper) i);
-	}
+	return false;
 }
 
 void
-wl_add_all(WorkList *wl, WorkList *other)
+wl_union(WorkList *wl, WorkList *other)
 {
 	for (size_t i = other->head; i < other->tail; i++) {
 		wl_add(wl, other->dense[i]);
@@ -2045,6 +2089,9 @@ wl_add_all(WorkList *wl, WorkList *other)
 bool
 wl_has(WorkList *wl, Oper op)
 {
+	if (op >= wl->capacity) {
+		return false;
+	}
 	return wl->sparse[op] >= wl->head && wl->sparse[op] < wl->tail && wl->dense[wl->sparse[op]] == op;
 }
 
@@ -2076,6 +2123,22 @@ wl_take(WorkList *wl, Oper *taken)
 	}
 	*taken = wl->dense[wl->head++];
 	return true;
+}
+
+bool
+wl_take_back(WorkList *wl, Oper *taken)
+{
+	if (wl->head == wl->tail) {
+		return false;
+	}
+	*taken = wl->dense[--wl->tail];
+	return true;
+}
+
+Oper
+wl_cnt(WorkList *wl)
+{
+	return wl->tail - wl->head;
 }
 
 void
@@ -2434,8 +2497,6 @@ handle_spill:;
 	}
 
 	Oper *reg_alloc = arena_alloc(arena, mfunction->vreg_cnt * sizeof(reg_alloc[0]));
-	Oper *stack = arena_alloc(arena, mfunction->vreg_cnt * sizeof(stack[0]));
-	u8 *on_stack = arena_alloc(arena, mfunction->vreg_cnt * sizeof(on_stack[0]));
 	to_spill = arena_alloc(arena, mfunction->vreg_cnt * sizeof(to_spill[0]));
 	u8 *def_counts = arena_alloc(arena, mfunction->vreg_cnt * sizeof(def_counts[0]));
 	u8 *use_counts = arena_alloc(arena, mfunction->vreg_cnt * sizeof(def_counts[0]));
@@ -2469,7 +2530,7 @@ handle_spill:;
 		wl_reset(&live_set);
 		for (size_t i = 0; i < block->succ_cnt; i++) {
 			size_t succ = block->succs[i]->base.index;
-			wl_add_all(&live_set, &live_in[succ]);
+			wl_union(&live_set, &live_in[succ]);
 		}
 		// process the block back to front, updating live_set in the
 		// process and constructing the interference graph in the
@@ -2499,10 +2560,6 @@ handle_spill:;
 		fprintf(stderr, " defs: %zu, uses: %zu\n", (size_t) def_counts[i], (size_t) use_counts[i]);
 	}
 
-	for (size_t i = 0; i < mfunction->vreg_cnt; i++) {
-		on_stack[i] = false;
-	}
-	size_t stack_idx = 0;
 	size_t reg_avail = 6;
 
 	InterferenceGraph *ig_orig = ig_copy(arena, ig);
@@ -2510,12 +2567,13 @@ handle_spill:;
 		reg_alloc[i] = i;
 	}
 
+	WorkList stack = {0};
 	for (;;) {
 		bool had_low = true;
 		while (had_low) {
 			had_low = false;
 			for (size_t i = R__MAX; i < mfunction->vreg_cnt; i++) {
-				if (on_stack[i]) {
+				if (wl_has(&stack, i)) {
 					continue;
 				}
 				size_t cnt = ig_interfere_cnt(ig, i);
@@ -2526,8 +2584,7 @@ handle_spill:;
 				print_reg(stderr, i);
 				fprintf(stderr, "\n");
 				had_low = true;
-				on_stack[i] = true;
-				stack[stack_idx++] = i;
+				wl_add(&stack, i);
 				for (size_t j = R__MAX; j < mfunction->vreg_cnt; j++) {
 					if (ig_interfere(ig, i, j)) {
 						ig_remove(ig, i, j);
@@ -2535,16 +2592,12 @@ handle_spill:;
 				}
 			}
 		}
-		if (stack_idx == mfunction->vreg_cnt - R__MAX) {
+		if (wl_cnt(&stack) == mfunction->vreg_cnt - R__MAX) {
 			break;
 		}
-		fprintf(stderr, "remaining %zu\n", mfunction->vreg_cnt - R__MAX - stack_idx);
+		fprintf(stderr, "remaining %zu\n", mfunction->vreg_cnt - R__MAX - wl_cnt(&stack));
 		for (size_t i = R__MAX; i < mfunction->vreg_cnt; i++) {
-			if (on_stack[i]) {
-				continue;
-			}
-			on_stack[i] = true;
-			stack[stack_idx++] = i;
+			wl_add(&stack, i);
 			for (size_t j = R__MAX; j < mfunction->vreg_cnt; j++) {
 				if (ig_interfere(ig, i, j)) {
 					ig_remove(ig, i, j);
@@ -2554,9 +2607,8 @@ handle_spill:;
 		break;
 	}
 
-	while (stack_idx--) {
-		Oper i = stack[stack_idx];
-		on_stack[i] = false;
+	Oper i;
+	while (wl_take_back(&stack, &i)) {
 		Oper used = 0;
 		for (size_t j = 0; j < mfunction->vreg_cnt; j++) {
 			// If this one interferes with some previous allocation
