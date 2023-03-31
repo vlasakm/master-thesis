@@ -2034,13 +2034,27 @@ wl_add(WorkList *wl, Oper op)
 	}
 }
 
+void
+wl_add_all(WorkList *wl, WorkList *other)
+{
+	for (size_t i = other->head; i < other->tail; i++) {
+		wl_add(wl, other->dense[i]);
+	}
+}
+
+bool
+wl_has(WorkList *wl, Oper op)
+{
+	return wl->sparse[op] >= wl->head && wl->sparse[op] < wl->tail && wl->dense[wl->sparse[op]] == op;
+}
+
 bool
 wl_remove(WorkList *wl, Oper op)
 {
 	if (op >= wl->capacity) {
 		return false;
 	}
-	if (wl->sparse[op] >= wl->head && wl->sparse[op] < wl->tail && wl->dense[wl->sparse[op]] == op) {
+	if (wl_has(wl, op)) {
 		wl->tail -= 1;
 		Oper last = wl->dense[wl->tail];
 		wl->dense[wl->sparse[op]] = last;
@@ -2070,6 +2084,20 @@ wl_reset(WorkList *wl)
 	wl->head = wl->tail = 0;
 }
 
+bool
+wl_eq(WorkList *wl, WorkList *other)
+{
+	if (wl->tail - wl->head != other->tail - other->head) {
+		return false;
+	}
+	for (size_t i = wl->head; i < wl->tail; i++) {
+		if (!wl_has(other, wl->dense[i])) {
+			return false;
+		}
+	}
+	return true;
+}
+
 void
 wl_destroy(WorkList *wl)
 {
@@ -2079,98 +2107,6 @@ wl_destroy(WorkList *wl)
 	}
 	*wl = (WorkList) {0};
 }
-
-
-typedef struct {
-	size_t n;
-	u8 memb[];
-} OperandSet;
-
-void
-set_reset(OperandSet *set)
-{
-	for (size_t i = 0; i < set->n; i++) {
-		set->memb[i] = 0;
-	}
-}
-
-OperandSet *
-set_create(Arena *arena, size_t size)
-{
-	OperandSet *set = arena_alloc(arena, sizeof(*set) + size * sizeof(set->memb[0]));
-	set->n = size;
-	set_reset(set);
-	return set;
-}
-
-void
-set_add(OperandSet *set, Oper op)
-{
-	fprintf(stderr, "Adding live ");
-	print_reg(stderr, op);
-	fprintf(stderr, "\n");
-	set->memb[op] = 1;
-}
-
-bool
-set_has(OperandSet *set, Oper op)
-{
-	return set->memb[op];
-}
-
-void
-set_remove(OperandSet *set, Oper op)
-{
-	fprintf(stderr, "Removing live ");
-	print_reg(stderr, op);
-	fprintf(stderr, "\n");
-	set->memb[op] = 0;
-}
-
-bool
-set_empty(OperandSet *set)
-{
-	for (size_t i = 0; i < set->n; i++) {
-		if (set->memb[i]) {
-			return false;
-		}
-	}
-	return true;
-}
-
-Oper
-set_take(OperandSet *set)
-{
-	for (size_t i = 0; i < set->n; i++) {
-		if (set->memb[i]) {
-			set->memb[i] = 0;
-			return i;
-		}
-	}
-	return 0;
-}
-
-void
-set_add_set(OperandSet *set, OperandSet *other)
-{
-	assert(set->n == other->n);
-	for (size_t i = 0; i < set->n; i++) {
-		set->memb[i] = set->memb[i] | other->memb[i];
-	}
-}
-
-bool
-set_eq(OperandSet *set, OperandSet *other)
-{
-	assert(set->n == other->n);
-	for (size_t i = 0; i < set->n; i++) {
-		if (set->memb[i] != other->memb[i]) {
-			return false;
-		}
-	}
-	return true;
-}
-
 
 void
 print_mfunction(FILE *f, MFunction *mfunction)
@@ -2191,46 +2127,30 @@ print_mfunction(FILE *f, MFunction *mfunction)
 }
 
 void
-live_step(OperandSet *live_set, InterferenceGraph *ig, Inst *inst)
+live_step(WorkList *live_set, InterferenceGraph *ig, Inst *inst)
 {
-	fprintf(stderr, "\n");
-	print_inst(stderr, inst);
-	fprintf(stderr, "\n");
 	InstDesc *desc = &inst_desc[inst->op];
-	size_t i = 0;
-
-	fprintf(stderr, "Live:\n");
-	for (size_t j = 0; j < live_set->n; j++) {
-		if (!live_set->memb[j]) {
-			continue;
-		}
-		print_reg(stderr, j);
-		fprintf(stderr, " ");
-	}
-	fprintf(stderr, "\n\n");
 
 	// Add interferences of all definitions with all live.
-	for (size_t j = 0; j < live_set->n; j++) {
-		if (!live_set->memb[j]) {
-			continue;
-		}
+	for (size_t j = live_set->head; j < live_set->tail; j++) {
+		size_t live = live_set->dense[j];
 		for (size_t i = 0; i < desc->dest_cnt; i++) {
-			ig_add(ig, inst->ops[i], j);
+			ig_add(ig, inst->ops[i], live);
 		}
 	}
 	// Add interferences between all destinations
-	for (i = 0; i < desc->dest_cnt; i++) {
+	for (size_t i = 0; i < desc->dest_cnt; i++) {
 		for (size_t j = 0; j < desc->dest_cnt; j++) {
 			ig_add(ig, inst->ops[i], inst->ops[j]);
 		}
 	}
 	// Remove definitions from live.
-	for (i = 0; i < desc->dest_cnt; i++) {
-		set_remove(live_set, inst->ops[i]);
+	for (size_t i = 0; i < desc->dest_cnt; i++) {
+		wl_remove(live_set, inst->ops[i]);
 	}
 	// Add uses to live.
-	for (; i < desc->src_cnt; i++) {
-		set_add(live_set, inst->ops[i]);
+	for (size_t i = desc->dest_cnt; i < desc->src_cnt; i++) {
+		wl_add(live_set, inst->ops[i]);
 	}
 }
 
@@ -2524,7 +2444,7 @@ handle_spill:;
 	memset(use_counts, 0, mfunction->vreg_cnt * sizeof(use_counts[0]));
 	calculate_spill_cost(mfunction, def_counts, use_counts);
 
-	OperandSet *live_set = set_create(arena, mfunction->vreg_cnt);
+	WorkList live_set = {0};
 	InterferenceGraph *ig = ig_create(arena, mfunction->vreg_cnt);
 
 	// Move all arguments and callee saved registers to temporaries at the
@@ -2534,10 +2454,10 @@ handle_spill:;
 	// Make all caller saved registers interfere with calls.
 
 	WorkList work_list = {0};
-	OperandSet **live_in = arena_alloc(arena, mfunction->mblock_cnt * sizeof(live_in[0]));
+	WorkList *live_in = arena_alloc(arena, mfunction->mblock_cnt * sizeof(live_in[0]));
 	for (size_t b = mfunction->mblock_cnt; b--;) {
 		wl_add(&work_list, b);
-		live_in[b] = set_create(arena, mfunction->vreg_cnt);
+		live_in[b] = (WorkList) {0};
 	}
 
 	Oper b;
@@ -2546,37 +2466,19 @@ handle_spill:;
 		Block *block = mblock->block;
 		// live-out of this block is the union of live-ins of all
 		// successors
-		set_reset(live_set);
+		wl_reset(&live_set);
 		for (size_t i = 0; i < block->succ_cnt; i++) {
 			size_t succ = block->succs[i]->base.index;
-			set_add_set(live_set, live_in[succ]);
+			wl_add_all(&live_set, &live_in[succ]);
 		}
-		fprintf(stderr, "Live OUT:\n");
-		for (size_t j = 0; j < live_set->n; j++) {
-			if (!live_set->memb[j]) {
-				continue;
-			}
-			print_reg(stderr, j);
-			fprintf(stderr, " ");
-		}
-		fprintf(stderr, "\n\n");
 		// process the block back to front, updating live_set in the
 		// process and constructing the interference graph in the
 		// process
 		for (Inst *inst = mblock->last; inst; inst = inst->prev) {
-			live_step(live_set, ig, inst);
+			live_step(&live_set, ig, inst);
 		}
-		if (!set_eq(live_set, live_in[b])) {
-			fprintf(stderr, "Live IN changed:\n");
-			for (size_t j = 0; j < live_set->n; j++) {
-				if (!live_set->memb[j]) {
-					continue;
-				}
-				print_reg(stderr, j);
-				fprintf(stderr, " ");
-			}
-			fprintf(stderr, "\n\n");
-			OperandSet *tmp = live_in[b];
+		if (!wl_eq(&live_set, &live_in[b])) {
+			WorkList tmp = live_in[b];
 			live_in[b] = live_set;
 			live_set = tmp;
 			for (size_t i = 0; i < block->pred_cnt; i++) {
@@ -2586,6 +2488,10 @@ handle_spill:;
 		}
 	}
 	wl_destroy(&work_list);
+	wl_destroy(&live_set);
+	for (size_t b = mfunction->mblock_cnt; b--;) {
+		wl_destroy(&live_in[b]);
+	}
 
 	for (size_t i = 0; i < mfunction->vreg_cnt; i++) {
 		fprintf(stderr, "Spill cost for ");
