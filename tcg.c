@@ -2025,8 +2025,8 @@ wl_add(WorkList *wl, Oper op)
 		wl->dense = realloc(wl->dense, wl->capacity * sizeof(wl->sparse[0]));
 	}
 	if (wl->sparse[op] < wl->head || wl->sparse[op] >= wl->tail || wl->dense[wl->sparse[op]] != op) {
-		wl->dense[wl->tail] = op;
 		wl->sparse[op] = wl->tail;
+		wl->dense[wl->tail] = op;
 		wl->tail += 1;
 	}
 	for (size_t i = wl->head; i < wl->tail; i++) {
@@ -2040,7 +2040,7 @@ wl_remove(WorkList *wl, Oper op)
 	if (op >= wl->capacity) {
 		return false;
 	}
-	if (wl->sparse[op] >= wl->head && wl->sparse[op] < wl->tail && wl->sparse[wl->dense[op]] == op) {
+	if (wl->sparse[op] >= wl->head && wl->sparse[op] < wl->tail && wl->dense[wl->sparse[op]] == op) {
 		wl->tail -= 1;
 		Oper last = wl->dense[wl->tail];
 		wl->dense[wl->sparse[op]] = last;
@@ -2060,7 +2060,7 @@ wl_take(WorkList *wl, Oper *taken)
 	if (wl->head == wl->tail) {
 		return false;
 	}
-	*taken = wl->sparse[wl->tail - 1];
+	*taken = wl->dense[wl->tail - 1];
 	assert(wl_remove(wl, *taken));
 	return true;
 }
