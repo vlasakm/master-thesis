@@ -2332,7 +2332,6 @@ parse(Arena *arena, GArena *scratch, Str source, void (*error_callback)(void *us
 	Module *module = arena_alloc(arena, sizeof(*module));
 	module->function_cnt = garena_cnt(&parser.functions, Function *);
 	module->functions = move_to_arena(arena, &parser.functions, 0, Function *);
-	garena_destroy(&parser.functions);
 	for (size_t f = 0; f < module->function_cnt; f++) {
 		//Function *function = module->functions[f];
 		//print_function(function);
@@ -2411,14 +2410,13 @@ translate_function(Arena *arena, Function *function, size_t start_index)
 	MFunction *mfunction = arena_alloc(arena, sizeof(*mfunction));
 	*mfunction = (MFunction) {
 		.func = function,
-		.mblocks = move_to_arena(arena, &gmblocks, 0, MBlock),
+		.mblocks = garena_array(&gmblocks, MBlock),
 		.mblock_cnt = garena_cnt(&gmblocks, MBlock),
 		.vreg_cnt = ts->index,
 		.stack_space = ts->stack_space,
 		.make_stack_space = ts->make_stack_space,
 	};
 	function->mfunc= mfunction;
-	garena_destroy(&gmblocks);
 	return mfunction;
 }
 
