@@ -2573,6 +2573,7 @@ handle_spill:;
 
 	while (stack_idx--) {
 		Oper i = stack[stack_idx];
+		on_stack[i] = false;
 		Oper used = 0;
 		for (size_t j = 0; j < mfunction->vreg_cnt; j++) {
 			// If this one interferes with some previous allocation
