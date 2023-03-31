@@ -1565,6 +1565,10 @@ print_inst(FILE *f, Inst *inst)
 			fprintf(f, ".BB%"PRIi32, inst->ops[desc->imm_cnt + i]);
 			in++;
 			break;
+		case 'F':
+			fprintf(f, "function%"PRIi32, inst->ops[desc->imm_cnt + i]);
+			in++;
+			break;
 		default:
 			fputc(c, f);
 		}
@@ -1659,6 +1663,28 @@ add_pop(TranslationState *ts, Oper oper)
 	add_inst(ts, OP_POP, oper);
 }
 
+static Oper arg_regs[4] = { R_RDI, R_RSI, R_RDX, R_RCX };
+#define ARRAY_LEN(arr) (sizeof((arr)) / sizeof((arr)[0]))
+
+static void
+add_call(TranslationState *ts, Oper res, Oper fun, Oper *args, size_t arg_cnt)
+{
+	Oper opers[ARRAY_LEN(arg_regs)] = {0};
+	assert(arg_cnt <= ARRAY_LEN(arg_regs));
+	for (size_t i = 0; i < arg_cnt; i++) {
+		add_copy(ts, arg_regs[i], args[0]);
+		opers[i] = arg_regs[i];
+	}
+	add_inst(ts, OP_CALL, R_RAX, R_RCX, R_RDX, R_RSI, R_RDI,
+		opers[0],
+		opers[1],
+		opers[2],
+		opers[3],
+		fun
+	);
+	add_copy(ts, res, R_RAX);
+}
+
 static void
 add_return(TranslationState *ts, Oper *ret_val)
 {
@@ -1730,6 +1756,9 @@ translate_operand(void *user_data, size_t i, Value *operand)
 	case VK_FUNCTION: {
 		//Function *function = (void *) operand;
 		//printf("%.*s", (int) function->name.len, function->name.str);
+		// TODO: this is really ugly, we return the index of function as
+		// operand, even though it has nothing to do with operands
+		res = operand->index;
 		break;
 	}
 	case VK_CONSTANT: {
@@ -1789,8 +1818,10 @@ translate_value(TranslationState *ts, Value *v)
 		break;
 	}
 	case VK_BLOCK:
+		UNREACHABLE();
 		break;
 	case VK_FUNCTION:
+		UNREACHABLE();
 		break;
 
 	case VK_ADD:
@@ -1853,9 +1884,13 @@ translate_value(TranslationState *ts, Value *v)
 		break;
 	case VK_GET_INDEX_PTR:
 		break;
-	case VK_CALL:
-		//add_inst1(ts, IK_CALL, op_label(((Function*)ops[0])->name));
+	case VK_CALL: {
+		Operation *call = (void *) v;
+		Function *function = (Function *) call->operands[0];
+		FunctionType *fun_type = (FunctionType *) function->base.type;
+		add_call(ts, res, ops[0], &ops[1], fun_type->param_cnt);
 		break;
+	}
 	case VK_JUMP:
 		add_inst(ts, OP_JMP, ops[0]);
 		break;

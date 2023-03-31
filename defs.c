@@ -177,7 +177,7 @@ typedef struct {
 	_(IDIV, "idiv S2", 2, 3, 0, 0) \
 	_(SHL, "shl D0, S1", 1, 2, 0, 0) \
 	_(SHR, "shr D0, S1", 1, 2, 0, 0) \
-	_(CALL, "call L0", 0, 0, 0, 1) \
+	_(CALL, "call F0", 5, 4, 0, 1) \
 	_(JMP, "jmp B0", 0, 0, 0, 1) \
 	_(RET, "ret", 0, 0, 0, 0) \
 	_(SYSCALL, "syscall", 0, 0, 0, 0) \
