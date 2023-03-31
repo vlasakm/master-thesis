@@ -2006,6 +2006,89 @@ ig_interfere_cnt(InterferenceGraph *ig, Oper op)
 }
 
 typedef struct {
+	size_t members;
+	size_t capacity;
+	Oper *sparse;
+	Oper *dense;
+} WorkList;
+
+void
+wl_add(WorkList *wl, Oper op)
+{
+	if (wl->capacity <= op) {
+		wl->capacity = wl->capacity ? wl->capacity : 8;
+		do {
+			wl->capacity *= 2;
+		} while (wl->capacity <= op);
+		wl->sparse = realloc(wl->sparse, wl->capacity * sizeof(wl->sparse[0]));
+		wl->dense = realloc(wl->dense, wl->capacity * sizeof(wl->sparse[0]));
+	}
+	if (wl->sparse[op] >= wl->members || wl->dense[wl->sparse[op]] != op) {
+		wl->dense[wl->members] = op;
+		wl->sparse[op] = wl->members;
+		wl->members += 1;
+	}
+	for (size_t i = 0; i < wl->members; i++) {
+		assert(wl->sparse[wl->dense[i]] == (Oper) i);
+	}
+}
+
+bool
+wl_remove(WorkList *wl, Oper op)
+{
+	if (op >= wl->capacity) {
+		return false;
+	}
+	if (wl->sparse[op] < wl->members && wl->sparse[wl->dense[op]] == op) {
+		wl->members -= 1;
+		Oper last = wl->dense[wl->members];
+		wl->dense[wl->sparse[op]] = last;
+		wl->sparse[last] = wl->sparse[op];
+		wl->dense[wl->members] = op;
+		for (size_t i = 0; i < wl->members; i++) {
+			assert(wl->sparse[wl->dense[i]] == (Oper) i);
+		}
+		return true;
+	}
+	return false;
+}
+
+bool
+wl_empty(WorkList *wl)
+{
+	return wl->members == 0;
+}
+
+
+bool
+wl_take(WorkList *wl, Oper *taken)
+{
+	if (wl->members == 0) {
+		return false;
+	}
+	*taken = wl->sparse[wl->members - 1];
+	assert(wl_remove(wl, *taken));
+	return true;
+}
+
+void
+wl_reset(WorkList *wl)
+{
+	wl->members = 0;
+}
+
+void
+wl_destroy(WorkList *wl)
+{
+	if (wl->sparse) {
+		free(wl->sparse);
+		free(wl->dense);
+	}
+	*wl = (WorkList) {0};
+}
+
+
+typedef struct {
 	size_t n;
 	u8 memb[];
 } OperandSet;
@@ -2457,15 +2540,15 @@ handle_spill:;
 
 	// Make all caller saved registers interfere with calls.
 
-	OperandSet *work_list = set_create(arena, mfunction->mblock_cnt);
+	WorkList work_list = {0};
 	OperandSet **live_in = arena_alloc(arena, mfunction->mblock_cnt * sizeof(live_in[0]));
 	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
-		set_add(work_list, b);
+		wl_add(&work_list, b);
 		live_in[b] = set_create(arena, mfunction->vreg_cnt);
 	}
 
-	while (!set_empty(work_list)) {
-		size_t b = set_take(work_list);
+	Oper b;
+	while (wl_take(&work_list, &b)) {
 		MBlock *mblock = &mfunction->mblocks[b];
 		Block *block = mblock->block;
 		// live-out of this block is the union of live-ins of all
@@ -2505,10 +2588,11 @@ handle_spill:;
 			live_set = tmp;
 			for (size_t i = 0; i < block->pred_cnt; i++) {
 				size_t pred = block->preds[i]->base.index;
-				set_add(work_list, pred);
+				wl_add(&work_list, pred);
 			}
 		}
 	}
+	wl_destroy(&work_list);
 
 	for (size_t i = 0; i < mfunction->vreg_cnt; i++) {
 		fprintf(stderr, "Spill cost for ");
