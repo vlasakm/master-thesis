@@ -428,7 +428,7 @@ typedef struct {
 	Environment *env;
 	Value **prev_pos;
 	Function *current_function;
-	GArena functions;
+	GArena functions; // array of Function *
 	Block *current_block;
 	Block *continue_block;
 	Block *break_block;
@@ -1220,6 +1220,7 @@ function_declaration(Parser *parser)
 	statements(parser);
 	garena_restore(parser->scratch, start);
 	function_finalize(parser->arena, function);
+	function->base.index = garena_cnt(&parser->functions, Function *);
 	garena_push_value(&parser->functions, Function *, function);
 	env_pop(&parser->env);
 }
@@ -2038,6 +2039,7 @@ set_take(OperandSet *set)
 void
 print_mfunction(FILE *f, MFunction *mfunction)
 {
+	fprintf(f, "function%zu:\n", mfunction->func->base.index);
 	print_str(f, mfunction->func->name);
 	fprintf(f, ":\n");
 	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
@@ -2189,6 +2191,8 @@ number_values(Function *function, size_t start_index)
 void
 print_function(FILE *f, Function *function)
 {
+	print_str(f, function->name);
+	fprintf(f, ":\n");
 	//for (size_t i = function->block_cnt; i--;) {
 	for (size_t j = function->block_cnt; j--;) {
 		Block *block = function->post_order[j];
