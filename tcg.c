@@ -1580,6 +1580,7 @@ typedef struct {
 	Oper index;
 	size_t block_cnt;
 	size_t callee_saved_reg_start;
+	Inst *make_stack_space;
 } TranslationState;
 
 Inst *
@@ -1605,7 +1606,7 @@ make_inst(Arena *arena, OpCode op, ...)
 	return inst;
 }
 
-static void
+static Inst *
 add_inst(TranslationState *ts, OpCode op, ...)
 {
 	va_list ap;
@@ -1616,6 +1617,7 @@ add_inst(TranslationState *ts, OpCode op, ...)
 	inst->prev = ts->prev_pos == &ts->block->first ? NULL : container_of(ts->prev_pos, Inst, next);
 	*ts->prev_pos = inst;
 	ts->prev_pos = &inst->next;
+	return inst;
 }
 
 static void
@@ -1664,7 +1666,7 @@ add_return(TranslationState *ts, Oper *ret_val)
 		add_copy(ts, R_RAX, *ret_val);
 	}
 	size_t callee_saved_reg = ts->callee_saved_reg_start;
-	//add_copy(ts, R_RBX, callee_saved_reg++);
+	add_copy(ts, R_RBX, callee_saved_reg++);
 	add_copy(ts, R_RSP, R_RBP);
 	add_pop(ts, R_RBP);
 	add_inst(ts, OP_RET);
@@ -2040,6 +2042,28 @@ set_take(OperandSet *set)
 }
 
 void
+set_add_set(OperandSet *set, OperandSet *other)
+{
+	assert(set->n == other->n);
+	for (size_t i = 0; i < set->n; i++) {
+		set->memb[i] = set->memb[i] | other->memb[i];
+	}
+}
+
+bool
+set_eq(OperandSet *set, OperandSet *other)
+{
+	assert(set->n == other->n);
+	for (size_t i = 0; i < set->n; i++) {
+		if (set->memb[i] != other->memb[i]) {
+			return false;
+		}
+	}
+	return true;
+}
+
+
+void
 print_mfunction(FILE *f, MFunction *mfunction)
 {
 	fprintf(f, "function%zu:\n", mfunction->func->base.index);
@@ -2331,6 +2355,7 @@ translate_function(Arena *arena, Function *function, size_t start_index)
 		Block *block = post_order[b];
 		//printf(".L%zu:\n", function->block_cnt - b - 1);
 		MBlock *mblock = garena_push(&gmblocks, MBlock);
+		mblock->block = block;
 		mblock->index = block->base.index;
 		mblock->first = NULL;
 		ts->prev_pos = &mblock->first;
@@ -2339,8 +2364,13 @@ translate_function(Arena *arena, Function *function, size_t start_index)
 			ts->callee_saved_reg_start = ts->index;
 			add_push(ts, R_RBP);
 			add_copy(ts, R_RBP, R_RSP);
+			// Add instruction to make stack space, since we may
+			// spill we don't know how much stack space to reserve
+			// yet, we will replace the dummy '0' with proper stack
+			// space requirement after register allocation.
+			ts->make_stack_space = add_inst(ts, OP_SUB_IMM, R_RSP, R_RSP, 0);
 			// rbx, r12, r13, r14, r15
-			//add_copy(ts, ts->index++, R_RBX);
+			add_copy(ts, ts->index++, R_RBX);
 		}
 		for (Value *v = block->head; v; v = v->next) {
 			translate_value(ts, v);
@@ -2355,6 +2385,7 @@ translate_function(Arena *arena, Function *function, size_t start_index)
 		.mblock_cnt = garena_cnt(&gmblocks, MBlock),
 		.vreg_cnt = ts->index,
 		.stack_space = ts->stack_space,
+		.make_stack_space = ts->make_stack_space,
 	};
 	function->mfunc= mfunction;
 	return mfunction;
@@ -2403,10 +2434,46 @@ handle_spill:;
 	while (!set_empty(work_list)) {
 		size_t b = set_take(work_list);
 		MBlock *mblock = &mfunction->mblocks[b];
-		// live-out is nothing for each block
+		Block *block = mblock->block;
+		// live-out of this block is the union of live-ins of all
+		// successors
 		set_reset(live_set);
+		for (size_t i = 0; i < block->succ_cnt; i++) {
+			size_t succ = block->succs[i]->base.index;
+			set_add_set(live_set, live_in[succ]);
+		}
+		fprintf(stderr, "Live OUT:\n");
+		for (size_t j = 0; j < live_set->n; j++) {
+			if (!live_set->memb[j]) {
+				continue;
+			}
+			print_reg(stderr, j);
+			fprintf(stderr, " ");
+		}
+		fprintf(stderr, "\n\n");
+		// process the block back to front, updating live_set in the
+		// process and constructing the interference graph in the
+		// process
 		for (Inst *inst = mblock->last; inst; inst = inst->prev) {
 			live_step(live_set, ig, inst);
+		}
+		if (!set_eq(live_set, live_in[b])) {
+			fprintf(stderr, "Live IN changed:\n");
+			for (size_t j = 0; j < live_set->n; j++) {
+				if (!live_set->memb[j]) {
+					continue;
+				}
+				print_reg(stderr, j);
+				fprintf(stderr, " ");
+			}
+			fprintf(stderr, "\n\n");
+			OperandSet *tmp = live_in[b];
+			live_in[b] = live_set;
+			live_set = tmp;
+			for (size_t i = 0; i < block->pred_cnt; i++) {
+				size_t pred = block->preds[i]->base.index;
+				set_add(work_list, pred);
+			}
 		}
 	}
 
@@ -2516,6 +2583,7 @@ handle_spill:;
 		goto handle_spill;
 	}
 
+	mfunction->make_stack_space->ops[2] = mfunction->stack_space;
 	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
 		MBlock *mblock = &mfunction->mblocks[b];
 		for (Inst *inst = mblock->first; inst; inst = inst->next) {
