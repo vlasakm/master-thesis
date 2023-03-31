@@ -4,17 +4,15 @@ int one() {
     return 1;
 }
 
-//int fun(int c, int d) {
-//    int n = 10;
-//    int a = 0;
-//    while (n > 0) {
-//        a = a + 1;
-//        n = n - 1;
-//    }
-//    return a;
-//}
+int fun(int n) {
+    int a = 0;
+    while (n > 0) {
+        a = a + 1;
+        n = n - 1;
+    }
+    return a;
+}
 
 int main() {
-    return 20 + (10 + (10 + (one() + one())));
-    //return 30 + 2;
+    return fun(10) + one() + fun(10) + one();
 }
