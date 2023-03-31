@@ -2099,6 +2099,14 @@ live_step(OperandSet *live_set, InterferenceGraph *ig, Inst *inst)
 void
 spill(Arena *arena, u8 *to_spill, MFunction *mfunction)
 {
+	// TODO: Infinite spill costs for uses immediately following
+	// definitions.
+
+	// NOTE: Beware, we can't naively renumber loads and stores with
+	// temporaries, since we can have multiple assignments:
+	//
+	// mov t17, [rbp-16] // should use the same t17
+	// add t18, t9       // should use the same t17
 	print_mfunction(stderr, mfunction);
 	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
 		MBlock *mblock = &mfunction->mblocks[b];
@@ -2115,7 +2123,8 @@ spill(Arena *arena, u8 *to_spill, MFunction *mfunction)
 				fprintf(stderr, "load ");
 				print_reg(stderr, inst->ops[i]);
 				fprintf(stderr, "\n");
-				Oper temp = mfunction->vreg_cnt++;
+				//Oper temp = mfunction->vreg_cnt++;
+				Oper temp = inst->ops[i];
 				Inst *load = make_inst(arena, OP_MOV_RMC, temp, R_RBP, 8 + to_spill[inst->ops[i]]);
 				load->prev = inst->prev;
 				load->next = inst;
@@ -2131,7 +2140,8 @@ spill(Arena *arena, u8 *to_spill, MFunction *mfunction)
 				fprintf(stderr, "store ");
 				print_reg(stderr, inst->ops[i]);
 				fprintf(stderr, "\n");
-				Oper temp = mfunction->vreg_cnt++;
+				//Oper temp = mfunction->vreg_cnt++;
+				Oper temp = inst->ops[i];
 				Inst *store = make_inst(arena, OP_MOV_MCR, R_RBP, temp, 8 + to_spill[inst->ops[i]]);
 				store->prev = inst;
 				store->next = inst->next;
