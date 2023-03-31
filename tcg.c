@@ -1214,7 +1214,7 @@ function_declaration(Parser *parser)
 		Value *arg = args[i];
 		Value *addr = add_alloca(parser, param_types[i]);
 		add_binary(parser, VK_STORE, addr, arg);
-		env_define(parser->env, params[i].name, arg);
+		env_define(parser->env, params[i].name, addr);
 	}
 	free(args);
 	statements(parser);
@@ -1804,8 +1804,6 @@ translate_value(TranslationState *ts, Value *v)
 	}
 	case VK_ARGUMENT: {
 		Argument *argument = (Argument *) v;
-		if (argument->index == 0) {
-		}
 		Oper src = 0;
 		switch (argument->index) {
 		case 0: src = R_RDI; break;
