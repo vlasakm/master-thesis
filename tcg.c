@@ -2060,8 +2060,7 @@ wl_take(WorkList *wl, Oper *taken)
 	if (wl->head == wl->tail) {
 		return false;
 	}
-	*taken = wl->dense[wl->tail - 1];
-	assert(wl_remove(wl, *taken));
+	*taken = wl->dense[wl->head++];
 	return true;
 }
 
