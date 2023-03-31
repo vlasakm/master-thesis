@@ -1950,6 +1950,9 @@ ig_remove(InterferenceGraph *ig, Oper op1, Oper op2)
 bool
 ig_interfere(InterferenceGraph *ig, Oper op1, Oper op2)
 {
+	if (op1 == R_NONE || op2 == R_NONE) {
+		return false;
+	}
 	u8 one = ig->matrix[op1 * ig->n + op2];
 	u8 two = ig->matrix[op2 * ig->n + op1];
 	assert(one == two);
@@ -2169,7 +2172,7 @@ apply_reg_alloc(Oper *reg_alloc, Inst *inst)
 		//	continue;
 		//}
 		//inst->ops[i] = -reg_alloc[inst->ops[i]];
-		assert(inst->ops[i] > 0);
+		assert(inst->ops[i] >= 0);
 		inst->ops[i] = reg_alloc[inst->ops[i]];
 	}
 }
@@ -2296,13 +2299,13 @@ calculate_spill_cost(MFunction *mfunction, u8 *def_counts, u8 *use_counts)
 			for (; j < desc->dest_cnt; j++) {
 				def_counts[inst->ops[j]]++;
 				fprintf(stderr, "adding def of ");
-				print_reg(stderr, j);
+				print_reg(stderr, inst->ops[j]);
 				fprintf(stderr, "\n");
 			}
 			for (; j < desc->src_cnt; j++) {
 				use_counts[inst->ops[j]]++;
 				fprintf(stderr, "adding use of ");
-				print_reg(stderr, j);
+				print_reg(stderr, inst->ops[j]);
 				fprintf(stderr, "\n");
 			}
 		}
@@ -2472,7 +2475,10 @@ handle_spill:;
 		Oper i = stack[stack_idx];
 		Oper used = 0;
 		for (size_t j = 0; j < mfunction->vreg_cnt; j++) {
-			if (ig_interfere(ig, i, j)) {
+			// If this one interferes with some previous allocation
+			// that is not spilled (i.e. not R_NONE), make sure we
+			// dont' use the same register.
+			if (ig_interfere(ig, i, j) && reg_alloc[j] != R_NONE) {
 				used |= 1 << (reg_alloc[j] - 1);
 			}
 		}
