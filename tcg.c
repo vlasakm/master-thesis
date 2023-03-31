@@ -2535,7 +2535,7 @@ handle_spill:;
 
 	WorkList work_list = {0};
 	OperandSet **live_in = arena_alloc(arena, mfunction->mblock_cnt * sizeof(live_in[0]));
-	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
+	for (size_t b = mfunction->mblock_cnt; b--;) {
 		wl_add(&work_list, b);
 		live_in[b] = set_create(arena, mfunction->vreg_cnt);
 	}
