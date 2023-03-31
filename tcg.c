@@ -2006,7 +2006,8 @@ ig_interfere_cnt(InterferenceGraph *ig, Oper op)
 }
 
 typedef struct {
-	size_t members;
+	size_t head;
+	size_t tail;
 	size_t capacity;
 	Oper *sparse;
 	Oper *dense;
@@ -2023,12 +2024,12 @@ wl_add(WorkList *wl, Oper op)
 		wl->sparse = realloc(wl->sparse, wl->capacity * sizeof(wl->sparse[0]));
 		wl->dense = realloc(wl->dense, wl->capacity * sizeof(wl->sparse[0]));
 	}
-	if (wl->sparse[op] >= wl->members || wl->dense[wl->sparse[op]] != op) {
-		wl->dense[wl->members] = op;
-		wl->sparse[op] = wl->members;
-		wl->members += 1;
+	if (wl->sparse[op] < wl->head || wl->sparse[op] >= wl->tail || wl->dense[wl->sparse[op]] != op) {
+		wl->dense[wl->tail] = op;
+		wl->sparse[op] = wl->tail;
+		wl->tail += 1;
 	}
-	for (size_t i = 0; i < wl->members; i++) {
+	for (size_t i = wl->head; i < wl->tail; i++) {
 		assert(wl->sparse[wl->dense[i]] == (Oper) i);
 	}
 }
@@ -2039,13 +2040,13 @@ wl_remove(WorkList *wl, Oper op)
 	if (op >= wl->capacity) {
 		return false;
 	}
-	if (wl->sparse[op] < wl->members && wl->sparse[wl->dense[op]] == op) {
-		wl->members -= 1;
-		Oper last = wl->dense[wl->members];
+	if (wl->sparse[op] >= wl->head && wl->sparse[op] < wl->tail && wl->sparse[wl->dense[op]] == op) {
+		wl->tail -= 1;
+		Oper last = wl->dense[wl->tail];
 		wl->dense[wl->sparse[op]] = last;
 		wl->sparse[last] = wl->sparse[op];
-		wl->dense[wl->members] = op;
-		for (size_t i = 0; i < wl->members; i++) {
+		wl->dense[wl->tail] = op;
+		for (size_t i = wl->head; i < wl->tail; i++) {
 			assert(wl->sparse[wl->dense[i]] == (Oper) i);
 		}
 		return true;
@@ -2054,19 +2055,12 @@ wl_remove(WorkList *wl, Oper op)
 }
 
 bool
-wl_empty(WorkList *wl)
-{
-	return wl->members == 0;
-}
-
-
-bool
 wl_take(WorkList *wl, Oper *taken)
 {
-	if (wl->members == 0) {
+	if (wl->head == wl->tail) {
 		return false;
 	}
-	*taken = wl->sparse[wl->members - 1];
+	*taken = wl->sparse[wl->tail - 1];
 	assert(wl_remove(wl, *taken));
 	return true;
 }
@@ -2074,7 +2068,7 @@ wl_take(WorkList *wl, Oper *taken)
 void
 wl_reset(WorkList *wl)
 {
-	wl->members = 0;
+	wl->head = wl->tail = 0;
 }
 
 void
