@@ -2592,41 +2592,79 @@ handle_spill:;
 	size_t reg_avail = 6;
 
 	ig_calculate_adjacency(&ig);
+	WorkList spill_wl = {0};
+	WorkList freeze_wl = {0};
+	WorkList simplify_wl = {0};
+	WorkList stack = {0};
+	for (size_t i = R__MAX; i < mfunction->vreg_cnt; i++) {
+		if (ig_degree(&ig, i) >= reg_avail) {
+			wl_add(&spill_wl, i);
+			fprintf(stderr, "Starting in spill ");
+			print_reg(stderr, i);
+			fprintf(stderr, "\n");
+		} else {
+			wl_add(&simplify_wl, i);
+			fprintf(stderr, "Starting in simplify ");
+			print_reg(stderr, i);
+			fprintf(stderr, "\n");
+		}
+	}
+
+	do {
+		Oper i;
+		while (wl_take_back(&simplify_wl, &i)) {
+			wl_add(&stack, i);
+			fprintf(stderr, "Pushing ");
+			print_reg(stderr, i);
+			fprintf(stderr, "\n");
+			for (size_t j = 0; j < ig.adj_cnt[i]; j++) {
+				size_t neighbour = ig.adjs[i][j];
+				if (neighbour < R__MAX) {
+					continue;
+				}
+				fprintf(stderr, "Removing interference ");
+				print_reg(stderr, i);
+				fprintf(stderr, " ");
+				print_reg(stderr, neighbour);
+				fprintf(stderr, "\n");
+				if (ig.adj_cnt[neighbour] != 0) {
+					ig.adj_cnt[neighbour]--;
+					if (ig.adj_cnt[neighbour] < reg_avail) {
+						fprintf(stderr, "Move from spill to simplify ");
+						print_reg(stderr, neighbour);
+						fprintf(stderr, "\n");
+						wl_remove(&spill_wl, neighbour);
+						wl_add(&simplify_wl, neighbour);
+					}
+				}
+			}
+		}
+
+		if (wl_cnt(&spill_wl) != 0) {
+			fprintf(stderr, "Potential spill\n");
+			Oper candidate = spill_wl.dense[spill_wl.head];
+			size_t max = ig_degree(&ig, i) / (def_counts[i] + use_counts[i]);
+			for (size_t j = spill_wl.head; j < spill_wl.tail; j++) {
+				Oper i = spill_wl.dense[j];
+				size_t curr = ig_degree(&ig, i) / (def_counts[i] + use_counts[i]);
+				if (curr > max) {
+					max = curr;
+					candidate = i;
+				}
+				fprintf(stderr, "Spill cost for ");
+				print_reg(stderr, i);
+				fprintf(stderr, " degree: %zu, defs: %zu, uses: %zu\n", ig_degree(&ig, i), (size_t) def_counts[i], (size_t) use_counts[i]);
+			}
+			fprintf(stderr, "Choosing for spill ");
+			print_reg(stderr, candidate);
+			fprintf(stderr, "\n");
+			wl_remove(&spill_wl, candidate);
+			wl_add(&simplify_wl, candidate);
+		}
+	} while (wl_cnt(&simplify_wl) != 0 || wl_cnt(&spill_wl) != 0);
 
 	for (size_t i = 0; i < R__MAX; i++) {
 		reg_alloc[i] = i;
-	}
-
-	WorkList stack = {0};
-	for (;;) {
-		bool had_low = true;
-		while (had_low) {
-			had_low = false;
-			for (size_t i = R__MAX; i < mfunction->vreg_cnt; i++) {
-				if (wl_has(&stack, i)) {
-					continue;
-				}
-				size_t cnt = ig_degree(&ig, i);
-				if (cnt >= reg_avail) {
-					continue;
-				}
-				fprintf(stderr, "pushing ");
-				print_reg(stderr, i);
-				fprintf(stderr, "\n");
-				had_low = true;
-				wl_add(&stack, i);
-				ig_remove(&ig, i);
-			}
-		}
-		if (wl_cnt(&stack) == mfunction->vreg_cnt - R__MAX) {
-			break;
-		}
-		fprintf(stderr, "remaining %zu\n", mfunction->vreg_cnt - R__MAX - wl_cnt(&stack));
-		for (size_t i = R__MAX; i < mfunction->vreg_cnt; i++) {
-			wl_add(&stack, i);
-			ig_remove(&ig, i);
-		}
-		break;
 	}
 
 	Oper i;
