@@ -1922,32 +1922,32 @@ number_operand(void *user_data, size_t i, Value *operand)
 typedef struct {
 	size_t n;
 	size_t N;
-	u8 matrix[];
+	u8 *matrix;
+
+	Oper **adjs;
+	size_t *adj_cnt;
+	size_t *adj_cnt_orig;
 } InterferenceGraph;
 
-InterferenceGraph *
-ig_create(Arena *arena, size_t size)
+void
+ig_init(InterferenceGraph *ig, size_t size)
 {
-	InterferenceGraph *ig = arena_alloc(arena, sizeof(*ig) + size * size * sizeof(ig->matrix[0]));
 	ig->n = size;
 	ig->N = size * size;
+	ig->matrix = malloc(ig->N * sizeof(ig->matrix[0]));
 	for (size_t i = 0; i < ig->N; i++) {
 		ig->matrix[i] = 0;
 	}
-	return ig;
+	ig->adjs = NULL;
+	ig->adj_cnt = NULL;
 }
 
-InterferenceGraph *
-ig_copy(Arena *arena, InterferenceGraph *ig_orig)
+void
+ig_destroy(InterferenceGraph *ig)
 {
-	size_t size = ig_orig->n;
-	InterferenceGraph *ig = arena_alloc(arena, sizeof(*ig) + size * size * sizeof(ig->matrix[0]));
-	ig->n = size;
-	ig->N = size * size;
-	for (size_t i = 0; i < ig->N; i++) {
-		ig->matrix[i] = ig_orig->matrix[i];
-	}
-	return ig;
+	free(ig->matrix);
+	free(ig->adjs);
+	free(ig->adj_cnt);
 }
 
 void
@@ -1966,20 +1966,20 @@ ig_add(InterferenceGraph *ig, Oper op1, Oper op2)
 }
 
 void
-ig_remove(InterferenceGraph *ig, Oper op1, Oper op2)
+ig_remove(InterferenceGraph *ig, Oper op)
 {
-	if (op1 == op2) {
-		return;
+	assert(ig->adjs);
+	for (size_t i = 0; i < ig->adj_cnt[i]; i++) {
+		size_t neighbour = ig->adjs[op][i];
+		fprintf(stderr, "Removing interference ");
+		print_reg(stderr, op);
+		fprintf(stderr, " ");
+		print_reg(stderr, neighbour);
+		fprintf(stderr, "\n");
+		if (ig->adj_cnt[neighbour] != 0) {
+			ig->adj_cnt[neighbour]--;
+		}
 	}
-	fprintf(stderr, "Removing interference ");
-	print_reg(stderr, op1);
-	fprintf(stderr, " ");
-	print_reg(stderr, op2);
-	fprintf(stderr, "\n");
-	assert(ig->matrix[op1 * ig->n + op2] == 1);
-	assert(ig->matrix[op2 * ig->n + op1] == 1);
-	ig->matrix[op1 * ig->n + op2] = 0;
-	ig->matrix[op2 * ig->n + op1] = 0;
 }
 
 bool
@@ -1994,16 +1994,54 @@ ig_interfere(InterferenceGraph *ig, Oper op1, Oper op2)
 	return one;
 }
 
-size_t
-ig_interfere_cnt(InterferenceGraph *ig, Oper op)
+void
+ig_calculate_adjacency(InterferenceGraph *ig)
 {
-	assert(op >= 0);
-	size_t cnt = 0;
-	for (size_t i = op * ig->n; i < (op + 1) * ig->n; i++) {
-		cnt += ig->matrix[i];
+	ig->adjs = malloc(ig->n * sizeof(ig->adjs[0]));
+	ig->adj_cnt = calloc(ig->n, sizeof(ig->adj_cnt[0]));
+	ig->adj_cnt_orig = calloc(ig->n, sizeof(ig->adj_cnt[0]));
+	for (size_t i = 0; i < ig->n; i++) {
+		for (size_t j = 0; j < ig->n; j++) {
+			if (ig->matrix[i * ig->n + j]) {
+				ig->adj_cnt[i]++;
+			}
+		}
 	}
-	return cnt;
+	for (size_t i = 0; i < ig->n; i++) {
+		ig->adjs[i] = malloc(ig->adj_cnt[i] * sizeof(ig->adjs[i][0]));
+	}
+	for (size_t i = 0; i < ig->n; i++) {
+		for (size_t j = 0; j < ig->n; j++) {
+			if (ig->matrix[i * ig->n + j]) {
+				size_t index = ig->adj_cnt_orig[i]++;
+				ig->adjs[i][index] = j;
+			}
+		}
+	}
 }
+
+size_t
+ig_degree(InterferenceGraph *ig, Oper op)
+{
+	assert(ig->adjs != NULL);
+	assert(op >= 0);
+	return ig->adj_cnt[op];
+}
+
+void
+ig_copy(InterferenceGraph *ig, InterferenceGraph *ig_orig)
+{
+	ig->n = ig_orig->n;
+	ig->N = ig_orig->N;
+	ig->matrix = malloc(ig->N * sizeof(ig->matrix[0]));
+	for (size_t i = 0; i < ig->N; i++) {
+		ig->matrix[i] = ig_orig->matrix[i];
+	}
+	if (ig_orig->adjs) {
+		ig_calculate_adjacency(ig);
+	}
+}
+
 
 typedef struct {
 	size_t head;
@@ -2510,7 +2548,8 @@ handle_spill:;
 	calculate_spill_cost(mfunction, def_counts, use_counts);
 
 	WorkList live_set = {0};
-	InterferenceGraph *ig = ig_create(arena, mfunction->vreg_cnt);
+	InterferenceGraph ig;
+	ig_init(&ig, mfunction->vreg_cnt);
 
 	// Move all arguments and callee saved registers to temporaries at the
 	// start of the function. Then restore callee saved registers at the end
@@ -2540,7 +2579,7 @@ handle_spill:;
 		// process and constructing the interference graph in the
 		// process
 		for (Inst *inst = mblock->last; inst; inst = inst->prev) {
-			live_step(&live_set, ig, inst);
+			live_step(&live_set, &ig, inst);
 		}
 		if (!wl_eq(&live_set, &live_in[b])) {
 			WorkList tmp = live_in[b];
@@ -2566,10 +2605,14 @@ handle_spill:;
 
 	size_t reg_avail = 6;
 
-	InterferenceGraph *ig_orig = ig_copy(arena, ig);
+	ig_calculate_adjacency(&ig);
+
+	InterferenceGraph ig_orig;
+	ig_copy(&ig_orig, &ig);
 	for (size_t i = 0; i < R__MAX; i++) {
 		reg_alloc[i] = i;
 	}
+
 
 	WorkList stack = {0};
 	for (;;) {
@@ -2580,7 +2623,7 @@ handle_spill:;
 				if (wl_has(&stack, i)) {
 					continue;
 				}
-				size_t cnt = ig_interfere_cnt(ig, i);
+				size_t cnt = ig_degree(&ig, i);
 				if (cnt >= reg_avail) {
 					continue;
 				}
@@ -2589,11 +2632,7 @@ handle_spill:;
 				fprintf(stderr, "\n");
 				had_low = true;
 				wl_add(&stack, i);
-				for (size_t j = R__MAX; j < mfunction->vreg_cnt; j++) {
-					if (ig_interfere(ig, i, j)) {
-						ig_remove(ig, i, j);
-					}
-				}
+				ig_remove(&ig, i);
 			}
 		}
 		if (wl_cnt(&stack) == mfunction->vreg_cnt - R__MAX) {
@@ -2602,11 +2641,7 @@ handle_spill:;
 		fprintf(stderr, "remaining %zu\n", mfunction->vreg_cnt - R__MAX - wl_cnt(&stack));
 		for (size_t i = R__MAX; i < mfunction->vreg_cnt; i++) {
 			wl_add(&stack, i);
-			for (size_t j = R__MAX; j < mfunction->vreg_cnt; j++) {
-				if (ig_interfere(ig, i, j)) {
-					ig_remove(ig, i, j);
-				}
-			}
+			ig_remove(&ig, i);
 		}
 		break;
 	}
@@ -2614,12 +2649,14 @@ handle_spill:;
 	Oper i;
 	while (wl_take_back(&stack, &i)) {
 		Oper used = 0;
-		for (size_t j = 0; j < mfunction->vreg_cnt; j++) {
-			// If this one interferes with some previous allocation
-			// that is not spilled (i.e. not R_NONE), make sure we
-			// dont' use the same register.
-			if (ig_interfere(ig, i, j) && reg_alloc[j] != R_NONE) {
-				used |= 1 << (reg_alloc[j] - 1);
+		// If this one neighbours with some node that
+		// has already color allocated (i.e. not on the
+		// the stack) and it is not spilled (i.e. not R_NONE), make sure we
+		// don't use the same register.
+		for (size_t j = 0; j < ig.adj_cnt_orig[i]; j++) {
+			size_t neighbour = ig.adjs[i][j];
+			if (!wl_has(&stack, neighbour) && reg_alloc[neighbour] != R_NONE) {
+				used |= 1 << (reg_alloc[neighbour] - 1);
 			}
 		}
 		Oper reg = 0;
@@ -2645,11 +2682,6 @@ handle_spill:;
 		fprintf(stderr, " to ");
 		print_reg(stderr, reg);
 		fprintf(stderr, "\n");
-		for (size_t j = 0; j < mfunction->vreg_cnt; j++) {
-			if (ig_interfere(ig_orig, i, j)) {
-				ig_add(ig, i, j);
-			}
-		}
 	}
 
 	if (have_spill) {
