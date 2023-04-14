@@ -2028,20 +2028,6 @@ ig_degree(InterferenceGraph *ig, Oper op)
 	return ig->adj_cnt[op];
 }
 
-void
-ig_copy(InterferenceGraph *ig, InterferenceGraph *ig_orig)
-{
-	ig->n = ig_orig->n;
-	ig->N = ig_orig->N;
-	ig->matrix = malloc(ig->N * sizeof(ig->matrix[0]));
-	for (size_t i = 0; i < ig->N; i++) {
-		ig->matrix[i] = ig_orig->matrix[i];
-	}
-	if (ig_orig->adjs) {
-		ig_calculate_adjacency(ig);
-	}
-}
-
 
 typedef struct {
 	size_t head;
@@ -2607,12 +2593,9 @@ handle_spill:;
 
 	ig_calculate_adjacency(&ig);
 
-	InterferenceGraph ig_orig;
-	ig_copy(&ig_orig, &ig);
 	for (size_t i = 0; i < R__MAX; i++) {
 		reg_alloc[i] = i;
 	}
-
 
 	WorkList stack = {0};
 	for (;;) {
