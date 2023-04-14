@@ -2070,6 +2070,7 @@ wl_add(WorkList *wl, Oper op)
 		wl->sparse[op] = wl->tail;
 		wl->dense[wl->tail] = op;
 		wl->tail += 1;
+		assert(wl->tail < wl->capacity);
 		for (size_t i = wl->head; i < wl->tail; i++) {
 			assert(wl->sparse[wl->dense[i]] == (Oper) i);
 		}
@@ -2118,6 +2119,7 @@ wl_remove(WorkList *wl, Oper op)
 bool
 wl_take(WorkList *wl, Oper *taken)
 {
+	assert(wl->head <= wl->tail);
 	if (wl->head == wl->tail) {
 		return false;
 	}
@@ -2128,6 +2130,7 @@ wl_take(WorkList *wl, Oper *taken)
 bool
 wl_take_back(WorkList *wl, Oper *taken)
 {
+	assert(wl->head <= wl->tail);
 	if (wl->head == wl->tail) {
 		return false;
 	}
@@ -2138,6 +2141,7 @@ wl_take_back(WorkList *wl, Oper *taken)
 Oper
 wl_cnt(WorkList *wl)
 {
+	assert(wl->head <= wl->tail);
 	return wl->tail - wl->head;
 }
 
