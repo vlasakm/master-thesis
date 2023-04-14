@@ -179,7 +179,7 @@ typedef struct {
 	_(SHR, "shr D0, S1", 1, 2, 0, 0) \
 	_(CALL, "call F0", 5, 4, 0, 1) \
 	_(JMP, "jmp B0", 0, 0, 0, 1) \
-	_(RET, "ret", 0, 0, 0, 0) \
+	_(RET, "ret", 0, 2, 0, 0) \
 	_(SYSCALL, "syscall", 0, 0, 0, 0) \
 	_(NOP, "nop", 0, 0, 0, 0) \
 	_(JCC, "jC0 B0", 0, 0, 1, 1) \

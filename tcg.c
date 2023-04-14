@@ -1695,7 +1695,8 @@ add_return(TranslationState *ts, Oper *ret_val)
 	add_copy(ts, R_RBX, callee_saved_reg++);
 	add_copy(ts, R_RSP, R_RBP);
 	add_pop(ts, R_RBP);
-	add_inst(ts, OP_RET);
+	// ret "reads" return value callee saved registers
+	add_inst(ts, OP_RET, R_RAX, R_RBX);
 }
 
 static void
