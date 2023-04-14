@@ -1688,11 +1688,11 @@ add_call(TranslationState *ts, Oper res, Oper fun, Oper *args, size_t arg_cnt)
 static void
 add_return(TranslationState *ts, Oper *ret_val)
 {
-	size_t callee_saved_reg = ts->callee_saved_reg_start;
-	add_copy(ts, R_RBX, callee_saved_reg++);
 	if (ret_val) {
 		add_copy(ts, R_RAX, *ret_val);
 	}
+	size_t callee_saved_reg = ts->callee_saved_reg_start;
+	add_copy(ts, R_RBX, callee_saved_reg++);
 	add_copy(ts, R_RSP, R_RBP);
 	add_pop(ts, R_RBP);
 	// ret "reads" return value callee saved registers
