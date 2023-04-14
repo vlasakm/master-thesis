@@ -14,5 +14,5 @@ int fun(int n) {
 }
 
 int main() {
-    return fun(10) + one() + fun(10) + one();
+    return 20 * one() + fun(10) + one() + fun(10) + one();
 }
