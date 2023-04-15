@@ -2623,6 +2623,43 @@ translate_function(Arena *arena, Function *function, size_t start_index)
 	return mfunction;
 }
 
+void
+build_interference_graph(RegAllocState *ras)
+{
+	MFunction *mfunction = ras->mfunction;
+
+	wl_init_all_reverse(&ras->block_work_list, mfunction->mblock_cnt);
+	Oper b;
+	while (wl_take(&ras->block_work_list, &b)) {
+		MBlock *mblock = &mfunction->mblocks[b];
+		Block *block = mblock->block;
+		// live-out of this block is the union of live-ins of all
+		// successors
+		wl_reset(&ras->live_set);
+		for (size_t i = 0; i < block->succ_cnt; i++) {
+			size_t succ = block->succs[i]->base.index;
+			wl_union(&ras->live_set, &ras->live_in[succ]);
+		}
+		// process the block back to front, updating live_set in the
+		// process and constructing the interference graph in the
+		// process
+		for (Inst *inst = mblock->last; inst; inst = inst->prev) {
+			live_step(&ras->live_set, &ras->ig, inst);
+		}
+		if (!wl_eq(&ras->live_set, &ras->live_in[b])) {
+			WorkList tmp = ras->live_in[b];
+			ras->live_in[b] = ras->live_set;
+			ras->live_set = tmp;
+			for (size_t i = 0; i < block->pred_cnt; i++) {
+				size_t pred = block->preds[i]->base.index;
+				wl_add(&ras->block_work_list, pred);
+			}
+		}
+	}
+
+	ig_calculate_adjacency(&ras->ig);
+}
+
 
 double
 spill_metric(RegAllocState *ras, Oper i)
@@ -2758,34 +2795,7 @@ restart:
 
 	// Make all caller saved registers interfere with calls.
 
-	wl_init_all_reverse(&ras->block_work_list, mfunction->mblock_cnt);
-	Oper b;
-	while (wl_take(&ras->block_work_list, &b)) {
-		MBlock *mblock = &mfunction->mblocks[b];
-		Block *block = mblock->block;
-		// live-out of this block is the union of live-ins of all
-		// successors
-		wl_reset(&ras->live_set);
-		for (size_t i = 0; i < block->succ_cnt; i++) {
-			size_t succ = block->succs[i]->base.index;
-			wl_union(&ras->live_set, &ras->live_in[succ]);
-		}
-		// process the block back to front, updating live_set in the
-		// process and constructing the interference graph in the
-		// process
-		for (Inst *inst = mblock->last; inst; inst = inst->prev) {
-			live_step(&ras->live_set, &ras->ig, inst);
-		}
-		if (!wl_eq(&ras->live_set, &ras->live_in[b])) {
-			WorkList tmp = ras->live_in[b];
-			ras->live_in[b] = ras->live_set;
-			ras->live_set = tmp;
-			for (size_t i = 0; i < block->pred_cnt; i++) {
-				size_t pred = block->preds[i]->base.index;
-				wl_add(&ras->block_work_list, pred);
-			}
-		}
-	}
+	build_interference_graph(ras);
 
 	for (size_t i = 0; i < mfunction->vreg_cnt; i++) {
 		fprintf(stderr, "Spill cost for ");
@@ -2793,7 +2803,6 @@ restart:
 		fprintf(stderr, " defs: %zu, uses: %zu\n", (size_t) ras->def_counts[i], (size_t) ras->use_counts[i]);
 	}
 
-	ig_calculate_adjacency(&ras->ig);
 	for (size_t i = R__MAX; i < mfunction->vreg_cnt; i++) {
 		if (ig_degree(&ras->ig, i) >= ras->reg_avail) {
 			wl_add(&ras->spill_wl, i);
