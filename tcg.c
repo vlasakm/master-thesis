@@ -2660,6 +2660,24 @@ build_interference_graph(RegAllocState *ras)
 	ig_calculate_adjacency(&ras->ig);
 }
 
+void
+initialize_worklists(RegAllocState *ras)
+{
+	size_t vreg_cnt = ras->mfunction->vreg_cnt;
+	for (size_t i = R__MAX; i < vreg_cnt; i++) {
+		if (ig_degree(&ras->ig, i) >= ras->reg_avail) {
+			wl_add(&ras->spill_wl, i);
+			fprintf(stderr, "Starting in spill ");
+			print_reg(stderr, i);
+			fprintf(stderr, "\n");
+		} else {
+			wl_add(&ras->simplify_wl, i);
+			fprintf(stderr, "Starting in simplify ");
+			print_reg(stderr, i);
+			fprintf(stderr, "\n");
+		}
+	}
+}
 
 double
 spill_metric(RegAllocState *ras, Oper i)
@@ -2777,6 +2795,13 @@ assign_registers(RegAllocState *ras)
 	return !have_spill;
 }
 
+// Move all arguments and callee saved registers to temporaries at the
+// start of the function. Then restore callee saved registers at the end
+// of the function.
+
+// Make all caller saved registers interfere with calls.
+
+
 void
 reg_alloc_function(RegAllocState *ras, MFunction *mfunction)
 {
@@ -2784,41 +2809,24 @@ reg_alloc_function(RegAllocState *ras, MFunction *mfunction)
 
 	reg_alloc_state_init_for_function(ras, mfunction);
 
-restart:
-	reg_alloc_state_reset(ras);
+	for (;;) {
+		reg_alloc_state_reset(ras);
+		calculate_spill_cost(mfunction, ras->def_counts, ras->use_counts);
+		build_interference_graph(ras);
+		initialize_worklists(ras);
+		for (;;) {
+			simplify(ras);
+			select_potential_spill_if_needed(ras);
 
-	calculate_spill_cost(mfunction, ras->def_counts, ras->use_counts);
-
-	// Move all arguments and callee saved registers to temporaries at the
-	// start of the function. Then restore callee saved registers at the end
-	// of the function.
-
-	// Make all caller saved registers interfere with calls.
-
-	build_interference_graph(ras);
-
-	for (size_t i = R__MAX; i < mfunction->vreg_cnt; i++) {
-		if (ig_degree(&ras->ig, i) >= ras->reg_avail) {
-			wl_add(&ras->spill_wl, i);
-			fprintf(stderr, "Starting in spill ");
-			print_reg(stderr, i);
-			fprintf(stderr, "\n");
-		} else {
-			wl_add(&ras->simplify_wl, i);
-			fprintf(stderr, "Starting in simplify ");
-			print_reg(stderr, i);
-			fprintf(stderr, "\n");
+			if (wl_cnt(&ras->simplify_wl) == 0 && wl_cnt(&ras->spill_wl) == 0) {
+				break;
+			}
 		}
-	}
 
-	do {
-		simplify(ras);
-		select_potential_spill_if_needed(ras);
-	} while (wl_cnt(&ras->simplify_wl) != 0 || wl_cnt(&ras->spill_wl) != 0);
-
-	if (!assign_registers(ras)) {
+		if (assign_registers(ras)) {
+			break;
+		}
 		spill(ras);
-		goto restart;
 	}
 
 	// Fixup stack space amount reserved at the start of the function
