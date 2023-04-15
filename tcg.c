@@ -36,6 +36,16 @@ typedef int64_t i64;
 #define container_of(member_ptr, type, member) \
 	((type *) ((u8 *)(1 ? (member_ptr) : &((type *) 0)->member) - offsetof(type, member)))
 
+#define GROW_ARRAY(array, new_count) \
+	do { \
+		(array) = realloc((array), (new_count) * sizeof((array)[0])); \
+	} while(0)
+
+#define ZERO_ARRAY(array, count) \
+	do { \
+		memset((array), 0, (count) * sizeof((array)[0])); \
+	} while(0)
+
 #define UNREACHABLE() unreachable(__FILE__, __LINE__)
 _Noreturn void
 unreachable(char *file, size_t line)
@@ -1931,24 +1941,38 @@ typedef struct {
 } InterferenceGraph;
 
 void
-ig_init(InterferenceGraph *ig, size_t size)
+ig_grow(InterferenceGraph *ig, size_t old_capacity, size_t new_capacity)
+{
+	assert(new_capacity > old_capacity);
+	GROW_ARRAY(ig->matrix, new_capacity * new_capacity);
+	GROW_ARRAY(ig->adjs, new_capacity);
+	for (size_t i = old_capacity; i < new_capacity; i++) {
+		ig->adjs[i] = NULL;
+	}
+	GROW_ARRAY(ig->adj_cnt, new_capacity);
+	GROW_ARRAY(ig->adj_cnt_orig, new_capacity);
+}
+
+void
+ig_reset(InterferenceGraph *ig, size_t size)
 {
 	ig->n = size;
 	ig->N = size * size;
-	ig->matrix = malloc(ig->N * sizeof(ig->matrix[0]));
 	for (size_t i = 0; i < ig->N; i++) {
 		ig->matrix[i] = 0;
 	}
-	ig->adjs = NULL;
-	ig->adj_cnt = NULL;
 }
 
 void
 ig_destroy(InterferenceGraph *ig)
 {
 	free(ig->matrix);
+	for (size_t i = 0; i < ig->n; i++) {
+		free(ig->adjs[i]);
+	}
 	free(ig->adjs);
 	free(ig->adj_cnt);
+	free(ig->adj_cnt_orig);
 }
 
 void
@@ -1981,9 +2005,7 @@ ig_interfere(InterferenceGraph *ig, Oper op1, Oper op2)
 void
 ig_calculate_adjacency(InterferenceGraph *ig)
 {
-	ig->adjs = malloc(ig->n * sizeof(ig->adjs[0]));
-	ig->adj_cnt = calloc(ig->n, sizeof(ig->adj_cnt[0]));
-	ig->adj_cnt_orig = calloc(ig->n, sizeof(ig->adj_cnt[0]));
+	ZERO_ARRAY(ig->adj_cnt, ig->n);
 	for (size_t i = 0; i < ig->n; i++) {
 		for (size_t j = 0; j < ig->n; j++) {
 			if (ig->matrix[i * ig->n + j]) {
@@ -1992,8 +2014,9 @@ ig_calculate_adjacency(InterferenceGraph *ig)
 		}
 	}
 	for (size_t i = 0; i < ig->n; i++) {
-		ig->adjs[i] = malloc(ig->adj_cnt[i] * sizeof(ig->adjs[i][0]));
+		GROW_ARRAY(ig->adjs[i], ig->adj_cnt[i]);
 	}
+	ZERO_ARRAY(ig->adj_cnt_orig, ig->n);
 	for (size_t i = 0; i < ig->n; i++) {
 		for (size_t j = 0; j < ig->n; j++) {
 			if (ig->matrix[i * ig->n + j]) {
@@ -2022,16 +2045,17 @@ typedef struct {
 } WorkList;
 
 void
+wl_grow(WorkList *wl, size_t new_capacity)
+{
+	wl->capacity = new_capacity;
+	GROW_ARRAY(wl->dense, new_capacity);
+	GROW_ARRAY(wl->sparse, new_capacity);
+}
+
+void
 wl_init_all(WorkList *wl, Oper op)
 {
-	if (wl->capacity <= op) {
-		wl->capacity = wl->capacity ? wl->capacity : 8;
-		do {
-			wl->capacity *= 2;
-		} while (wl->capacity <= op);
-		wl->sparse = realloc(wl->sparse, wl->capacity * sizeof(wl->sparse[0]));
-		wl->dense = realloc(wl->dense, wl->capacity * sizeof(wl->sparse[0]));
-	}
+	assert(op < wl->capacity);
 	wl->tail = op;
 	for (size_t i = 0; i < op; i++) {
 		wl->dense[i] = i;
@@ -2045,18 +2069,11 @@ wl_init_all(WorkList *wl, Oper op)
 void
 wl_init_all_reverse(WorkList *wl, Oper op)
 {
-	if (wl->capacity <= op) {
-		wl->capacity = wl->capacity ? wl->capacity : 8;
-		do {
-			wl->capacity *= 2;
-		} while (wl->capacity <= op);
-		wl->sparse = realloc(wl->sparse, wl->capacity * sizeof(wl->sparse[0]));
-		wl->dense = realloc(wl->dense, wl->capacity * sizeof(wl->sparse[0]));
-	}
+	assert(op < wl->capacity);
 	wl->tail = op;
 	for (size_t i = 0; i < op; i++) {
-		wl->dense[i] = op - i + 1;
-		wl->sparse[op - i + 1] = i;
+		wl->dense[i] = op - i - 1;
+		wl->sparse[op - i - 1] = i;
 	}
 	for (size_t i = wl->head; i < wl->tail; i++) {
 		assert(wl->sparse[wl->dense[i]] == (Oper) i);
@@ -2066,19 +2083,11 @@ wl_init_all_reverse(WorkList *wl, Oper op)
 bool
 wl_add(WorkList *wl, Oper op)
 {
-	if (wl->capacity <= op) {
-		wl->capacity = wl->capacity ? wl->capacity : 8;
-		do {
-			wl->capacity *= 2;
-		} while (wl->capacity <= op);
-		wl->sparse = realloc(wl->sparse, wl->capacity * sizeof(wl->sparse[0]));
-		wl->dense = realloc(wl->dense, wl->capacity * sizeof(wl->sparse[0]));
-	}
+	assert(op < wl->capacity);
 	if (wl->sparse[op] < wl->head || wl->sparse[op] >= wl->tail || wl->dense[wl->sparse[op]] != op) {
 		wl->sparse[op] = wl->tail;
 		wl->dense[wl->tail] = op;
 		wl->tail += 1;
-		assert(wl->tail < wl->capacity);
 		for (size_t i = wl->head; i < wl->tail; i++) {
 			assert(wl->sparse[wl->dense[i]] == (Oper) i);
 		}
@@ -2098,18 +2107,13 @@ wl_union(WorkList *wl, WorkList *other)
 bool
 wl_has(WorkList *wl, Oper op)
 {
-	if (op >= wl->capacity) {
-		return false;
-	}
 	return wl->sparse[op] >= wl->head && wl->sparse[op] < wl->tail && wl->dense[wl->sparse[op]] == op;
 }
 
 bool
 wl_remove(WorkList *wl, Oper op)
 {
-	if (op >= wl->capacity) {
-		return false;
-	}
+	assert(op < wl->capacity);
 	if (wl_has(wl, op)) {
 		wl->tail -= 1;
 		Oper last = wl->dense[wl->tail];
@@ -2162,6 +2166,7 @@ wl_reset(WorkList *wl)
 bool
 wl_eq(WorkList *wl, WorkList *other)
 {
+	assert(wl->capacity == other->capacity);
 	if (wl->tail - wl->head != other->tail - other->head) {
 		return false;
 	}
@@ -2176,12 +2181,11 @@ wl_eq(WorkList *wl, WorkList *other)
 void
 wl_destroy(WorkList *wl)
 {
-	if (wl->sparse) {
-		free(wl->sparse);
-		free(wl->dense);
-	}
+	free(wl->sparse);
+	free(wl->dense);
 	*wl = (WorkList) {0};
 }
+
 
 void
 print_mfunction(FILE *f, MFunction *mfunction)
@@ -2199,6 +2203,131 @@ print_mfunction(FILE *f, MFunction *mfunction)
 			fprintf(f, "\n");
 		}
 	}
+}
+
+typedef struct {
+	Arena *arena;
+	MFunction *mfunction;
+	size_t vreg_capacity;
+	size_t block_capacity;
+
+	// Parameters
+	size_t reg_avail;
+
+	// Final register allocation
+	Oper *reg_alloc;
+
+	u8 *to_spill;
+
+	// Spill cost related
+	u8 *def_counts;
+	u8 *use_counts;
+
+	InterferenceGraph ig;
+	WorkList live_set;
+	WorkList block_work_list;
+	WorkList *live_in;
+
+	// Worklists for the different register allocation phases
+	WorkList spill_wl;
+	WorkList freeze_wl;
+	WorkList simplify_wl;
+	WorkList stack;
+} RegAllocState;
+
+void
+reg_alloc_state_init(RegAllocState *ras, Arena *arena)
+{
+	*ras = (RegAllocState) {
+		.arena = arena,
+		.reg_avail = 6,
+	};
+}
+
+void
+reg_alloc_state_reset(RegAllocState *ras)
+{
+	assert(ras->mfunction->vreg_cnt > 0);
+	size_t old_vreg_capacity = ras->vreg_capacity;
+	if (ras->vreg_capacity == 0) {
+		ras->vreg_capacity = 64;
+	}
+	while (ras->vreg_capacity < ras->mfunction->vreg_cnt) {
+		ras->vreg_capacity += ras->vreg_capacity;
+	}
+	size_t old_block_capacity = ras->block_capacity;
+	if (ras->block_capacity == 0) {
+		ras->block_capacity = 16;
+	}
+	while (ras->block_capacity < ras->mfunction->mblock_cnt) {
+		ras->block_capacity += ras->block_capacity;
+	}
+
+	if (old_block_capacity < ras->block_capacity) {
+		GROW_ARRAY(ras->live_in, ras->block_capacity);
+		wl_grow(&ras->block_work_list, ras->block_capacity);
+		ZERO_ARRAY(&ras->live_in[old_block_capacity], ras->block_capacity - old_block_capacity);
+		for (size_t i = old_block_capacity; i < ras->block_capacity; i++) {
+			wl_grow(&ras->live_in[i], ras->vreg_capacity);
+		}
+	}
+
+	if (old_vreg_capacity < ras->vreg_capacity) {
+		GROW_ARRAY(ras->reg_alloc, ras->vreg_capacity);
+		GROW_ARRAY(ras->to_spill, ras->vreg_capacity);
+		GROW_ARRAY(ras->def_counts, ras->vreg_capacity);
+		GROW_ARRAY(ras->use_counts, ras->vreg_capacity);
+		ig_grow(&ras->ig, old_vreg_capacity, ras->vreg_capacity);
+		wl_grow(&ras->live_set, ras->vreg_capacity);
+		for (size_t i = 0; i < old_block_capacity; i++) {
+			wl_grow(&ras->live_in[i], ras->vreg_capacity);
+		}
+		wl_grow(&ras->spill_wl, ras->vreg_capacity);
+		wl_grow(&ras->freeze_wl, ras->vreg_capacity);
+		wl_grow(&ras->simplify_wl, ras->vreg_capacity);
+		wl_grow(&ras->stack, ras->vreg_capacity);
+	}
+
+	ZERO_ARRAY(ras->reg_alloc, ras->mfunction->vreg_cnt);
+	ZERO_ARRAY(ras->to_spill, ras->mfunction->vreg_cnt);
+	ZERO_ARRAY(ras->def_counts, ras->mfunction->vreg_cnt);
+	ZERO_ARRAY(ras->use_counts, ras->mfunction->vreg_cnt);
+	ig_reset(&ras->ig, ras->mfunction->vreg_cnt);
+	wl_reset(&ras->live_set);
+	wl_reset(&ras->block_work_list);
+	for (size_t i = 0; i < ras->mfunction->mblock_cnt; i++) {
+		wl_reset(&ras->live_in[i]);
+	}
+	wl_reset(&ras->spill_wl);
+	wl_reset(&ras->freeze_wl);
+	wl_reset(&ras->simplify_wl);
+	wl_reset(&ras->stack);
+}
+
+void
+reg_alloc_state_destroy(RegAllocState *ras)
+{
+	free(ras->reg_alloc);
+	free(ras->to_spill);
+	free(ras->def_counts);
+	free(ras->use_counts);
+	ig_destroy(&ras->ig);
+	wl_destroy(&ras->live_set);
+	for (size_t i = 0; i < ras->block_capacity; i++) {
+		wl_destroy(&ras->live_in[i]);
+	}
+	free(ras->live_in);
+	wl_destroy(&ras->spill_wl);
+	wl_destroy(&ras->freeze_wl);
+	wl_destroy(&ras->simplify_wl);
+	wl_destroy(&ras->stack);
+}
+
+void
+reg_alloc_state_init_for_function(RegAllocState *ras, MFunction *mfunction)
+{
+	ras->mfunction = mfunction;
+	//reg_alloc_state_reset(ras);
 }
 
 void
@@ -2230,7 +2359,7 @@ live_step(WorkList *live_set, InterferenceGraph *ig, Inst *inst)
 }
 
 void
-spill(Arena *arena, u8 *to_spill, MFunction *mfunction)
+spill(RegAllocState *ras)
 {
 	// TODO: Infinite spill costs for uses immediately following
 	// definitions.
@@ -2240,9 +2369,9 @@ spill(Arena *arena, u8 *to_spill, MFunction *mfunction)
 	//
 	// mov t17, [rbp-16] // should use the same t17
 	// add t18, t9       // should use the same t17
-	print_mfunction(stderr, mfunction);
-	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
-		MBlock *mblock = &mfunction->mblocks[b];
+	print_mfunction(stderr, ras->mfunction);
+	for (size_t b = 0; b < ras->mfunction->mblock_cnt; b++) {
+		MBlock *mblock = &ras->mfunction->mblocks[b];
 		for (Inst *inst = mblock->first; inst; inst = inst->next) {
 			fprintf(stderr, "\n");
 			print_inst(stderr, inst);
@@ -2250,7 +2379,7 @@ spill(Arena *arena, u8 *to_spill, MFunction *mfunction)
 			InstDesc *desc = &inst_desc[inst->op];
 			// Add loads for all spilled uses.
 			for (size_t i = desc->dest_cnt; i < desc->src_cnt; i++) {
-				if (!to_spill[inst->ops[i]]) {
+				if (!ras->to_spill[inst->ops[i]]) {
 					continue;
 				}
 				fprintf(stderr, "load ");
@@ -2258,7 +2387,7 @@ spill(Arena *arena, u8 *to_spill, MFunction *mfunction)
 				fprintf(stderr, "\n");
 				//Oper temp = mfunction->vreg_cnt++;
 				Oper temp = inst->ops[i];
-				Inst *load = make_inst(arena, OP_MOV_RMC, temp, R_RBP, 8 + to_spill[inst->ops[i]]);
+				Inst *load = make_inst(ras->arena, OP_MOV_RMC, temp, R_RBP, 8 + ras->to_spill[inst->ops[i]]);
 				load->prev = inst->prev;
 				load->next = inst;
 				inst->prev->next = load;
@@ -2267,7 +2396,7 @@ spill(Arena *arena, u8 *to_spill, MFunction *mfunction)
 			}
 			// Add stores for all spilled defs.
 			for (size_t i = 0; i < desc->dest_cnt; i++) {
-				if (!to_spill[inst->ops[i]]) {
+				if (!ras->to_spill[inst->ops[i]]) {
 					continue;
 				}
 				fprintf(stderr, "store ");
@@ -2275,7 +2404,7 @@ spill(Arena *arena, u8 *to_spill, MFunction *mfunction)
 				fprintf(stderr, "\n");
 				//Oper temp = mfunction->vreg_cnt++;
 				Oper temp = inst->ops[i];
-				Inst *store = make_inst(arena, OP_MOV_MCR, R_RBP, temp, 8 + to_spill[inst->ops[i]]);
+				Inst *store = make_inst(ras->arena, OP_MOV_MCR, R_RBP, temp, 8 + ras->to_spill[inst->ops[i]]);
 				store->prev = inst;
 				store->next = inst->next;
 				inst->next->prev = store;
@@ -2285,7 +2414,7 @@ spill(Arena *arena, u8 *to_spill, MFunction *mfunction)
 		}
 		}
 	}
-	print_mfunction(stderr, mfunction);
+	print_mfunction(stderr, ras->mfunction);
 }
 
 void
@@ -2494,32 +2623,22 @@ translate_function(Arena *arena, Function *function, size_t start_index)
 	function->mfunc= mfunction;
 	return mfunction;
 }
-
 void
-reg_alloc_function(Arena *arena, MFunction *mfunction)
+reg_alloc_function(RegAllocState *ras, MFunction *mfunction)
 {
 	print_mfunction(stderr, mfunction);
 
+	reg_alloc_state_init_for_function(ras, mfunction);
+
 	bool have_spill = false;
-	u8 *to_spill;
 handle_spill:;
 	if (have_spill) {
-		spill(arena, to_spill, mfunction);
+		spill(ras);
 		have_spill = false;
 	}
+	reg_alloc_state_reset(ras);
 
-	Oper *reg_alloc = arena_alloc(arena, mfunction->vreg_cnt * sizeof(reg_alloc[0]));
-	to_spill = arena_alloc(arena, mfunction->vreg_cnt * sizeof(to_spill[0]));
-	u8 *def_counts = arena_alloc(arena, mfunction->vreg_cnt * sizeof(def_counts[0]));
-	u8 *use_counts = arena_alloc(arena, mfunction->vreg_cnt * sizeof(def_counts[0]));
-	memset(to_spill, 0, mfunction->vreg_cnt * sizeof(to_spill[0]));
-	memset(def_counts, 0, mfunction->vreg_cnt * sizeof(def_counts[0]));
-	memset(use_counts, 0, mfunction->vreg_cnt * sizeof(use_counts[0]));
-	calculate_spill_cost(mfunction, def_counts, use_counts);
-
-	WorkList live_set = {0};
-	InterferenceGraph ig;
-	ig_init(&ig, mfunction->vreg_cnt);
+	calculate_spill_cost(mfunction, ras->def_counts, ras->use_counts);
 
 	// Move all arguments and callee saved registers to temporaries at the
 	// start of the function. Then restore callee saved registers at the end
@@ -2527,67 +2646,50 @@ handle_spill:;
 
 	// Make all caller saved registers interfere with calls.
 
-	WorkList work_list = {0};
-	WorkList *live_in = arena_alloc(arena, mfunction->mblock_cnt * sizeof(live_in[0]));
-	for (size_t b = mfunction->mblock_cnt; b--;) {
-		wl_add(&work_list, b);
-		live_in[b] = (WorkList) {0};
-	}
-
+	wl_init_all_reverse(&ras->block_work_list, mfunction->mblock_cnt);
 	Oper b;
-	while (wl_take(&work_list, &b)) {
+	while (wl_take(&ras->block_work_list, &b)) {
 		MBlock *mblock = &mfunction->mblocks[b];
 		Block *block = mblock->block;
 		// live-out of this block is the union of live-ins of all
 		// successors
-		wl_reset(&live_set);
+		wl_reset(&ras->live_set);
 		for (size_t i = 0; i < block->succ_cnt; i++) {
 			size_t succ = block->succs[i]->base.index;
-			wl_union(&live_set, &live_in[succ]);
+			wl_union(&ras->live_set, &ras->live_in[succ]);
 		}
 		// process the block back to front, updating live_set in the
 		// process and constructing the interference graph in the
 		// process
 		for (Inst *inst = mblock->last; inst; inst = inst->prev) {
-			live_step(&live_set, &ig, inst);
+			live_step(&ras->live_set, &ras->ig, inst);
 		}
-		if (!wl_eq(&live_set, &live_in[b])) {
-			WorkList tmp = live_in[b];
-			live_in[b] = live_set;
-			live_set = tmp;
+		if (!wl_eq(&ras->live_set, &ras->live_in[b])) {
+			WorkList tmp = ras->live_in[b];
+			ras->live_in[b] = ras->live_set;
+			ras->live_set = tmp;
 			for (size_t i = 0; i < block->pred_cnt; i++) {
 				size_t pred = block->preds[i]->base.index;
-				wl_add(&work_list, pred);
+				wl_add(&ras->block_work_list, pred);
 			}
 		}
-	}
-	wl_destroy(&work_list);
-	wl_destroy(&live_set);
-	for (size_t b = mfunction->mblock_cnt; b--;) {
-		wl_destroy(&live_in[b]);
 	}
 
 	for (size_t i = 0; i < mfunction->vreg_cnt; i++) {
 		fprintf(stderr, "Spill cost for ");
 		print_reg(stderr, i);
-		fprintf(stderr, " defs: %zu, uses: %zu\n", (size_t) def_counts[i], (size_t) use_counts[i]);
+		fprintf(stderr, " defs: %zu, uses: %zu\n", (size_t) ras->def_counts[i], (size_t) ras->use_counts[i]);
 	}
 
-	size_t reg_avail = 6;
-
-	ig_calculate_adjacency(&ig);
-	WorkList spill_wl = {0};
-	WorkList freeze_wl = {0};
-	WorkList simplify_wl = {0};
-	WorkList stack = {0};
+	ig_calculate_adjacency(&ras->ig);
 	for (size_t i = R__MAX; i < mfunction->vreg_cnt; i++) {
-		if (ig_degree(&ig, i) >= reg_avail) {
-			wl_add(&spill_wl, i);
+		if (ig_degree(&ras->ig, i) >= ras->reg_avail) {
+			wl_add(&ras->spill_wl, i);
 			fprintf(stderr, "Starting in spill ");
 			print_reg(stderr, i);
 			fprintf(stderr, "\n");
 		} else {
-			wl_add(&simplify_wl, i);
+			wl_add(&ras->simplify_wl, i);
 			fprintf(stderr, "Starting in simplify ");
 			print_reg(stderr, i);
 			fprintf(stderr, "\n");
@@ -2597,13 +2699,13 @@ handle_spill:;
 	do {
 		// Simplify
 		Oper i;
-		while (wl_take_back(&simplify_wl, &i)) {
-			wl_add(&stack, i);
+		while (wl_take_back(&ras->simplify_wl, &i)) {
+			wl_add(&ras->stack, i);
 			fprintf(stderr, "Pushing ");
 			print_reg(stderr, i);
 			fprintf(stderr, "\n");
-			for (size_t j = 0; j < ig.adj_cnt_orig[i]; j++) {
-				Oper neighbour = ig.adjs[i][j];
+			for (size_t j = 0; j < ras->ig.adj_cnt_orig[i]; j++) {
+				Oper neighbour = ras->ig.adjs[i][j];
 				if (neighbour < R__MAX) {
 					continue;
 				}
@@ -2612,62 +2714,62 @@ handle_spill:;
 				fprintf(stderr, " ");
 				print_reg(stderr, neighbour);
 				fprintf(stderr, "\n");
-				if (ig.adj_cnt[neighbour] != 0) {
-					ig.adj_cnt[neighbour]--;
-					if (ig.adj_cnt[neighbour] < reg_avail) {
+				if (ras->ig.adj_cnt[neighbour] != 0) {
+					ras->ig.adj_cnt[neighbour]--;
+					if (ras->ig.adj_cnt[neighbour] < ras->reg_avail) {
 						fprintf(stderr, "Move from spill to simplify ");
 						print_reg(stderr, neighbour);
 						fprintf(stderr, "\n");
-						wl_remove(&spill_wl, neighbour);
-						wl_add(&simplify_wl, neighbour);
+						wl_remove(&ras->spill_wl, neighbour);
+						wl_add(&ras->simplify_wl, neighbour);
 					}
 				}
 			}
 		}
 
 		// Select Spill
-		if (wl_cnt(&spill_wl) != 0) {
+		if (wl_cnt(&ras->spill_wl) != 0) {
 			fprintf(stderr, "Potential spill\n");
-			Oper candidate = spill_wl.dense[spill_wl.head];
-			size_t max = ig_degree(&ig, i) / (def_counts[i] + use_counts[i]);
-			for (size_t j = spill_wl.head; j < spill_wl.tail; j++) {
-				Oper i = spill_wl.dense[j];
-				size_t curr = ig_degree(&ig, i) / (def_counts[i] + use_counts[i]);
+			Oper candidate = ras->spill_wl.dense[ras->spill_wl.head];
+			size_t max = ig_degree(&ras->ig, i) / (ras->def_counts[i] + ras->use_counts[i]);
+			for (size_t j = ras->spill_wl.head; j < ras->spill_wl.tail; j++) {
+				Oper i = ras->spill_wl.dense[j];
+				size_t curr = ig_degree(&ras->ig, i) / (ras->def_counts[i] + ras->use_counts[i]);
 				if (curr > max) {
 					max = curr;
 					candidate = i;
 				}
 				fprintf(stderr, "Spill cost for ");
 				print_reg(stderr, i);
-				fprintf(stderr, " degree: %zu, defs: %zu, uses: %zu\n", ig_degree(&ig, i), (size_t) def_counts[i], (size_t) use_counts[i]);
+				fprintf(stderr, " degree: %zu, defs: %zu, uses: %zu\n", ig_degree(&ras->ig, i), (size_t) ras->def_counts[i], (size_t) ras->use_counts[i]);
 			}
 			fprintf(stderr, "Choosing for spill ");
 			print_reg(stderr, candidate);
 			fprintf(stderr, "\n");
-			wl_remove(&spill_wl, candidate);
-			wl_add(&simplify_wl, candidate);
+			wl_remove(&ras->spill_wl, candidate);
+			wl_add(&ras->simplify_wl, candidate);
 		}
-	} while (wl_cnt(&simplify_wl) != 0 || wl_cnt(&spill_wl) != 0);
+	} while (wl_cnt(&ras->simplify_wl) != 0 || wl_cnt(&ras->spill_wl) != 0);
 
 	for (size_t i = 0; i < R__MAX; i++) {
-		reg_alloc[i] = i;
+		ras->reg_alloc[i] = i;
 	}
 
 	Oper i;
-	while (wl_take_back(&stack, &i)) {
+	while (wl_take_back(&ras->stack, &i)) {
 		Oper used = 0;
 		// If this one neighbours with some node that
 		// has already color allocated (i.e. not on the
 		// the stack) and it is not spilled (i.e. not R_NONE), make sure we
 		// don't use the same register.
-		for (size_t j = 0; j < ig.adj_cnt_orig[i]; j++) {
-			size_t neighbour = ig.adjs[i][j];
-			if (!wl_has(&stack, neighbour) && reg_alloc[neighbour] != R_NONE) {
-				used |= 1 << (reg_alloc[neighbour] - 1);
+		for (size_t j = 0; j < ras->ig.adj_cnt_orig[i]; j++) {
+			size_t neighbour = ras->ig.adjs[i][j];
+			if (!wl_has(&ras->stack, neighbour) && ras->reg_alloc[neighbour] != R_NONE) {
+				used |= 1 << (ras->reg_alloc[neighbour] - 1);
 			}
 		}
 		Oper reg = 0;
-		for (size_t ri = 1; ri <= reg_avail; ri++) {
+		for (size_t ri = 1; ri <= ras->reg_avail; ri++) {
 			size_t mask = 1 << (ri - 1);
 			if ((used & mask) == 0) {
 				reg = ri;
@@ -2678,12 +2780,12 @@ handle_spill:;
 			fprintf(stderr, "Out of registers at ");
 			print_reg(stderr, i);
 			fprintf(stderr, "\n");
-			to_spill[i] = mfunction->stack_space;
+			ras->to_spill[i] = mfunction->stack_space;
 			assert(mfunction->stack_space < 240);
 			mfunction->stack_space += 8;
 			have_spill = true;
 		}
-		reg_alloc[i] = reg;
+		ras->reg_alloc[i] = reg;
 		fprintf(stderr, "allocated ");
 		print_reg(stderr, i);
 		fprintf(stderr, " to ");
@@ -2699,7 +2801,7 @@ handle_spill:;
 	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
 		MBlock *mblock = &mfunction->mblocks[b];
 		for (Inst *inst = mblock->first; inst; inst = inst->next) {
-			apply_reg_alloc(reg_alloc, inst);
+			apply_reg_alloc(ras->reg_alloc, inst);
 		}
 	}
 	//return ast;
@@ -2836,11 +2938,14 @@ main(int argc, char **argv)
 	Function **functions = module->functions;
 	size_t function_cnt = module->function_cnt;
 
+	RegAllocState ras;
+	reg_alloc_state_init(&ras, arena);
+
 	for (size_t i = 0; i < function_cnt; i++) {
 		size_t index = number_values(functions[i], R__MAX);
 		print_function(stderr, functions[i]);
 		translate_function(arena, functions[i], index);
-		reg_alloc_function(arena, functions[i]->mfunc);
+		reg_alloc_function(&ras, functions[i]->mfunc);
 	}
 
 	printf("section .text\n");
