@@ -2331,8 +2331,11 @@ reg_alloc_state_init_for_function(RegAllocState *ras, MFunction *mfunction)
 }
 
 void
-live_step(WorkList *live_set, InterferenceGraph *ig, Inst *inst)
+live_step(RegAllocState *ras, Inst *inst)
 {
+	WorkList *live_set = &ras->live_set;
+	InterferenceGraph *ig = &ras->ig;
+
 	InstDesc *desc = &inst_desc[inst->op];
 
 	// Add interferences of all definitions with all live.
@@ -2645,7 +2648,7 @@ build_interference_graph(RegAllocState *ras)
 		// process and constructing the interference graph in the
 		// process
 		for (Inst *inst = mblock->last; inst; inst = inst->prev) {
-			live_step(&ras->live_set, &ras->ig, inst);
+			live_step(ras, inst);
 		}
 		if (!wl_eq(&ras->live_set, &ras->live_in[b])) {
 			WorkList tmp = ras->live_in[b];
