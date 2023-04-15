@@ -1966,23 +1966,6 @@ ig_add(InterferenceGraph *ig, Oper op1, Oper op2)
 	ig->matrix[op2 * ig->n + op1] = 1;
 }
 
-void
-ig_remove(InterferenceGraph *ig, Oper op)
-{
-	assert(ig->adjs);
-	for (size_t i = 0; i < ig->adj_cnt[i]; i++) {
-		size_t neighbour = ig->adjs[op][i];
-		fprintf(stderr, "Removing interference ");
-		print_reg(stderr, op);
-		fprintf(stderr, " ");
-		print_reg(stderr, neighbour);
-		fprintf(stderr, "\n");
-		if (ig->adj_cnt[neighbour] != 0) {
-			ig->adj_cnt[neighbour]--;
-		}
-	}
-}
-
 bool
 ig_interfere(InterferenceGraph *ig, Oper op1, Oper op2)
 {
