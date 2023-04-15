@@ -2622,6 +2622,58 @@ translate_function(Arena *arena, Function *function, size_t start_index)
 	function->mfunc= mfunction;
 	return mfunction;
 }
+
+bool
+assign_registers(RegAllocState *ras)
+{
+	bool have_spill = false;
+	MFunction *mfunction = ras->mfunction;
+
+	// Physical registers are assigned themselves.
+	for (size_t i = 0; i < R__MAX; i++) {
+		ras->reg_alloc[i] = i;
+	}
+
+	Oper i;
+	while (wl_take_back(&ras->stack, &i)) {
+		Oper used = 0;
+		// If this one neighbours with some node that
+		// has already color allocated (i.e. not on the
+		// the stack) and it is not spilled (i.e. not R_NONE), make sure we
+		// don't use the same register.
+		for (size_t j = 0; j < ras->ig.adj_cnt_orig[i]; j++) {
+			size_t neighbour = ras->ig.adjs[i][j];
+			if (!wl_has(&ras->stack, neighbour) && ras->reg_alloc[neighbour] != R_NONE) {
+				used |= 1 << (ras->reg_alloc[neighbour] - 1);
+			}
+		}
+		Oper reg = 0;
+		for (size_t ri = 1; ri <= ras->reg_avail; ri++) {
+			size_t mask = 1 << (ri - 1);
+			if ((used & mask) == 0) {
+				reg = ri;
+				break;
+			}
+		}
+		if (reg == 0) {
+			fprintf(stderr, "Out of registers at ");
+			print_reg(stderr, i);
+			fprintf(stderr, "\n");
+			ras->to_spill[i] = mfunction->stack_space;
+			assert(mfunction->stack_space < 240);
+			mfunction->stack_space += 8;
+			have_spill = true;
+		}
+		ras->reg_alloc[i] = reg;
+		fprintf(stderr, "allocated ");
+		print_reg(stderr, i);
+		fprintf(stderr, " to ");
+		print_reg(stderr, reg);
+		fprintf(stderr, "\n");
+	}
+	return !have_spill;
+}
+
 void
 reg_alloc_function(RegAllocState *ras, MFunction *mfunction)
 {
@@ -2629,12 +2681,7 @@ reg_alloc_function(RegAllocState *ras, MFunction *mfunction)
 
 	reg_alloc_state_init_for_function(ras, mfunction);
 
-	bool have_spill = false;
-handle_spill:;
-	if (have_spill) {
-		spill(ras);
-		have_spill = false;
-	}
+restart:
 	reg_alloc_state_reset(ras);
 
 	calculate_spill_cost(mfunction, ras->def_counts, ras->use_counts);
@@ -2750,50 +2797,9 @@ handle_spill:;
 		}
 	} while (wl_cnt(&ras->simplify_wl) != 0 || wl_cnt(&ras->spill_wl) != 0);
 
-	for (size_t i = 0; i < R__MAX; i++) {
-		ras->reg_alloc[i] = i;
-	}
-
-	Oper i;
-	while (wl_take_back(&ras->stack, &i)) {
-		Oper used = 0;
-		// If this one neighbours with some node that
-		// has already color allocated (i.e. not on the
-		// the stack) and it is not spilled (i.e. not R_NONE), make sure we
-		// don't use the same register.
-		for (size_t j = 0; j < ras->ig.adj_cnt_orig[i]; j++) {
-			size_t neighbour = ras->ig.adjs[i][j];
-			if (!wl_has(&ras->stack, neighbour) && ras->reg_alloc[neighbour] != R_NONE) {
-				used |= 1 << (ras->reg_alloc[neighbour] - 1);
-			}
-		}
-		Oper reg = 0;
-		for (size_t ri = 1; ri <= ras->reg_avail; ri++) {
-			size_t mask = 1 << (ri - 1);
-			if ((used & mask) == 0) {
-				reg = ri;
-				break;
-			}
-		}
-		if (reg == 0) {
-			fprintf(stderr, "Out of registers at ");
-			print_reg(stderr, i);
-			fprintf(stderr, "\n");
-			ras->to_spill[i] = mfunction->stack_space;
-			assert(mfunction->stack_space < 240);
-			mfunction->stack_space += 8;
-			have_spill = true;
-		}
-		ras->reg_alloc[i] = reg;
-		fprintf(stderr, "allocated ");
-		print_reg(stderr, i);
-		fprintf(stderr, " to ");
-		print_reg(stderr, reg);
-		fprintf(stderr, "\n");
-	}
-
-	if (have_spill) {
-		goto handle_spill;
+	if (!assign_registers(ras)) {
+		spill(ras);
+		goto restart;
 	}
 
 	// Fixup stack space amount reserved at the start of the function
