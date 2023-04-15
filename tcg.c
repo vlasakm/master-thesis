@@ -2215,7 +2215,7 @@ typedef struct {
 	size_t reg_avail;
 
 	// Final register allocation
-	Oper *reg_alloc;
+	Oper *reg_assignment;
 
 	u8 *to_spill;
 
@@ -2273,7 +2273,7 @@ reg_alloc_state_reset(RegAllocState *ras)
 	}
 
 	if (old_vreg_capacity < ras->vreg_capacity) {
-		GROW_ARRAY(ras->reg_alloc, ras->vreg_capacity);
+		GROW_ARRAY(ras->reg_assignment, ras->vreg_capacity);
 		GROW_ARRAY(ras->to_spill, ras->vreg_capacity);
 		GROW_ARRAY(ras->def_counts, ras->vreg_capacity);
 		GROW_ARRAY(ras->use_counts, ras->vreg_capacity);
@@ -2288,7 +2288,7 @@ reg_alloc_state_reset(RegAllocState *ras)
 		wl_grow(&ras->stack, ras->vreg_capacity);
 	}
 
-	ZERO_ARRAY(ras->reg_alloc, ras->mfunction->vreg_cnt);
+	ZERO_ARRAY(ras->reg_assignment, ras->mfunction->vreg_cnt);
 	ZERO_ARRAY(ras->to_spill, ras->mfunction->vreg_cnt);
 	ZERO_ARRAY(ras->def_counts, ras->mfunction->vreg_cnt);
 	ZERO_ARRAY(ras->use_counts, ras->mfunction->vreg_cnt);
@@ -2307,7 +2307,7 @@ reg_alloc_state_reset(RegAllocState *ras)
 void
 reg_alloc_state_destroy(RegAllocState *ras)
 {
-	free(ras->reg_alloc);
+	free(ras->reg_assignment);
 	free(ras->to_spill);
 	free(ras->def_counts);
 	free(ras->use_counts);
@@ -2418,7 +2418,7 @@ spill(RegAllocState *ras)
 }
 
 void
-apply_reg_alloc(RegAllocState *ras)
+apply_reg_assignment(RegAllocState *ras)
 {
 	for (size_t b = 0; b < ras->mfunction->mblock_cnt; b++) {
 		MBlock *mblock = &ras->mfunction->mblocks[b];
@@ -2427,7 +2427,7 @@ apply_reg_alloc(RegAllocState *ras)
 			size_t i = 0;
 			for (; i < desc->src_cnt; i++) {
 				assert(inst->ops[i] >= 0);
-				inst->ops[i] = ras->reg_alloc[inst->ops[i]];
+				inst->ops[i] = ras->reg_assignment[inst->ops[i]];
 			}
 		}
 	}
@@ -2697,7 +2697,7 @@ assign_registers(RegAllocState *ras)
 
 	// Physical registers are assigned themselves.
 	for (size_t i = 0; i < R__MAX; i++) {
-		ras->reg_alloc[i] = i;
+		ras->reg_assignment[i] = i;
 	}
 
 	Oper i;
@@ -2709,8 +2709,8 @@ assign_registers(RegAllocState *ras)
 		// don't use the same register.
 		for (size_t j = 0; j < ras->ig.adj_cnt_orig[i]; j++) {
 			size_t neighbour = ras->ig.adjs[i][j];
-			if (!wl_has(&ras->stack, neighbour) && ras->reg_alloc[neighbour] != R_NONE) {
-				used |= 1 << (ras->reg_alloc[neighbour] - 1);
+			if (!wl_has(&ras->stack, neighbour) && ras->reg_assignment[neighbour] != R_NONE) {
+				used |= 1 << (ras->reg_assignment[neighbour] - 1);
 			}
 		}
 		Oper reg = 0;
@@ -2730,7 +2730,7 @@ assign_registers(RegAllocState *ras)
 			mfunction->stack_space += 8;
 			have_spill = true;
 		}
-		ras->reg_alloc[i] = reg;
+		ras->reg_assignment[i] = reg;
 		fprintf(stderr, "allocated ");
 		print_reg(stderr, i);
 		fprintf(stderr, " to ");
@@ -2820,7 +2820,7 @@ restart:
 
 	// Fixup stack space amount reserved at the start of the function
 	mfunction->make_stack_space->ops[2] = mfunction->stack_space;
-	apply_reg_alloc(ras);
+	apply_reg_assignment(ras);
 }
 
 typedef struct Error Error;
