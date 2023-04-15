@@ -2710,7 +2710,7 @@ simplify(RegAllocState *ras)
 			fprintf(stderr, "\n");
 			if (ras->ig.adj_cnt[neighbour] != 0) {
 				ras->ig.adj_cnt[neighbour]--;
-				if (ras->ig.adj_cnt[neighbour] < ras->reg_avail) {
+				if (ras->ig.adj_cnt[neighbour] == ras->reg_avail - 1) {
 					fprintf(stderr, "Move from spill to simplify ");
 					print_reg(stderr, neighbour);
 					fprintf(stderr, "\n");
