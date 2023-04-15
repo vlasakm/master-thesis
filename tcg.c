@@ -2418,19 +2418,18 @@ spill(RegAllocState *ras)
 }
 
 void
-apply_reg_alloc(Oper *reg_alloc, Inst *inst)
+apply_reg_alloc(RegAllocState *ras)
 {
-	InstDesc *desc = &inst_desc[inst->op];
-	//printf("%s", desc->mnemonic);
-	size_t i = 0;
-	for (; i < desc->src_cnt; i++) {
-		//assert(inst->ops[i] != 0);
-		//if (inst->ops[i] < 0) {
-		//	continue;
-		//}
-		//inst->ops[i] = -reg_alloc[inst->ops[i]];
-		assert(inst->ops[i] >= 0);
-		inst->ops[i] = reg_alloc[inst->ops[i]];
+	for (size_t b = 0; b < ras->mfunction->mblock_cnt; b++) {
+		MBlock *mblock = &ras->mfunction->mblocks[b];
+		for (Inst *inst = mblock->first; inst; inst = inst->next) {
+			InstDesc *desc = &inst_desc[inst->op];
+			size_t i = 0;
+			for (; i < desc->src_cnt; i++) {
+				assert(inst->ops[i] >= 0);
+				inst->ops[i] = ras->reg_alloc[inst->ops[i]];
+			}
+		}
 	}
 }
 
@@ -2797,14 +2796,9 @@ handle_spill:;
 		goto handle_spill;
 	}
 
+	// Fixup stack space amount reserved at the start of the function
 	mfunction->make_stack_space->ops[2] = mfunction->stack_space;
-	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
-		MBlock *mblock = &mfunction->mblocks[b];
-		for (Inst *inst = mblock->first; inst; inst = inst->next) {
-			apply_reg_alloc(ras->reg_alloc, inst);
-		}
-	}
-	//return ast;
+	apply_reg_alloc(ras);
 }
 
 typedef struct Error Error;
