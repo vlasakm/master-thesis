@@ -2623,6 +2623,16 @@ translate_function(Arena *arena, Function *function, size_t start_index)
 	return mfunction;
 }
 
+
+double
+spill_metric(RegAllocState *ras, Oper i)
+{
+	fprintf(stderr, "Spill cost for ");
+	print_reg(stderr, i);
+	fprintf(stderr, " degree: %zu, defs: %zu, uses: %zu\n", ig_degree(&ras->ig, i), (size_t) ras->def_counts[i], (size_t) ras->use_counts[i]);
+	return (double) ig_degree(&ras->ig, i) / (ras->def_counts[i] + ras->use_counts[i]);
+}
+
 void
 simplify(RegAllocState *ras)
 {
@@ -2656,24 +2666,20 @@ simplify(RegAllocState *ras)
 	}
 }
 
-
 void
 select_potential_spill_if_needed(RegAllocState *ras)
 {
 	if (wl_cnt(&ras->spill_wl) != 0) {
 		fprintf(stderr, "Potential spill\n");
 		Oper candidate = ras->spill_wl.dense[ras->spill_wl.head];
-		size_t max = ig_degree(&ras->ig, candidate) / (ras->def_counts[candidate] + ras->use_counts[candidate]);
+		size_t max = spill_metric(ras, candidate);
 		for (size_t j = ras->spill_wl.head; j < ras->spill_wl.tail; j++) {
 			Oper i = ras->spill_wl.dense[j];
-			size_t curr = ig_degree(&ras->ig, i) / (ras->def_counts[i] + ras->use_counts[i]);
+			size_t curr = spill_metric(ras, i);
 			if (curr > max) {
 				max = curr;
 				candidate = i;
 			}
-			fprintf(stderr, "Spill cost for ");
-			print_reg(stderr, i);
-			fprintf(stderr, " degree: %zu, defs: %zu, uses: %zu\n", ig_degree(&ras->ig, i), (size_t) ras->def_counts[i], (size_t) ras->use_counts[i]);
 		}
 		fprintf(stderr, "Choosing for spill ");
 		print_reg(stderr, candidate);
