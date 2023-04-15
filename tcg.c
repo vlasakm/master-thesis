@@ -2576,6 +2576,7 @@ translate_function(Arena *arena, Function *function, size_t start_index)
 	TranslationState ts_ = {
 		.arena = arena,
 		.index = start_index,
+		.stack_space = 8,
 		.prev_pos = NULL,
 		.block = NULL,
 	};
