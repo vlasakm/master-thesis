@@ -2595,14 +2595,15 @@ handle_spill:;
 	}
 
 	do {
+		// Simplify
 		Oper i;
 		while (wl_take_back(&simplify_wl, &i)) {
 			wl_add(&stack, i);
 			fprintf(stderr, "Pushing ");
 			print_reg(stderr, i);
 			fprintf(stderr, "\n");
-			for (size_t j = 0; j < ig.adj_cnt[i]; j++) {
-				size_t neighbour = ig.adjs[i][j];
+			for (size_t j = 0; j < ig.adj_cnt_orig[i]; j++) {
+				Oper neighbour = ig.adjs[i][j];
 				if (neighbour < R__MAX) {
 					continue;
 				}
@@ -2624,6 +2625,7 @@ handle_spill:;
 			}
 		}
 
+		// Select Spill
 		if (wl_cnt(&spill_wl) != 0) {
 			fprintf(stderr, "Potential spill\n");
 			Oper candidate = spill_wl.dense[spill_wl.head];
