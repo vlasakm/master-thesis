@@ -2797,12 +2797,6 @@ restart:
 
 	build_interference_graph(ras);
 
-	for (size_t i = 0; i < mfunction->vreg_cnt; i++) {
-		fprintf(stderr, "Spill cost for ");
-		print_reg(stderr, i);
-		fprintf(stderr, " defs: %zu, uses: %zu\n", (size_t) ras->def_counts[i], (size_t) ras->use_counts[i]);
-	}
-
 	for (size_t i = R__MAX; i < mfunction->vreg_cnt; i++) {
 		if (ig_degree(&ras->ig, i) >= ras->reg_avail) {
 			wl_add(&ras->spill_wl, i);
