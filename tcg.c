@@ -2623,6 +2623,66 @@ translate_function(Arena *arena, Function *function, size_t start_index)
 	return mfunction;
 }
 
+void
+simplify(RegAllocState *ras)
+{
+	Oper i;
+	while (wl_take_back(&ras->simplify_wl, &i)) {
+		wl_add(&ras->stack, i);
+		fprintf(stderr, "Pushing ");
+		print_reg(stderr, i);
+		fprintf(stderr, "\n");
+		for (size_t j = 0; j < ras->ig.adj_cnt_orig[i]; j++) {
+			Oper neighbour = ras->ig.adjs[i][j];
+			if (neighbour < R__MAX) {
+				continue;
+			}
+			fprintf(stderr, "Removing interference ");
+			print_reg(stderr, i);
+			fprintf(stderr, " ");
+			print_reg(stderr, neighbour);
+			fprintf(stderr, "\n");
+			if (ras->ig.adj_cnt[neighbour] != 0) {
+				ras->ig.adj_cnt[neighbour]--;
+				if (ras->ig.adj_cnt[neighbour] < ras->reg_avail) {
+					fprintf(stderr, "Move from spill to simplify ");
+					print_reg(stderr, neighbour);
+					fprintf(stderr, "\n");
+					wl_remove(&ras->spill_wl, neighbour);
+					wl_add(&ras->simplify_wl, neighbour);
+				}
+			}
+		}
+	}
+}
+
+
+void
+select_potential_spill_if_needed(RegAllocState *ras)
+{
+	if (wl_cnt(&ras->spill_wl) != 0) {
+		fprintf(stderr, "Potential spill\n");
+		Oper candidate = ras->spill_wl.dense[ras->spill_wl.head];
+		size_t max = ig_degree(&ras->ig, candidate) / (ras->def_counts[candidate] + ras->use_counts[candidate]);
+		for (size_t j = ras->spill_wl.head; j < ras->spill_wl.tail; j++) {
+			Oper i = ras->spill_wl.dense[j];
+			size_t curr = ig_degree(&ras->ig, i) / (ras->def_counts[i] + ras->use_counts[i]);
+			if (curr > max) {
+				max = curr;
+				candidate = i;
+			}
+			fprintf(stderr, "Spill cost for ");
+			print_reg(stderr, i);
+			fprintf(stderr, " degree: %zu, defs: %zu, uses: %zu\n", ig_degree(&ras->ig, i), (size_t) ras->def_counts[i], (size_t) ras->use_counts[i]);
+		}
+		fprintf(stderr, "Choosing for spill ");
+		print_reg(stderr, candidate);
+		fprintf(stderr, "\n");
+		wl_remove(&ras->spill_wl, candidate);
+		wl_add(&ras->simplify_wl, candidate);
+	}
+}
+
 bool
 assign_registers(RegAllocState *ras)
 {
@@ -2743,58 +2803,8 @@ restart:
 	}
 
 	do {
-		// Simplify
-		Oper i;
-		while (wl_take_back(&ras->simplify_wl, &i)) {
-			wl_add(&ras->stack, i);
-			fprintf(stderr, "Pushing ");
-			print_reg(stderr, i);
-			fprintf(stderr, "\n");
-			for (size_t j = 0; j < ras->ig.adj_cnt_orig[i]; j++) {
-				Oper neighbour = ras->ig.adjs[i][j];
-				if (neighbour < R__MAX) {
-					continue;
-				}
-				fprintf(stderr, "Removing interference ");
-				print_reg(stderr, i);
-				fprintf(stderr, " ");
-				print_reg(stderr, neighbour);
-				fprintf(stderr, "\n");
-				if (ras->ig.adj_cnt[neighbour] != 0) {
-					ras->ig.adj_cnt[neighbour]--;
-					if (ras->ig.adj_cnt[neighbour] < ras->reg_avail) {
-						fprintf(stderr, "Move from spill to simplify ");
-						print_reg(stderr, neighbour);
-						fprintf(stderr, "\n");
-						wl_remove(&ras->spill_wl, neighbour);
-						wl_add(&ras->simplify_wl, neighbour);
-					}
-				}
-			}
-		}
-
-		// Select Spill
-		if (wl_cnt(&ras->spill_wl) != 0) {
-			fprintf(stderr, "Potential spill\n");
-			Oper candidate = ras->spill_wl.dense[ras->spill_wl.head];
-			size_t max = ig_degree(&ras->ig, i) / (ras->def_counts[i] + ras->use_counts[i]);
-			for (size_t j = ras->spill_wl.head; j < ras->spill_wl.tail; j++) {
-				Oper i = ras->spill_wl.dense[j];
-				size_t curr = ig_degree(&ras->ig, i) / (ras->def_counts[i] + ras->use_counts[i]);
-				if (curr > max) {
-					max = curr;
-					candidate = i;
-				}
-				fprintf(stderr, "Spill cost for ");
-				print_reg(stderr, i);
-				fprintf(stderr, " degree: %zu, defs: %zu, uses: %zu\n", ig_degree(&ras->ig, i), (size_t) ras->def_counts[i], (size_t) ras->use_counts[i]);
-			}
-			fprintf(stderr, "Choosing for spill ");
-			print_reg(stderr, candidate);
-			fprintf(stderr, "\n");
-			wl_remove(&ras->spill_wl, candidate);
-			wl_add(&ras->simplify_wl, candidate);
-		}
+		simplify(ras);
+		select_potential_spill_if_needed(ras);
 	} while (wl_cnt(&ras->simplify_wl) != 0 || wl_cnt(&ras->spill_wl) != 0);
 
 	if (!assign_registers(ras)) {
