@@ -2331,26 +2331,22 @@ reg_alloc_state_init_for_function(RegAllocState *ras, MFunction *mfunction)
 }
 
 void
-live_step(RegAllocState *ras, Inst *inst)
+get_live_out(RegAllocState *ras, Block *block, WorkList *live_set)
 {
-	WorkList *live_set = &ras->live_set;
-	InterferenceGraph *ig = &ras->ig;
+	// live-out of this block is the union of live-ins of all
+	// successors
+	wl_reset(live_set);
+	for (size_t i = 0; i < block->succ_cnt; i++) {
+		size_t succ = block->succs[i]->base.index;
+		wl_union(live_set, &ras->live_in[succ]);
+	}
+}
 
+void
+live_step(WorkList *live_set, Inst *inst)
+{
 	InstDesc *desc = &inst_desc[inst->op];
 
-	// Add interferences of all definitions with all live.
-	for (size_t j = live_set->head; j < live_set->tail; j++) {
-		size_t live = live_set->dense[j];
-		for (size_t i = 0; i < desc->dest_cnt; i++) {
-			ig_add(ig, inst->ops[i], live);
-		}
-	}
-	// Add interferences between all destinations
-	for (size_t i = 0; i < desc->dest_cnt; i++) {
-		for (size_t j = 0; j < desc->dest_cnt; j++) {
-			ig_add(ig, inst->ops[i], inst->ops[j]);
-		}
-	}
 	// Remove definitions from live.
 	for (size_t i = 0; i < desc->dest_cnt; i++) {
 		wl_remove(live_set, inst->ops[i]);
@@ -2358,6 +2354,29 @@ live_step(RegAllocState *ras, Inst *inst)
 	// Add uses to live.
 	for (size_t i = desc->dest_cnt; i < desc->src_cnt; i++) {
 		wl_add(live_set, inst->ops[i]);
+	}
+}
+
+void
+interference_step(RegAllocState *ras, WorkList *live_set, Inst *inst)
+{
+	InterferenceGraph *ig = &ras->ig;
+	InstDesc *desc = &inst_desc[inst->op];
+
+        // Add all definitions to live. Because the next step adds
+        // interferences between all definitions and all live, we will thus also
+        // make all the definitions interfere with each other.
+        // Remove definitions from live.
+        for (size_t i = 0; i < desc->dest_cnt; i++) {
+		wl_add(live_set, inst->ops[i]);
+	}
+
+	// Add interferences of all definitions with all live.
+	for (size_t j = live_set->head; j < live_set->tail; j++) {
+		size_t live = live_set->dense[j];
+		for (size_t i = 0; i < desc->dest_cnt; i++) {
+			ig_add(ig, inst->ops[i], live);
+		}
 	}
 }
 
@@ -2631,29 +2650,23 @@ void
 build_interference_graph(RegAllocState *ras)
 {
 	MFunction *mfunction = ras->mfunction;
+	WorkList *live_set = &ras->live_set;
 
 	wl_init_all_reverse(&ras->block_work_list, mfunction->mblock_cnt);
 	Oper b;
 	while (wl_take(&ras->block_work_list, &b)) {
 		MBlock *mblock = &mfunction->mblocks[b];
 		Block *block = mblock->block;
-		// live-out of this block is the union of live-ins of all
-		// successors
-		wl_reset(&ras->live_set);
-		for (size_t i = 0; i < block->succ_cnt; i++) {
-			size_t succ = block->succs[i]->base.index;
-			wl_union(&ras->live_set, &ras->live_in[succ]);
-		}
+		get_live_out(ras, block, live_set);
 		// process the block back to front, updating live_set in the
-		// process and constructing the interference graph in the
 		// process
 		for (Inst *inst = mblock->last; inst; inst = inst->prev) {
-			live_step(ras, inst);
+			live_step(live_set, inst);
 		}
-		if (!wl_eq(&ras->live_set, &ras->live_in[b])) {
+		if (!wl_eq(live_set, &ras->live_in[b])) {
 			WorkList tmp = ras->live_in[b];
-			ras->live_in[b] = ras->live_set;
-			ras->live_set = tmp;
+			ras->live_in[b] = *live_set;
+			*live_set = tmp;
 			for (size_t i = 0; i < block->pred_cnt; i++) {
 				size_t pred = block->preds[i]->base.index;
 				wl_add(&ras->block_work_list, pred);
@@ -2661,6 +2674,16 @@ build_interference_graph(RegAllocState *ras)
 		}
 	}
 
+	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
+		MBlock *mblock = &mfunction->mblocks[b];
+		Block *block = mblock->block;
+		get_live_out(ras, block, live_set);
+		for (Inst *inst = mblock->last; inst; inst = inst->prev) {
+			interference_step(ras, live_set, inst);
+			live_step(live_set, inst);
+		}
+
+	}
 	ig_calculate_adjacency(&ras->ig);
 }
 
