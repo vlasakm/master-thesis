@@ -2160,6 +2160,7 @@ struct RegAllocState {
 	MFunction *mfunction;
 	size_t vreg_capacity;
 	size_t block_capacity;
+	size_t move_capacity;
 
 	// Parameters
 	size_t reg_avail;
@@ -2168,6 +2169,7 @@ struct RegAllocState {
 	Oper *reg_assignment;
 
 	u8 *to_spill;
+	Oper *alias;
 
 	// Spill cost related
 	u8 *def_counts;
@@ -2185,7 +2187,12 @@ struct RegAllocState {
 	WorkList spill_wl;
 	WorkList freeze_wl;
 	WorkList simplify_wl;
+	WorkList moves_wl;
+	WorkList active_moves_wl;
 	WorkList stack;
+
+	GArena gmoves; // Array of Inst *
+	GArena *move_list; // Array of GArena of Oper
 };
 
 void
@@ -2228,6 +2235,7 @@ reg_alloc_state_reset(RegAllocState *ras)
 	if (old_vreg_capacity < ras->vreg_capacity) {
 		GROW_ARRAY(ras->reg_assignment, ras->vreg_capacity);
 		GROW_ARRAY(ras->to_spill, ras->vreg_capacity);
+		GROW_ARRAY(ras->alias, ras->vreg_capacity);
 		GROW_ARRAY(ras->def_counts, ras->vreg_capacity);
 		GROW_ARRAY(ras->use_counts, ras->vreg_capacity);
 		GROW_ARRAY(ras->degree, ras->vreg_capacity);
@@ -2239,11 +2247,18 @@ reg_alloc_state_reset(RegAllocState *ras)
 		wl_grow(&ras->spill_wl, ras->vreg_capacity);
 		wl_grow(&ras->freeze_wl, ras->vreg_capacity);
 		wl_grow(&ras->simplify_wl, ras->vreg_capacity);
+		//wl_grow(&ras->moves_wl, ras->vreg_capacity);
+		//wl_grow(&ras->active_moves_wl, ras->vreg_capacity);
 		wl_grow(&ras->stack, ras->vreg_capacity);
+		// gmoves doesn't need to grow
+		GROW_ARRAY(ras->move_list, ras->vreg_capacity);
 	}
 
 	ZERO_ARRAY(ras->reg_assignment, ras->mfunction->vreg_cnt);
 	ZERO_ARRAY(ras->to_spill, ras->mfunction->vreg_cnt);
+	for (size_t i = 0; i < ras->mfunction->vreg_cnt; i++) {
+		ras->alias[i] = i;
+	}
 	ZERO_ARRAY(ras->def_counts, ras->mfunction->vreg_cnt);
 	ZERO_ARRAY(ras->use_counts, ras->mfunction->vreg_cnt);
 	ZERO_ARRAY(ras->degree, ras->mfunction->vreg_cnt);
@@ -2256,7 +2271,13 @@ reg_alloc_state_reset(RegAllocState *ras)
 	wl_reset(&ras->spill_wl);
 	wl_reset(&ras->freeze_wl);
 	wl_reset(&ras->simplify_wl);
+	//wl_reset(&ras->moves_wl);
+	//wl_reset(&ras->active_moves_wl);
 	wl_reset(&ras->stack);
+	garena_restore(&ras->gmoves, 0);
+	for (size_t i = 0; i < ras->mfunction->vreg_cnt; i++) {
+		garena_restore(&ras->move_list[i], 0);
+	}
 }
 
 void
@@ -2284,6 +2305,7 @@ reg_alloc_state_init_for_function(RegAllocState *ras, MFunction *mfunction)
 	ras->mfunction = mfunction;
 	//reg_alloc_state_reset(ras);
 }
+
 
 void
 ig_add(InterferenceGraph *ig, Oper op1, Oper op2)
@@ -2342,10 +2364,31 @@ interference_step(RegAllocState *ras, WorkList *live_set, Inst *inst)
 	InterferenceGraph *ig = &ras->ig;
 	InstDesc *desc = &inst_desc[inst->op];
 
+	// Special handling of moves:
+	// 1) We don't want to introduce interference between move source and
+	//    destination.
+	// 2) We want to note all moves and for all nodes the moves they are
+	//    contained in, because we want to try to coalesce the moves later.
+	if (inst->op == OP_MOV) {
+		// Remove uses from live to prevent interference between move
+		// destination and source.
+		for (size_t i = desc->dest_cnt; i < desc->src_cnt; i++) {
+			wl_remove(live_set, inst->ops[i]);
+		}
+
+		// Accumulate moves.
+		size_t index = garena_cnt(&ras->gmoves, Inst *);
+		garena_push_value(&ras->gmoves, Inst *, inst);
+		garena_push_value(&ras->move_list[inst->ops[0]], Oper, index);
+		garena_push_value(&ras->move_list[inst->ops[1]], Oper, index);
+	}
+
+
         // Add all definitions to live. Because the next step adds
         // interferences between all definitions and all live, we will thus also
-        // make all the definitions interfere with each other.
-        // Remove definitions from live.
+        // make all the definitions interfere with each other. Since the
+	// liveness step (run after us) removes all definitions, this is OK and
+	// local to the current instruction.
         for (size_t i = 0; i < desc->dest_cnt; i++) {
 		wl_add(live_set, inst->ops[i]);
 	}
@@ -2428,7 +2471,7 @@ apply_reg_assignment(RegAllocState *ras)
 			size_t i = 0;
 			for (; i < desc->src_cnt; i++) {
 				assert(inst->ops[i] >= 0);
-				inst->ops[i] = ras->reg_assignment[inst->ops[i]];
+				inst->ops[i] = ras->reg_assignment[ras->alias[inst->ops[i]]];
 			}
 		}
 	}
@@ -2549,21 +2592,21 @@ calculate_spill_cost(MFunction *mfunction, u8 *def_counts, u8 *use_counts)
 	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
 		MBlock *mblock = &mfunction->mblocks[b];
 		for (Inst *inst = mblock->first; inst; inst = inst->next) {
-			print_inst(stderr, inst);
-			fprintf(stderr, "\n");
+			//print_inst(stderr, inst);
+			//fprintf(stderr, "\n");
 			InstDesc *desc = &inst_desc[inst->op];
 			size_t j = 0;
 			for (; j < desc->dest_cnt; j++) {
 				def_counts[inst->ops[j]]++;
-				fprintf(stderr, "adding def of ");
-				print_reg(stderr, inst->ops[j]);
-				fprintf(stderr, "\n");
+				//fprintf(stderr, "adding def of ");
+				//print_reg(stderr, inst->ops[j]);
+				//fprintf(stderr, "\n");
 			}
 			for (; j < desc->src_cnt; j++) {
 				use_counts[inst->ops[j]]++;
-				fprintf(stderr, "adding use of ");
-				print_reg(stderr, inst->ops[j]);
-				fprintf(stderr, "\n");
+				//fprintf(stderr, "adding use of ");
+				//print_reg(stderr, inst->ops[j]);
+				//fprintf(stderr, "\n");
 			}
 		}
 	}
@@ -2672,21 +2715,79 @@ build_interference_graph(RegAllocState *ras)
 	}
 }
 
+bool
+is_move_related(RegAllocState *ras, Oper i)
+{
+	fprintf(stderr, "Is move related ");
+	print_reg(stderr, i);
+	fprintf(stderr, "\n");
+	Inst **moves = garena_array(&ras->gmoves, Inst *);
+	GArena *gmove_list = &ras->move_list[i];
+	Oper *move_list = garena_array(gmove_list, Oper);
+	size_t move_cnt = garena_cnt(gmove_list, Oper);
+	for (size_t i = 0; i < move_cnt; i++) {
+		Oper move_index = move_list[i];
+		Inst *move = moves[move_index];
+		fprintf(stderr, "Moved in \t");
+		print_inst(stderr, move);
+		fprintf(stderr, "\n");
+		if (wl_has(&ras->active_moves_wl, move_index) || wl_has(&ras->moves_wl, move_index)) {
+			return true;
+		}
+	}
+	fprintf(stderr, "Not move related\n");
+	return false;
+}
+
+
+void
+for_each_adjacent(RegAllocState *ras, Oper op, void (*fun)(RegAllocState *ras, Oper neighbour))
+{
+	GArena *gadj_list = &ras->ig.adj_list[op];
+	Oper *adj_list = garena_array(gadj_list, Oper);
+	size_t adj_cnt = garena_cnt(gadj_list, Oper);
+	for (size_t i = 0; i < adj_cnt; i++) {
+		Oper neighbour = adj_list[i];
+		if (wl_has(&ras->stack, neighbour) || ras->alias[neighbour] != neighbour) {
+			continue;
+		}
+		fun(ras, neighbour);
+	}
+}
+
 void
 initialize_worklists(RegAllocState *ras)
 {
+	size_t move_cnt = garena_cnt(&ras->gmoves, Inst *);
+	size_t old_move_capacity = ras->move_capacity;
+	if (ras->move_capacity == 0) {
+		ras->move_capacity = 16;
+	}
+	while (ras->move_capacity < move_cnt) {
+		ras->move_capacity += ras->move_capacity;
+	}
+	if (old_move_capacity < ras->move_capacity) {
+		wl_grow(&ras->moves_wl, ras->move_capacity);
+		wl_grow(&ras->active_moves_wl, ras->move_capacity);
+	}
+	wl_reset(&ras->moves_wl);
+	wl_init_all(&ras->moves_wl, move_cnt);
+	wl_reset(&ras->active_moves_wl);
+
 	size_t vreg_cnt = ras->mfunction->vreg_cnt;
 	for (size_t i = R__MAX; i < vreg_cnt; i++) {
 		GArena *gadj_list = &ras->ig.adj_list[i];
-		Oper *adj_list = garena_array(gadj_list, Oper);
 		size_t adj_cnt = garena_cnt(gadj_list, Oper);
-		if (adj_cnt != ras->degree[i]) {
-			assert(false);
-		}
+		assert(adj_cnt == ras->degree[i]);
 		if (ras->degree[i] >= ras->reg_avail) {
 			wl_add(&ras->spill_wl, i);
 			fprintf(stderr, "Starting in spill ");
 			print_reg(stderr, i);
+			fprintf(stderr, " (%zu)\n", (size_t) ras->degree[i]);
+		} else if (is_move_related(ras, i)) {
+			fprintf(stderr, "Starting in freeze ");
+			print_reg(stderr, i);
+			wl_add(&ras->freeze_wl, i);
 			fprintf(stderr, " (%zu)\n", (size_t) ras->degree[i]);
 		} else {
 			wl_add(&ras->simplify_wl, i);
@@ -2707,6 +2808,105 @@ spill_metric(RegAllocState *ras, Oper i)
 }
 
 void
+enable_moves_for_one(RegAllocState *ras, Oper op)
+{
+	Inst **moves = garena_array(&ras->gmoves, Inst *);
+	Oper *node_moves = garena_array(&ras->move_list[op], Oper);
+	size_t node_move_cnt = garena_cnt(&ras->move_list[op], Oper);
+	for (size_t k = 0; k < node_move_cnt; k++) {
+		Oper m = node_moves[k];
+		if (wl_remove(&ras->active_moves_wl, m)) {
+			Inst *move = moves[m];
+			fprintf(stderr, "Enabling move: \t");
+			print_inst(stderr, move);
+			fprintf(stderr, "\n");
+			wl_add(&ras->moves_wl, m);
+		}
+	}
+}
+
+void
+enable_moves_for_node_and_neighbours(RegAllocState *ras, Oper op)
+{
+	enable_moves_for_one(ras, op);
+	for_each_adjacent(ras, op, enable_moves_for_one);
+	//GArena *gadj_list = &ras->ig.adj_list[op];
+	//Oper *adj_list = garena_array(gadj_list, Oper);
+	//size_t adj_cnt = garena_cnt(gadj_list, Oper);
+	//for (size_t i = 0; i < adj_cnt; i++) {
+	//	Oper neighbour = adj_list[i];
+	//	enable_moves_for_one(ras, neighbour);
+	//}
+}
+
+void
+decrement_degree(RegAllocState *ras, Oper op)
+{
+	fprintf(stderr, "Removing interference with ");
+	print_reg(stderr, op);
+	fprintf(stderr, "\n");
+	assert(ras->degree[op] > 0);
+	u32 old_degree = ras->degree[op]--;
+	if (old_degree == ras->reg_avail) {
+		fprintf(stderr, "%zu %zu\n", (size_t) op, (size_t) R__MAX);
+		assert(op >= R__MAX);
+		fprintf(stderr, "Move from spill to %s ", is_move_related(ras, op) ? "freeze" : "simplify");
+		print_reg(stderr, op);
+		fprintf(stderr, "\n");
+		enable_moves_for_node_and_neighbours(ras, op);
+		wl_remove(&ras->spill_wl, op);
+		if (is_move_related(ras, op)) {
+			wl_add(&ras->freeze_wl, op);
+		} else {
+			wl_add(&ras->simplify_wl, op);
+		}
+	}
+}
+
+void
+freeze_moves(RegAllocState *ras, Oper u)
+{
+	fprintf(stderr, "Freezing moves of ");
+	print_reg(stderr, u);
+	fprintf(stderr, "\n");
+	Inst **moves = garena_array(&ras->gmoves, Inst *);
+	Oper *node_moves = garena_array(&ras->move_list[u], Oper);
+	size_t node_move_cnt = garena_cnt(&ras->move_list[u], Oper);
+	for (size_t k = 0; k < node_move_cnt; k++) {
+		Oper m = node_moves[k];
+		Inst *move = moves[m];
+		fprintf(stderr, "freezing in: \t");
+		print_inst(stderr, move);
+		fprintf(stderr, "\n");
+		if (!wl_remove(&ras->active_moves_wl, m)) {
+			wl_remove(&ras->moves_wl, m);
+		}
+		Oper v = move->ops[0] != u ? move->ops[0] : move->ops[1];
+		if (!is_move_related(ras, v) && ras->degree[v] < ras->reg_avail) {
+			fprintf(stderr, "Move from freeze to simplify in freeze ");
+			print_reg(stderr, v);
+			fprintf(stderr, "\n");
+			wl_remove(&ras->freeze_wl, v);
+			wl_add(&ras->simplify_wl, v);
+		}
+	}
+}
+
+void
+freeze(RegAllocState *ras)
+{
+	Oper i;
+	if (wl_take_back(&ras->freeze_wl, &i)) {
+		fprintf(stderr, "Freezing node ");
+		print_reg(stderr, i);
+		fprintf(stderr, "\n");
+		wl_add(&ras->simplify_wl, i);
+		freeze_moves(ras, i);
+	}
+}
+
+
+void
 simplify(RegAllocState *ras)
 {
 	Oper i;
@@ -2715,31 +2915,14 @@ simplify(RegAllocState *ras)
 		fprintf(stderr, "Pushing ");
 		print_reg(stderr, i);
 		fprintf(stderr, "\n");
-		GArena *gadj_list = &ras->ig.adj_list[i];
-		Oper *adj_list = garena_array(gadj_list, Oper);
-		size_t adj_cnt = garena_cnt(gadj_list, Oper);
-		for (size_t j = 0; j < adj_cnt; j++) {
-			Oper neighbour = adj_list[j];
-			if (neighbour < R__MAX) {
-				continue;
-			}
-			fprintf(stderr, "Removing interference ");
-			print_reg(stderr, i);
-			fprintf(stderr, " ");
-			print_reg(stderr, neighbour);
-			fprintf(stderr, "\n");
-			if (ras->degree[neighbour] == 0) {
-				assert(false);
-			}
-			u32 old_degree = ras->degree[neighbour]--;
-			if (old_degree == ras->reg_avail) {
-				fprintf(stderr, "Move from spill to simplify ");
-				print_reg(stderr, neighbour);
-				fprintf(stderr, "\n");
-				wl_remove(&ras->spill_wl, neighbour);
-				wl_add(&ras->simplify_wl, neighbour);
-			}
-		}
+		for_each_adjacent(ras, i, decrement_degree);
+		//GArena *gadj_list = &ras->ig.adj_list[i];
+		//Oper *adj_list = garena_array(gadj_list, Oper);
+		//size_t adj_cnt = garena_cnt(gadj_list, Oper);
+		//for (size_t j = 0; j < adj_cnt; j++) {
+		//	Oper neighbour = adj_list[j];
+		//	decrement_degree(ras, neighbour);
+		//}
 	}
 }
 
@@ -2763,6 +2946,131 @@ select_potential_spill_if_needed(RegAllocState *ras)
 		fprintf(stderr, "\n");
 		wl_remove(&ras->spill_wl, candidate);
 		wl_add(&ras->simplify_wl, candidate);
+		freeze_moves(ras, candidate);
+	}
+}
+
+void
+add_to_worklist(RegAllocState *ras, Oper op)
+{
+	if (op >= R__MAX && !is_move_related(ras, op) && ras->degree[op] < ras->reg_avail) {
+		fprintf(stderr, "Move from freeze to simplify ");
+		print_reg(stderr, op);
+		fprintf(stderr, "\n");
+		wl_remove(&ras->freeze_wl, op);
+		wl_add(&ras->simplify_wl, op);
+	}
+}
+
+size_t
+significant_neighbour_cnt(RegAllocState *ras, Oper op)
+{
+	size_t n = 0;
+	GArena *gadj_list = &ras->ig.adj_list[op];
+	Oper *adj_list = garena_array(gadj_list, Oper);
+	size_t adj_cnt = garena_cnt(gadj_list, Oper);
+	for (size_t j = 0; j < adj_cnt; j++) {
+		Oper t = adj_list[j];
+		if (wl_has(&ras->stack, t) || ras->alias[t] != t) {
+			continue;
+		}
+		n += ras->degree[t] >= ras->reg_avail;
+	}
+	return n;
+}
+
+bool
+are_coalesceble(RegAllocState *ras, Oper u, Oper v)
+{
+	if (u < R__MAX) {
+		// Precolored register coalescing heuristic
+		GArena *gadj_list = &ras->ig.adj_list[v];
+		Oper *adj_list = garena_array(gadj_list, Oper);
+		size_t adj_cnt = garena_cnt(gadj_list, Oper);
+		for (size_t j = 0; j < adj_cnt; j++) {
+			Oper t = adj_list[j];
+			if (wl_has(&ras->stack, t) || ras->alias[t] != t) {
+				continue;
+			}
+			if (ras->degree[t] >= ras->reg_avail && t >= R__MAX && !ig_interfere(&ras->ig, t, u)) {
+				return false;
+			}
+		}
+		return true;
+	} else {
+		// Conservative virtual register coalescing heuristic
+		size_t n = significant_neighbour_cnt(ras, u) + significant_neighbour_cnt(ras, v);
+		return n < ras->reg_avail;
+	}
+}
+
+void
+combine(RegAllocState *ras, Oper u, Oper v)
+{
+	fprintf(stderr, "Combining " );
+	print_reg(stderr, u);
+	fprintf(stderr, " and " );
+	print_reg(stderr, v);
+	fprintf(stderr, "\n");
+	if (!wl_remove(&ras->freeze_wl, v)) {
+		// TODO assert this?
+		wl_remove(&ras->spill_wl, v);
+	}
+	ras->alias[v] = u;
+	// merge node moves
+	Oper *other_moves = garena_array(&ras->move_list[v], Oper);
+	size_t other_move_cnt = garena_cnt(&ras->move_list[v], Oper);
+	for (size_t i = 0; i < other_move_cnt; i++) {
+		// TODO: deduplicate?
+		garena_push_value(&ras->move_list[u], Oper, other_moves[i]);
+	}
+	// add edges
+	GArena *gadj_list = &ras->ig.adj_list[u];
+	Oper *adj_list = garena_array(gadj_list, Oper);
+	size_t adj_cnt = garena_cnt(gadj_list, Oper);
+	for (size_t i = 0; i < adj_cnt; i++) {
+		Oper t = adj_list[i];
+		if (wl_has(&ras->stack, t) || ras->alias[t] != t) {
+			continue;
+		}
+		ig_add(&ras->ig, u, t);
+		decrement_degree(ras, t);
+	}
+	// TODO: wl_remove in the condition
+	if (ras->degree[u] > ras->reg_avail && wl_has(&ras->freeze_wl, u)) {
+		wl_remove(&ras->freeze_wl, u);
+		wl_add(&ras->simplify_wl, u);
+	}
+}
+
+void
+coalesce(RegAllocState *ras)
+{
+	Inst **moves = garena_array(&ras->gmoves, Inst *);
+	Oper m;
+	if (wl_take(&ras->moves_wl, &m)) {
+		Inst *move = moves[m];
+		fprintf(stderr, "Coalescing: \t");
+		print_inst(stderr, move);
+		fprintf(stderr, "\n");
+		Oper u = ras->alias[move->ops[0]];
+		Oper v = ras->alias[move->ops[1]];
+		if (v < R__MAX) {
+			Oper tmp = u;
+			u = v;
+			v = tmp;
+		}
+		if (u == v) {
+			add_to_worklist(ras, u);
+		} else if (v < R__MAX || ig_interfere(&ras->ig, u, v)) {
+			add_to_worklist(ras, u);
+			add_to_worklist(ras, v);
+		} else if (are_coalesceble(ras, u, v)) {
+			combine(ras, u, v);
+			add_to_worklist(ras, u);
+		} else {
+			wl_add(&ras->active_moves_wl, m);
+		}
 	}
 }
 
@@ -2791,7 +3099,7 @@ assign_registers(RegAllocState *ras)
 		Oper *adj_list = garena_array(gadj_list, Oper);
 		size_t adj_cnt = garena_cnt(gadj_list, Oper);
 		for (size_t j = 0; j < adj_cnt; j++) {
-			size_t neighbour = adj_list[j];
+			size_t neighbour = ras->alias[adj_list[j]];
 			if (!wl_has(&ras->stack, neighbour) && ras->reg_assignment[neighbour] != R_NONE) {
 				used |= 1 << (ras->reg_assignment[neighbour] - 1);
 			}
@@ -2820,6 +3128,15 @@ assign_registers(RegAllocState *ras)
 		print_reg(stderr, reg);
 		fprintf(stderr, "\n");
 	}
+	for (size_t i = 0; i < mfunction->vreg_cnt; i++) {
+		if (ras->alias[i] != i) {
+			fprintf(stderr, "Coalesced ");
+			print_reg(stderr, i);
+			fprintf(stderr, " to ");
+			print_reg(stderr, ras->alias[i]);
+			fprintf(stderr, "\n");
+		}
+	}
 	return !have_spill;
 }
 
@@ -2844,9 +3161,11 @@ reg_alloc_function(RegAllocState *ras, MFunction *mfunction)
 		initialize_worklists(ras);
 		for (;;) {
 			simplify(ras);
+			coalesce(ras);
+			freeze(ras);
 			select_potential_spill_if_needed(ras);
 
-			if (wl_cnt(&ras->simplify_wl) == 0 && wl_cnt(&ras->spill_wl) == 0) {
+			if (wl_cnt(&ras->simplify_wl) == 0 && wl_cnt(&ras->spill_wl) == 0 && wl_cnt(&ras->freeze_wl) == 0) {
 				break;
 			}
 		}
