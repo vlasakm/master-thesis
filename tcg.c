@@ -3025,7 +3025,7 @@ combine(RegAllocState *ras, Oper u, Oper v)
 		garena_push_value(&ras->move_list[u], Oper, other_moves[i]);
 	}
 	// add edges
-	GArena *gadj_list = &ras->ig.adj_list[u];
+	GArena *gadj_list = &ras->ig.adj_list[v];
 	Oper *adj_list = garena_array(gadj_list, Oper);
 	size_t adj_cnt = garena_cnt(gadj_list, Oper);
 	for (size_t i = 0; i < adj_cnt; i++) {
