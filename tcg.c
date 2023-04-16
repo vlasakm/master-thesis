@@ -1930,27 +1930,26 @@ number_operand(void *user_data, size_t i, Value *operand)
 	}
 }
 
+
+typedef struct RegAllocState RegAllocState;
+
 typedef struct {
 	size_t n;
 	size_t N;
 	u8 *matrix;
 
-	Oper **adjs;
-	size_t *adj_cnt;
-	size_t *adj_cnt_orig;
+	GArena *adj_list;
 } InterferenceGraph;
 
 void
 ig_grow(InterferenceGraph *ig, size_t old_capacity, size_t new_capacity)
 {
-	assert(new_capacity > old_capacity);
-	GROW_ARRAY(ig->matrix, new_capacity * new_capacity);
-	GROW_ARRAY(ig->adjs, new_capacity);
-	for (size_t i = old_capacity; i < new_capacity; i++) {
-		ig->adjs[i] = NULL;
+	if (old_capacity >= new_capacity) {
+		return;
 	}
-	GROW_ARRAY(ig->adj_cnt, new_capacity);
-	GROW_ARRAY(ig->adj_cnt_orig, new_capacity);
+	GROW_ARRAY(ig->matrix, new_capacity * new_capacity);
+	GROW_ARRAY(ig->adj_list, new_capacity);
+	ZERO_ARRAY(&ig->adj_list[old_capacity], new_capacity - old_capacity);
 }
 
 void
@@ -1958,8 +1957,9 @@ ig_reset(InterferenceGraph *ig, size_t size)
 {
 	ig->n = size;
 	ig->N = size * size;
-	for (size_t i = 0; i < ig->N; i++) {
-		ig->matrix[i] = 0;
+	ZERO_ARRAY(ig->matrix, ig->N);
+	for (size_t i = 0; i < size; i++) {
+		garena_restore(&ig->adj_list[i], 0);
 	}
 }
 
@@ -1968,71 +1968,21 @@ ig_destroy(InterferenceGraph *ig)
 {
 	free(ig->matrix);
 	for (size_t i = 0; i < ig->n; i++) {
-		free(ig->adjs[i]);
+		garena_destroy(&ig->adj_list[i]);
 	}
-	free(ig->adjs);
-	free(ig->adj_cnt);
-	free(ig->adj_cnt_orig);
-}
-
-void
-ig_add(InterferenceGraph *ig, Oper op1, Oper op2)
-{
-	if (op1 == op2) {
-		return;
-	}
-	fprintf(stderr, "Adding interference ");
-	print_reg(stderr, op1);
-	fprintf(stderr, " ");
-	print_reg(stderr, op2);
-	fprintf(stderr, "\n");
-	ig->matrix[op1 * ig->n + op2] = 1;
-	ig->matrix[op2 * ig->n + op1] = 1;
+	free(ig->adj_list);
 }
 
 bool
 ig_interfere(InterferenceGraph *ig, Oper op1, Oper op2)
 {
 	if (op1 == R_NONE || op2 == R_NONE) {
-		return false;
+		return true;
 	}
 	u8 one = ig->matrix[op1 * ig->n + op2];
 	u8 two = ig->matrix[op2 * ig->n + op1];
 	assert(one == two);
 	return one;
-}
-
-void
-ig_calculate_adjacency(InterferenceGraph *ig)
-{
-	ZERO_ARRAY(ig->adj_cnt, ig->n);
-	for (size_t i = 0; i < ig->n; i++) {
-		for (size_t j = 0; j < ig->n; j++) {
-			if (ig->matrix[i * ig->n + j]) {
-				ig->adj_cnt[i]++;
-			}
-		}
-	}
-	for (size_t i = 0; i < ig->n; i++) {
-		GROW_ARRAY(ig->adjs[i], ig->adj_cnt[i]);
-	}
-	ZERO_ARRAY(ig->adj_cnt_orig, ig->n);
-	for (size_t i = 0; i < ig->n; i++) {
-		for (size_t j = 0; j < ig->n; j++) {
-			if (ig->matrix[i * ig->n + j]) {
-				size_t index = ig->adj_cnt_orig[i]++;
-				ig->adjs[i][index] = j;
-			}
-		}
-	}
-}
-
-size_t
-ig_degree(InterferenceGraph *ig, Oper op)
-{
-	assert(ig->adjs != NULL);
-	assert(op >= 0);
-	return ig->adj_cnt[op];
 }
 
 
@@ -2205,7 +2155,7 @@ print_mfunction(FILE *f, MFunction *mfunction)
 	}
 }
 
-typedef struct {
+struct RegAllocState {
 	Arena *arena;
 	MFunction *mfunction;
 	size_t vreg_capacity;
@@ -2223,6 +2173,9 @@ typedef struct {
 	u8 *def_counts;
 	u8 *use_counts;
 
+	// Degrees of nodes.
+	u32 *degree;
+
 	InterferenceGraph ig;
 	WorkList live_set;
 	WorkList block_work_list;
@@ -2233,7 +2186,7 @@ typedef struct {
 	WorkList freeze_wl;
 	WorkList simplify_wl;
 	WorkList stack;
-} RegAllocState;
+};
 
 void
 reg_alloc_state_init(RegAllocState *ras, Arena *arena)
@@ -2277,6 +2230,7 @@ reg_alloc_state_reset(RegAllocState *ras)
 		GROW_ARRAY(ras->to_spill, ras->vreg_capacity);
 		GROW_ARRAY(ras->def_counts, ras->vreg_capacity);
 		GROW_ARRAY(ras->use_counts, ras->vreg_capacity);
+		GROW_ARRAY(ras->degree, ras->vreg_capacity);
 		ig_grow(&ras->ig, old_vreg_capacity, ras->vreg_capacity);
 		wl_grow(&ras->live_set, ras->vreg_capacity);
 		for (size_t i = 0; i < old_block_capacity; i++) {
@@ -2292,6 +2246,7 @@ reg_alloc_state_reset(RegAllocState *ras)
 	ZERO_ARRAY(ras->to_spill, ras->mfunction->vreg_cnt);
 	ZERO_ARRAY(ras->def_counts, ras->mfunction->vreg_cnt);
 	ZERO_ARRAY(ras->use_counts, ras->mfunction->vreg_cnt);
+	ZERO_ARRAY(ras->degree, ras->mfunction->vreg_cnt);
 	ig_reset(&ras->ig, ras->mfunction->vreg_cnt);
 	wl_reset(&ras->live_set);
 	wl_reset(&ras->block_work_list);
@@ -2329,6 +2284,30 @@ reg_alloc_state_init_for_function(RegAllocState *ras, MFunction *mfunction)
 	ras->mfunction = mfunction;
 	//reg_alloc_state_reset(ras);
 }
+
+void
+ig_add(InterferenceGraph *ig, Oper op1, Oper op2)
+{
+	if (op1 == op2 || ig_interfere(ig, op1, op2)) {
+		return;
+	}
+	fprintf(stderr, "Adding interference ");
+	print_reg(stderr, op1);
+	fprintf(stderr, " ");
+	print_reg(stderr, op2);
+	fprintf(stderr, "\n");
+	assert(ig->matrix[op1 * ig->n + op2] == 0);
+	assert(ig->matrix[op2 * ig->n + op1] == 0);
+	ig->matrix[op1 * ig->n + op2] = 1;
+	ig->matrix[op2 * ig->n + op1] = 1;
+	garena_push_value(&ig->adj_list[op1], Oper, op2);
+	garena_push_value(&ig->adj_list[op2], Oper, op1);
+	// TODO: Restructure Interefrence graph and Register allocation state.
+	RegAllocState *ras = container_of(ig, RegAllocState, ig);
+	ras->degree[op1]++;
+	ras->degree[op2]++;
+}
+
 
 void
 get_live_out(RegAllocState *ras, Block *block, WorkList *live_set)
@@ -2684,7 +2663,13 @@ build_interference_graph(RegAllocState *ras)
 		}
 
 	}
-	ig_calculate_adjacency(&ras->ig);
+
+	// Physical registers are initialized with infinite degree. This makes
+	// sure that simplification doesn't ever see tham transition to
+	// non-significant degree and thus pushing them on the stack.
+	for (size_t i = 0; i < R__MAX; i++) {
+		ras->degree[i] = UINT32_MAX;
+	}
 }
 
 void
@@ -2692,16 +2677,22 @@ initialize_worklists(RegAllocState *ras)
 {
 	size_t vreg_cnt = ras->mfunction->vreg_cnt;
 	for (size_t i = R__MAX; i < vreg_cnt; i++) {
-		if (ig_degree(&ras->ig, i) >= ras->reg_avail) {
+		GArena *gadj_list = &ras->ig.adj_list[i];
+		Oper *adj_list = garena_array(gadj_list, Oper);
+		size_t adj_cnt = garena_cnt(gadj_list, Oper);
+		if (adj_cnt != ras->degree[i]) {
+			assert(false);
+		}
+		if (ras->degree[i] >= ras->reg_avail) {
 			wl_add(&ras->spill_wl, i);
 			fprintf(stderr, "Starting in spill ");
 			print_reg(stderr, i);
-			fprintf(stderr, "\n");
+			fprintf(stderr, " (%zu)\n", (size_t) ras->degree[i]);
 		} else {
 			wl_add(&ras->simplify_wl, i);
 			fprintf(stderr, "Starting in simplify ");
 			print_reg(stderr, i);
-			fprintf(stderr, "\n");
+			fprintf(stderr, " (%zu)\n", (size_t) ras->degree[i]);
 		}
 	}
 }
@@ -2711,8 +2702,8 @@ spill_metric(RegAllocState *ras, Oper i)
 {
 	fprintf(stderr, "Spill cost for ");
 	print_reg(stderr, i);
-	fprintf(stderr, " degree: %zu, defs: %zu, uses: %zu\n", ig_degree(&ras->ig, i), (size_t) ras->def_counts[i], (size_t) ras->use_counts[i]);
-	return (double) ig_degree(&ras->ig, i) / (ras->def_counts[i] + ras->use_counts[i]);
+	fprintf(stderr, " degree: %"PRIu32", defs: %zu, uses: %zu\n", ras->degree[i], (size_t) ras->def_counts[i], (size_t) ras->use_counts[i]);
+	return (double) ras->degree[i] / (ras->def_counts[i] + ras->use_counts[i]);
 }
 
 void
@@ -2724,8 +2715,11 @@ simplify(RegAllocState *ras)
 		fprintf(stderr, "Pushing ");
 		print_reg(stderr, i);
 		fprintf(stderr, "\n");
-		for (size_t j = 0; j < ras->ig.adj_cnt_orig[i]; j++) {
-			Oper neighbour = ras->ig.adjs[i][j];
+		GArena *gadj_list = &ras->ig.adj_list[i];
+		Oper *adj_list = garena_array(gadj_list, Oper);
+		size_t adj_cnt = garena_cnt(gadj_list, Oper);
+		for (size_t j = 0; j < adj_cnt; j++) {
+			Oper neighbour = adj_list[j];
 			if (neighbour < R__MAX) {
 				continue;
 			}
@@ -2734,15 +2728,16 @@ simplify(RegAllocState *ras)
 			fprintf(stderr, " ");
 			print_reg(stderr, neighbour);
 			fprintf(stderr, "\n");
-			if (ras->ig.adj_cnt[neighbour] != 0) {
-				ras->ig.adj_cnt[neighbour]--;
-				if (ras->ig.adj_cnt[neighbour] == ras->reg_avail - 1) {
-					fprintf(stderr, "Move from spill to simplify ");
-					print_reg(stderr, neighbour);
-					fprintf(stderr, "\n");
-					wl_remove(&ras->spill_wl, neighbour);
-					wl_add(&ras->simplify_wl, neighbour);
-				}
+			if (ras->degree[neighbour] == 0) {
+				assert(false);
+			}
+			u32 old_degree = ras->degree[neighbour]--;
+			if (old_degree == ras->reg_avail) {
+				fprintf(stderr, "Move from spill to simplify ");
+				print_reg(stderr, neighbour);
+				fprintf(stderr, "\n");
+				wl_remove(&ras->spill_wl, neighbour);
+				wl_add(&ras->simplify_wl, neighbour);
 			}
 		}
 	}
@@ -2784,13 +2779,19 @@ assign_registers(RegAllocState *ras)
 
 	Oper i;
 	while (wl_take_back(&ras->stack, &i)) {
+		fprintf(stderr, "Popping ");
+		print_reg(stderr, i);
+		fprintf(stderr, "\n");
 		Oper used = 0;
 		// If this one neighbours with some node that
 		// has already color allocated (i.e. not on the
 		// the stack) and it is not spilled (i.e. not R_NONE), make sure we
 		// don't use the same register.
-		for (size_t j = 0; j < ras->ig.adj_cnt_orig[i]; j++) {
-			size_t neighbour = ras->ig.adjs[i][j];
+		GArena *gadj_list = &ras->ig.adj_list[i];
+		Oper *adj_list = garena_array(gadj_list, Oper);
+		size_t adj_cnt = garena_cnt(gadj_list, Oper);
+		for (size_t j = 0; j < adj_cnt; j++) {
+			size_t neighbour = adj_list[j];
 			if (!wl_has(&ras->stack, neighbour) && ras->reg_assignment[neighbour] != R_NONE) {
 				used |= 1 << (ras->reg_assignment[neighbour] - 1);
 			}
