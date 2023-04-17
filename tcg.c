@@ -1515,7 +1515,7 @@ void
 print_inst_d(FILE *f, Inst *inst)
 {
 	InstDesc *desc = &inst_desc[inst->op];
-	//printf("%s", desc->mnemonic);
+	fprintf(f, "%s", desc->format);
 	size_t i = 0;
 	for (; i < desc->src_cnt; i++) {
 		fprintf(f, " ");
@@ -2407,58 +2407,66 @@ spill(RegAllocState *ras)
 {
 	// TODO: Infinite spill costs for uses immediately following
 	// definitions.
-
-	// NOTE: Beware, we can't naively renumber loads and stores with
-	// temporaries, since we can have multiple assignments:
-	//
-	// mov t17, [rbp-16] // should use the same t17
-	// add t18, t9       // should use the same t17
-	print_mfunction(stderr, ras->mfunction);
-	for (size_t b = 0; b < ras->mfunction->mblock_cnt; b++) {
-		MBlock *mblock = &ras->mfunction->mblocks[b];
+	MFunction *mfunction = ras->mfunction;
+	Oper spill_start = mfunction->vreg_cnt;
+	print_mfunction(stderr, mfunction);
+	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
+		MBlock *mblock = &mfunction->mblocks[b];
 		for (Inst *inst = mblock->first; inst; inst = inst->next) {
 			fprintf(stderr, "\n");
 			print_inst(stderr, inst);
 			fprintf(stderr, "\n");
+			//print_inst_d(stderr, inst);
+			//fprintf(stderr, "\n");
 			InstDesc *desc = &inst_desc[inst->op];
 			// Add loads for all spilled uses.
 			for (size_t i = desc->dest_cnt; i < desc->src_cnt; i++) {
-				if (!ras->to_spill[inst->ops[i]]) {
+				Oper src = inst->ops[i];
+				if (!ras->to_spill[src]) {
 					continue;
 				}
 				fprintf(stderr, "load ");
-				print_reg(stderr, inst->ops[i]);
+				print_reg(stderr, src);
 				fprintf(stderr, "\n");
-				//Oper temp = mfunction->vreg_cnt++;
-				Oper temp = inst->ops[i];
-				Inst *load = make_inst(ras->arena, OP_MOV_RMC, temp, R_RBP, 8 + ras->to_spill[inst->ops[i]]);
+				Oper temp = mfunction->vreg_cnt++;
+				Inst *load = make_inst(ras->arena, OP_MOV_RMC, temp, R_RBP, 8 + ras->to_spill[src]);
 				load->prev = inst->prev;
 				load->next = inst;
 				inst->prev->next = load;
 				inst->prev = load;
 				inst->ops[i] = temp;
+
+				ras->to_spill[temp] = ras->to_spill[src];
+				for (size_t j = 0; j < desc->dest_cnt; j++) {
+					if (inst->ops[j] == src) {
+						inst->ops[j] = temp;
+					}
+				}
 			}
 			// Add stores for all spilled defs.
 			for (size_t i = 0; i < desc->dest_cnt; i++) {
-				if (!ras->to_spill[inst->ops[i]]) {
+				Oper dest = inst->ops[i];
+				if (!ras->to_spill[dest]) {
 					continue;
 				}
 				fprintf(stderr, "store ");
-				print_reg(stderr, inst->ops[i]);
+				print_reg(stderr, dest);
 				fprintf(stderr, "\n");
-				//Oper temp = mfunction->vreg_cnt++;
-				Oper temp = inst->ops[i];
-				Inst *store = make_inst(ras->arena, OP_MOV_MCR, R_RBP, temp, 8 + ras->to_spill[inst->ops[i]]);
+				Oper temp = dest;
+				if (temp < spill_start) {
+					mfunction->vreg_cnt++;
+				}
+				Inst *store = make_inst(ras->arena, OP_MOV_MCR, R_RBP, temp, 8 + ras->to_spill[dest]);
 				store->prev = inst;
 				store->next = inst->next;
 				inst->next->prev = store;
 				inst->next = store;
 				inst->ops[i] = temp;
 				inst = inst->next;
-		}
+			}
 		}
 	}
-	print_mfunction(stderr, ras->mfunction);
+	print_mfunction(stderr, mfunction);
 }
 
 void
