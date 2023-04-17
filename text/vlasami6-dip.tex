@@ -258,6 +258,89 @@ out of registers. So not only for variables (which for example in C nominally
 reside in memory), but even for temporaries we have to account for the fact that
 we simply can get out of registers.
 
+\sec Spilling
+
+We can get out of registers, but we still have to store our (say intermediate)
+values {\em somewhere}. The solution is to put the values into memory. Resorting
+to putting the values to memory is called \"spilling".
+The system stack (\"frame stack", \"call stack") is best suited for spilled
+values, much for the same reasons it is the best place for storing local
+variables: recursion is handled naturally and well, since each {\em invocation}
+of a function gets its own locations for storing the values---by storing the
+values on the stack, we allow functions to be {\em reentrant}.
+
+Architectures usually also have a dedicated register for the pointer to \"the
+top of the stack", which means that code needing to access the values not
+fitting into registers can address their memory locations using relative
+addressing with small offsets (say smaller than 16 bits), also a feature
+efficiently supported by all common architectures these days. On the other hand
+accessing static slots of memory would pose similar challanges as global
+variables have - they may not be reachable with small relative offsets from any
+register and especially on 64 bits systems their absolute address is not only too large
+to be stored in literals in code, but using absolute addresses is also
+discouraged, because it means that the code becomes {\em position
+dependent}---change of the absolute address through a change in position in
+address space, would mean that our code would no longer be correct. Such
+absolute references require run time fix ups (called \"relocations") by the
+dynamic linker, which prevents reuse of the code between multiple processes.
+
+\secc Using spilled values
+
+As established, we will refer to spilled values through relative addressing
+(using either the stack pointer or the \"base" pointer, also often called the
+\"frame pointer", see TODO). But we have to get back to the problem at
+hand---we store values in registers, because we want to use the values in
+computations and processors (mostly) operate on registers. But now that we can't
+fit all values into registers and want to store them in memory, how do we use
+the values from memory and how do they even get there?
+
+RISC processors usually employ a \"load-store" architecture. There are only a
+few dedicated instructions for reading values from memory into registers (`load`
+instructions) and writing register contents into memory (`store` instructions).
+All other instructions operate only with registers. This means that to even have
+a value to spill, it has to be in a register! Also only from that register, we
+can store the value to memory and later retrieve it, but again only into a
+register. The important observation here is, that resorting to storing the
+values in memory doesn't in general mean that we get around of doing register
+allocation. What we gain is that instead of having to store a value in a
+register in a long part of the code (because it is needed in all parts of that
+code), by putting the value into memory and retrieving it immediately before
+each use, we have made the register allocation problem simpler---a register is
+needed in more but smaller parts of the code. This means that a single machine
+register can be reused for several valuse, instead of being blocked by "one".
+
+At least the register used for the store, doesn't have to be the same one used
+for the load. So even though we are constrained by the fact that registers have
+to be used for spills, we are not too constrained in choosing the registers for
+performing spills. Loads and stores inserted for handling spills are usually
+called the {\em spill code}.
+
+In this text, we care especially about the x86-64 architecture, which, like most
+CISC architectures, doesn't have a load-store architecture. There are
+instructions which can e.g. perform arithmetic directly on locations in memory.
+Though at most one operand of an instruction can be a location in memory, the
+other one has to be either a register or an immediate value. So we still have to
+solve the problem of having to use {\em registers} for storing/retrieving
+spilled values.
+
+An interesting perspective is, that even though the x86-64 architecture allows
+the instructions to operate on memory operands, an implementation of the
+architecture in for example some new Intel processors splits these instructions
+into microoperations based on the load-store architecture, using some internal
+\"architectural" registers (not normally accessible directly) for storing the
+intermediate values. Because of this there probably isn't any {\em direct}
+performance difference of using the memory operands. But it is still very useful
+to use these more complex instructions---not only can the instruction encoding
+be shorter (thus sparing the instruction cache of the processor), but we take
+advantage of the internal architectural registers, that we normally wouldn't
+have access to, which can mean less constraints on the use of the ordinary
+\"general purpose" registers that we have access to, which may allow storing
+more values into registers instead of memory and hence have a significant {\em
+indirect impact} on performance.
+
+Live range vs value vs variable.
+
+
 \bibchap
 \usebib/s (iso690) vlasami6-dip
 
