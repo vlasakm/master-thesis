@@ -2764,8 +2764,9 @@ for_each_move(RegAllocState *ras, Oper u, void (*fun)(RegAllocState *ras, Oper u
 	size_t move_cnt = garena_cnt(gmove_list, Oper);
 	for (size_t i = 0; i < move_cnt; i++) {
 		Oper move_index = move_list[i];
-		Inst *move = moves[move_index];
-		fun(ras, u, move_index, move);
+		if (wl_has(&ras->active_moves_wl, move_index) || wl_has(&ras->moves_wl, move_index)) {
+			fun(ras, u, move_index, moves[move_index]);
+		}
 	}
 }
 
