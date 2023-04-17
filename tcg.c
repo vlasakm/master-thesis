@@ -3180,7 +3180,9 @@ reg_alloc_function(RegAllocState *ras, MFunction *mfunction)
 		for (;;) {
 			simplify(ras);
 			coalesce(ras);
+			simplify(ras);
 			freeze(ras);
+			simplify(ras);
 			select_potential_spill_if_needed(ras);
 
 			if (wl_cnt(&ras->simplify_wl) == 0 && wl_cnt(&ras->spill_wl) == 0 && wl_cnt(&ras->freeze_wl) == 0) {
