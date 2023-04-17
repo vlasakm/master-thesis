@@ -3058,9 +3058,7 @@ combine(RegAllocState *ras, Oper u, Oper v)
 		ig_add(&ras->ig, u, t);
 		decrement_degree(ras, t);
 	}
-	// TODO: wl_remove in the condition
-	if (ras->degree[u] > ras->reg_avail && wl_has(&ras->freeze_wl, u)) {
-		wl_remove(&ras->freeze_wl, u);
+	if (ras->degree[u] > ras->reg_avail && wl_remove(&ras->freeze_wl, u)) {
 		wl_add(&ras->simplify_wl, u);
 	}
 }
