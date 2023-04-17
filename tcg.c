@@ -2980,27 +2980,49 @@ significant_neighbour_cnt(RegAllocState *ras, Oper op)
 }
 
 bool
+ok(RegAllocState *ras, Oper t, Oper r)
+{
+	return ras->degree[t] < ras->reg_avail || t < R__MAX || ig_interfere(&ras->ig, t, r);
+}
+
+bool
+precolored_coalesce_heuristic(RegAllocState *ras, Oper u, Oper v)
+{
+	GArena *gadj_list = &ras->ig.adj_list[v];
+	Oper *adj_list = garena_array(gadj_list, Oper);
+	size_t adj_cnt = garena_cnt(gadj_list, Oper);
+	for (size_t j = 0; j < adj_cnt; j++) {
+		Oper t = adj_list[j];
+		if (wl_has(&ras->stack, t) || ras->alias[t] != t) {
+			continue;
+		}
+		if (!ok(ras, t, u)) {
+			return false;
+		}
+	}
+	return true;
+}
+
+bool
+conservative_coalesce_heuristic(RegAllocState *ras, Oper u, Oper v)
+{
+	size_t n = significant_neighbour_cnt(ras, u) + significant_neighbour_cnt(ras, v);
+	return n < ras->reg_avail;
+}
+
+bool
 are_coalesceble(RegAllocState *ras, Oper u, Oper v)
 {
 	if (u < R__MAX) {
-		// Precolored register coalescing heuristic
-		GArena *gadj_list = &ras->ig.adj_list[v];
-		Oper *adj_list = garena_array(gadj_list, Oper);
-		size_t adj_cnt = garena_cnt(gadj_list, Oper);
-		for (size_t j = 0; j < adj_cnt; j++) {
-			Oper t = adj_list[j];
-			if (wl_has(&ras->stack, t) || ras->alias[t] != t) {
-				continue;
-			}
-			if (ras->degree[t] >= ras->reg_avail && t >= R__MAX && !ig_interfere(&ras->ig, t, u)) {
-				return false;
-			}
+		// TODO: Why is the precolored heuristic causing spills?
+		if (precolored_coalesce_heuristic(ras, u, v) > conservative_coalesce_heuristic(ras, u, v)) {
+			precolored_coalesce_heuristic(ras, u, v);
+			conservative_coalesce_heuristic(ras, u, v);
+			return false;
 		}
-		return true;
+		return precolored_coalesce_heuristic(ras, u, v);
 	} else {
-		// Conservative virtual register coalescing heuristic
-		size_t n = significant_neighbour_cnt(ras, u) + significant_neighbour_cnt(ras, v);
-		return n < ras->reg_avail;
+		return conservative_coalesce_heuristic(ras, u, v);
 	}
 }
 
