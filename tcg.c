@@ -3215,6 +3215,20 @@ reg_alloc_function(RegAllocState *ras, MFunction *mfunction)
 	apply_reg_assignment(ras);
 }
 
+void
+peephole(MFunction *mfunction)
+{
+	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
+		MBlock *mblock = &mfunction->mblocks[b];
+		for (Inst *inst = mblock->first; inst; inst = inst->next) {
+			if (inst->op == OP_MOV && inst->ops[0] == inst->ops[1]) {
+				inst->prev->next = inst->next;
+				inst->next->prev = inst->prev;
+			}
+      		}
+	}
+}
+
 typedef struct Error Error;
 struct Error {
 	Error *next;
@@ -3354,6 +3368,7 @@ main(int argc, char **argv)
 		print_function(stderr, functions[i]);
 		translate_function(arena, functions[i], index);
 		reg_alloc_function(&ras, functions[i]->mfunc);
+		peephole(functions[i]->mfunc);
 	}
 
 	reg_alloc_state_destroy(&ras);
