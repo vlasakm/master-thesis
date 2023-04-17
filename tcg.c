@@ -3061,11 +3061,14 @@ coalesce(RegAllocState *ras)
 			v = tmp;
 		}
 		if (u == v) {
+			// already coalesced
 			add_to_worklist(ras, u);
 		} else if (v < R__MAX || ig_interfere(&ras->ig, u, v)) {
+			// constrained
 			add_to_worklist(ras, u);
 			add_to_worklist(ras, v);
 		} else if (are_coalesceble(ras, u, v)) {
+			// coalesce
 			combine(ras, u, v);
 			add_to_worklist(ras, u);
 		} else {
