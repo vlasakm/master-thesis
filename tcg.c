@@ -2756,6 +2756,20 @@ for_each_adjacent(RegAllocState *ras, Oper op, void (*fun)(RegAllocState *ras, O
 }
 
 void
+for_each_move(RegAllocState *ras, Oper u, void (*fun)(RegAllocState *ras, Oper u, Oper m, Inst *move))
+{
+	Inst **moves = garena_array(&ras->gmoves, Inst *);
+	GArena *gmove_list = &ras->move_list[u];
+	Oper *move_list = garena_array(gmove_list, Oper);
+	size_t move_cnt = garena_cnt(gmove_list, Oper);
+	for (size_t i = 0; i < move_cnt; i++) {
+		Oper move_index = move_list[i];
+		Inst *move = moves[move_index];
+		fun(ras, u, move_index, move);
+	}
+}
+
+void
 initialize_worklists(RegAllocState *ras)
 {
 	size_t move_cnt = garena_cnt(&ras->gmoves, Inst *);
@@ -2808,35 +2822,21 @@ spill_metric(RegAllocState *ras, Oper i)
 }
 
 void
-enable_moves_for_one(RegAllocState *ras, Oper op)
+enable_move(RegAllocState *ras, Oper u, Oper m, Inst *move)
 {
-	Inst **moves = garena_array(&ras->gmoves, Inst *);
-	Oper *node_moves = garena_array(&ras->move_list[op], Oper);
-	size_t node_move_cnt = garena_cnt(&ras->move_list[op], Oper);
-	for (size_t k = 0; k < node_move_cnt; k++) {
-		Oper m = node_moves[k];
-		if (wl_remove(&ras->active_moves_wl, m)) {
-			Inst *move = moves[m];
-			fprintf(stderr, "Enabling move: \t");
-			print_inst(stderr, move);
-			fprintf(stderr, "\n");
-			wl_add(&ras->moves_wl, m);
-		}
+	(void) u;
+	if (wl_remove(&ras->active_moves_wl, m)) {
+		fprintf(stderr, "Enabling move: \t");
+		print_inst(stderr, move);
+		fprintf(stderr, "\n");
+		wl_add(&ras->moves_wl, m);
 	}
 }
 
 void
-enable_moves_for_node_and_neighbours(RegAllocState *ras, Oper op)
+enable_moves_for_one(RegAllocState *ras, Oper op)
 {
-	enable_moves_for_one(ras, op);
-	for_each_adjacent(ras, op, enable_moves_for_one);
-	//GArena *gadj_list = &ras->ig.adj_list[op];
-	//Oper *adj_list = garena_array(gadj_list, Oper);
-	//size_t adj_cnt = garena_cnt(gadj_list, Oper);
-	//for (size_t i = 0; i < adj_cnt; i++) {
-	//	Oper neighbour = adj_list[i];
-	//	enable_moves_for_one(ras, neighbour);
-	//}
+	for_each_move(ras, op, enable_move);
 }
 
 void
@@ -2853,7 +2853,8 @@ decrement_degree(RegAllocState *ras, Oper op)
 		fprintf(stderr, "Move from spill to %s ", is_move_related(ras, op) ? "freeze" : "simplify");
 		print_reg(stderr, op);
 		fprintf(stderr, "\n");
-		enable_moves_for_node_and_neighbours(ras, op);
+		enable_moves_for_one(ras, op);
+		for_each_adjacent(ras, op, enable_moves_for_one);
 		wl_remove(&ras->spill_wl, op);
 		if (is_move_related(ras, op)) {
 			wl_add(&ras->freeze_wl, op);
@@ -2864,32 +2865,31 @@ decrement_degree(RegAllocState *ras, Oper op)
 }
 
 void
+freeze_move(RegAllocState *ras, Oper u, Oper m, Inst *move)
+{
+	fprintf(stderr, "freezing in: \t");
+	print_inst(stderr, move);
+	fprintf(stderr, "\n");
+	if (!wl_remove(&ras->active_moves_wl, m)) {
+		wl_remove(&ras->moves_wl, m);
+	}
+	Oper v = move->ops[0] != u ? move->ops[0] : move->ops[1];
+	if (!is_move_related(ras, v) && ras->degree[v] < ras->reg_avail) {
+		fprintf(stderr, "Move from freeze to simplify in freeze ");
+		print_reg(stderr, v);
+		fprintf(stderr, "\n");
+		wl_remove(&ras->freeze_wl, v);
+		wl_add(&ras->simplify_wl, v);
+	}
+}
+
+void
 freeze_moves(RegAllocState *ras, Oper u)
 {
 	fprintf(stderr, "Freezing moves of ");
 	print_reg(stderr, u);
 	fprintf(stderr, "\n");
-	Inst **moves = garena_array(&ras->gmoves, Inst *);
-	Oper *node_moves = garena_array(&ras->move_list[u], Oper);
-	size_t node_move_cnt = garena_cnt(&ras->move_list[u], Oper);
-	for (size_t k = 0; k < node_move_cnt; k++) {
-		Oper m = node_moves[k];
-		Inst *move = moves[m];
-		fprintf(stderr, "freezing in: \t");
-		print_inst(stderr, move);
-		fprintf(stderr, "\n");
-		if (!wl_remove(&ras->active_moves_wl, m)) {
-			wl_remove(&ras->moves_wl, m);
-		}
-		Oper v = move->ops[0] != u ? move->ops[0] : move->ops[1];
-		if (!is_move_related(ras, v) && ras->degree[v] < ras->reg_avail) {
-			fprintf(stderr, "Move from freeze to simplify in freeze ");
-			print_reg(stderr, v);
-			fprintf(stderr, "\n");
-			wl_remove(&ras->freeze_wl, v);
-			wl_add(&ras->simplify_wl, v);
-		}
-	}
+	for_each_move(ras, u, freeze_move);
 }
 
 void
@@ -2905,7 +2905,6 @@ freeze(RegAllocState *ras)
 	}
 }
 
-
 void
 simplify(RegAllocState *ras)
 {
@@ -2916,13 +2915,6 @@ simplify(RegAllocState *ras)
 		print_reg(stderr, i);
 		fprintf(stderr, "\n");
 		for_each_adjacent(ras, i, decrement_degree);
-		//GArena *gadj_list = &ras->ig.adj_list[i];
-		//Oper *adj_list = garena_array(gadj_list, Oper);
-		//size_t adj_cnt = garena_cnt(gadj_list, Oper);
-		//for (size_t j = 0; j < adj_cnt; j++) {
-		//	Oper neighbour = adj_list[j];
-		//	decrement_degree(ras, neighbour);
-		//}
 	}
 }
 
