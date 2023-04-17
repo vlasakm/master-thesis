@@ -2711,7 +2711,7 @@ build_interference_graph(RegAllocState *ras)
 	// sure that simplification doesn't ever see tham transition to
 	// non-significant degree and thus pushing them on the stack.
 	for (size_t i = 0; i < R__MAX; i++) {
-		ras->degree[i] = UINT32_MAX;
+		ras->degree[i] = ras->mfunction->vreg_cnt + ras->reg_avail;
 	}
 }
 
