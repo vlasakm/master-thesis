@@ -3015,12 +3015,6 @@ bool
 are_coalesceble(RegAllocState *ras, Oper u, Oper v)
 {
 	if (u < R__MAX) {
-		// TODO: Why is the precolored heuristic causing spills?
-		if (precolored_coalesce_heuristic(ras, u, v) > conservative_coalesce_heuristic(ras, u, v)) {
-			precolored_coalesce_heuristic(ras, u, v);
-			conservative_coalesce_heuristic(ras, u, v);
-			return false;
-		}
 		return precolored_coalesce_heuristic(ras, u, v);
 	} else {
 		return conservative_coalesce_heuristic(ras, u, v);
