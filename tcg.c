@@ -3063,7 +3063,8 @@ coalesce(RegAllocState *ras)
 {
 	Inst **moves = garena_array(&ras->gmoves, Inst *);
 	Oper m;
-	if (wl_take(&ras->moves_wl, &m)) {
+	// TODO: Implications of making this a while?
+	while (wl_take(&ras->moves_wl, &m)) {
 		Inst *move = moves[m];
 		fprintf(stderr, "Coalescing: \t");
 		print_inst(stderr, move);
