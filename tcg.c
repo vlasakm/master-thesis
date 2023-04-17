@@ -1964,10 +1964,10 @@ ig_reset(InterferenceGraph *ig, size_t size)
 }
 
 void
-ig_destroy(InterferenceGraph *ig)
+ig_destroy(InterferenceGraph *ig, size_t capacity)
 {
 	free(ig->matrix);
-	for (size_t i = 0; i < ig->n; i++) {
+	for (size_t i = 0; i < capacity; i++) {
 		garena_destroy(&ig->adj_list[i]);
 	}
 	free(ig->adj_list);
@@ -2224,8 +2224,8 @@ reg_alloc_state_reset(RegAllocState *ras)
 	}
 
 	if (old_block_capacity < ras->block_capacity) {
-		GROW_ARRAY(ras->live_in, ras->block_capacity);
 		wl_grow(&ras->block_work_list, ras->block_capacity);
+		GROW_ARRAY(ras->live_in, ras->block_capacity);
 		ZERO_ARRAY(&ras->live_in[old_block_capacity], ras->block_capacity - old_block_capacity);
 		for (size_t i = old_block_capacity; i < ras->block_capacity; i++) {
 			wl_grow(&ras->live_in[i], ras->vreg_capacity);
@@ -2252,6 +2252,7 @@ reg_alloc_state_reset(RegAllocState *ras)
 		wl_grow(&ras->stack, ras->vreg_capacity);
 		// gmoves doesn't need to grow
 		GROW_ARRAY(ras->move_list, ras->vreg_capacity);
+		ZERO_ARRAY(&ras->move_list[old_vreg_capacity], ras->vreg_capacity - old_vreg_capacity);
 	}
 
 	ZERO_ARRAY(ras->reg_assignment, ras->mfunction->vreg_cnt);
@@ -2285,10 +2286,13 @@ reg_alloc_state_destroy(RegAllocState *ras)
 {
 	free(ras->reg_assignment);
 	free(ras->to_spill);
+	free(ras->alias);
 	free(ras->def_counts);
 	free(ras->use_counts);
-	ig_destroy(&ras->ig);
+	free(ras->degree);
+	ig_destroy(&ras->ig, ras->vreg_capacity);
 	wl_destroy(&ras->live_set);
+	wl_destroy(&ras->block_work_list);
 	for (size_t i = 0; i < ras->block_capacity; i++) {
 		wl_destroy(&ras->live_in[i]);
 	}
@@ -2296,7 +2300,14 @@ reg_alloc_state_destroy(RegAllocState *ras)
 	wl_destroy(&ras->spill_wl);
 	wl_destroy(&ras->freeze_wl);
 	wl_destroy(&ras->simplify_wl);
+	wl_destroy(&ras->moves_wl);
+	wl_destroy(&ras->active_moves_wl);
 	wl_destroy(&ras->stack);
+	garena_destroy(&ras->gmoves);
+	for (size_t i = 0; i < ras->vreg_capacity; i++) {
+		garena_destroy(&ras->move_list[i]);
+	}
+	free(ras->move_list);
 }
 
 void
@@ -2591,6 +2602,7 @@ parse(Arena *arena, GArena *scratch, Str source, void (*error_callback)(void *us
 		//Function *function = module->functions[f];
 		//print_function(function);
 	}
+	garena_destroy(&parser.functions);
 	return module;
 }
 
@@ -2666,12 +2678,13 @@ translate_function(Arena *arena, Function *function, size_t start_index)
 	MFunction *mfunction = arena_alloc(arena, sizeof(*mfunction));
 	*mfunction = (MFunction) {
 		.func = function,
-		.mblocks = garena_array(&gmblocks, MBlock),
-		.mblock_cnt = garena_cnt(&gmblocks, MBlock),
 		.vreg_cnt = ts->index,
 		.stack_space = ts->stack_space,
 		.make_stack_space = ts->make_stack_space,
 	};
+	mfunction->mblock_cnt = garena_cnt(&gmblocks, MBlock),
+	mfunction->mblocks = move_to_arena(arena, &gmblocks, 0, MBlock),
+	garena_destroy(&gmblocks);
 	function->mfunc= mfunction;
 	return mfunction;
 }
@@ -3342,6 +3355,8 @@ main(int argc, char **argv)
 		translate_function(arena, functions[i], index);
 		reg_alloc_function(&ras, functions[i]->mfunc);
 	}
+
+	reg_alloc_state_destroy(&ras);
 
 	printf("section .text\n");
 	printf("\tglobal _start\n");
