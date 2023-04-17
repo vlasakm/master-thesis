@@ -171,8 +171,8 @@ typedef struct {
 	_(XOR, "xor D0, S1", 1, 2, 0, 0) \
 	_(CMP, "cmp S0, S1", 0, 2, 0, 0) \
 	_(TEST, "test S0, S1", 0, 2, 0, 0) \
-	_(NOT, "not D0, S0", 1, 1, 0, 0) \
-	_(NEG, "neg D0, S0", 1, 1, 0, 0) \
+	_(NOT, "not D0", 1, 1, 0, 0) \
+	_(NEG, "neg D0", 1, 1, 0, 0) \
 	_(IMUL, "imul D0, S1", 1, 2, 0, 0) \
 	_(IDIV, "idiv S2", 2, 3, 0, 0) \
 	_(SHL, "shl D0, S1", 1, 2, 0, 0) \
