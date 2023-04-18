@@ -163,6 +163,39 @@ typedef struct {
 	size_t label_cnt;
 } InstDesc;
 
+typedef enum {
+	G1_ADD,
+	G1_OR,
+	G1_ADC,
+	G1_SBB,
+	G1_AND,
+	G1_SUB,
+	G1_XOR,
+	G1_CMP,
+} X86Group1;
+
+typedef enum {
+	G2_ROL,
+	G2_ROR,
+	G2_RCL,
+	G2_RCR,
+	G2_SHL,
+	G2_SHR,
+	G2_SAL,
+	G2_SAR,
+} X86Group2;
+
+typedef enum {
+	G3_TEST,
+	G3_TEST2,
+	G3_NOT,
+	G3_NEG,
+	G3_MUL,
+	G3_IMUL,
+	G3_DIV,
+	G3_IDIV,
+} X86Group3;
+
 #define INSTRUCTIONS(_) \
 	_(ADD, "add D0, S1", 1, 2, 0, 0) \
 	_(OR, "or D0, S1", 1, 2, 0, 0) \
