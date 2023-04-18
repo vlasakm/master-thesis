@@ -3067,7 +3067,10 @@ combine(RegAllocState *ras, Oper u, Oper v)
 		decrement_degree(ras, t);
 	}
 	if (ras->degree[u] > ras->reg_avail && wl_remove(&ras->freeze_wl, u)) {
-		wl_add(&ras->simplify_wl, u);
+		fprintf(stderr, "Move combined ");
+		print_reg(stderr, u);
+		fprintf(stderr, " from freeze to spill\n");
+		wl_add(&ras->spill_wl, u);
 	}
 }
 
