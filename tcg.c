@@ -1571,6 +1571,24 @@ print_inst(FILE *f, Inst *inst)
 			in++;
 			break;
 		}
+		case 'G': {
+			const char *s;
+			switch (inst->ops[desc->src_cnt + i]) {
+			case G1_ADD:  s =  "add"; break;
+			case G1_OR:   s =   "or"; break;
+			case G1_ADC:  s =  "adc"; break;
+			case G1_SBB:  s =  "sbb"; break;
+			case G1_AND:  s =  "and"; break;
+			case G1_SUB:  s =  "sub"; break;
+			case G1_XOR:  s =  "xor"; break;
+			case G1_CMP:  s =  "cmp"; break;
+			case G1_IMUL: s = "imul"; break;
+			default: UNREACHABLE();
+			}
+			fprintf(f, "%s", s);
+			in++;
+			break;
+		}
 		case 'B':
 			fprintf(f, ".BB%"PRIi32, inst->ops[desc->imm_cnt + i]);
 			in++;
@@ -1656,9 +1674,9 @@ add_unop(TranslationState *ts, OpCode op, Oper op1)
 }
 
 static void
-add_binop(TranslationState *ts, OpCode op, Oper op1, Oper op2)
+add_binop(TranslationState *ts, X86Group1 op, Oper op1, Oper op2)
 {
-	add_inst(ts, op, op1, op1, op2);
+	add_inst(ts, OP_BIN_RR, op1, op1, op2, op);
 }
 
 static void
@@ -1717,7 +1735,7 @@ translate_unop(TranslationState *ts, OpCode op, Oper res, Oper *ops)
 }
 
 static void
-translate_binop(TranslationState *ts, OpCode op, Oper res, Oper *ops)
+translate_binop(TranslationState *ts, X86Group1 op, Oper res, Oper *ops)
 {
 	add_copy(ts, res, ops[0]);
 	add_binop(ts, op, res, ops[1]);
@@ -1746,6 +1764,7 @@ translate_cmpop(TranslationState *ts, CondCode cc, Oper res, Oper *ops)
 {
 	add_set_zero(ts, res);
 	add_inst(ts, OP_CMP, ops[0], ops[1]);
+	add_inst(ts, OP_BIN_RR, op1, op1, op2, op);
 	add_inst(ts, OP_SETCC, res, cc);
 }
 
@@ -1834,13 +1853,13 @@ translate_value(TranslationState *ts, Value *v)
 		break;
 
 	case VK_ADD:
-		translate_binop(ts, OP_ADD, res, ops);
+		translate_binop(ts, G1_ADD, res, ops);
 		break;
 	case VK_SUB:
-		translate_binop(ts, OP_SUB, res, ops);
+		translate_binop(ts, G1_SUB, res, ops);
 		break;
 	case VK_MUL:
-		translate_binop(ts, OP_IMUL, res, ops);
+		translate_binop(ts, G1_IMUL, res, ops);
 		break;
 	case VK_DIV:
 		translate_div(ts, res, ops, false);
@@ -1849,10 +1868,10 @@ translate_value(TranslationState *ts, Value *v)
 		translate_div(ts, res, ops, true);
 		break;
 	case VK_AND:
-		translate_binop(ts, OP_AND, res, ops);
+		translate_binop(ts, G1_AND, res, ops);
 		break;
 	case VK_OR:
-		translate_binop(ts, OP_OR, res, ops);
+		translate_binop(ts, G1_OR, res, ops);
 		break;
 	case VK_SHL:
 		translate_shift(ts, OP_SHL, res, ops);

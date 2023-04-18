@@ -172,6 +172,8 @@ typedef enum {
 	G1_SUB,
 	G1_XOR,
 	G1_CMP,
+
+	G1_IMUL,
 } X86Group1;
 
 typedef enum {
@@ -197,12 +199,7 @@ typedef enum {
 } X86Group3;
 
 #define INSTRUCTIONS(_) \
-	_(ADD, "add D0, S1", 1, 2, 0, 0) \
-	_(OR, "or D0, S1", 1, 2, 0, 0) \
-	_(AND, "and D0, S1", 1, 2, 0, 0) \
-	_(SUB, "sub D0, S1", 1, 2, 0, 0) \
-	_(XOR, "xor D0, S1", 1, 2, 0, 0) \
-	_(CMP, "cmp S0, S1", 0, 2, 0, 0) \
+	_(BIN_RR, "G0 D0, S1", 1, 2, 1, 0) \
 	_(TEST, "test S0, S1", 0, 2, 0, 0) \
 	_(NOT, "not D0", 1, 1, 0, 0) \
 	_(NEG, "neg D0", 1, 1, 0, 0) \
