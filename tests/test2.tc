@@ -1,0 +1,5 @@
+// vim: ft=c et sw=4
+
+int main() {
+    return 4 + 10 / (5 - 3);
+}
