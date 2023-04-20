@@ -1,0 +1,127 @@
+// vim: ft=c et sw=4
+//
+// * 5a7bfee - Add proper filtering to moves iterator
+//
+// Excessive spilling due to precolored register coalescing heuristic.
+// Using the conservative coalescing heuristic doesn't introduce new spills,
+// while using the precolored one does. The precolored one is used, because we
+// may not want to store adjacency lists for precolored nodes - they are large
+// and not needed for register assignment, since we don't need to assign
+// colors to physical registers by investigating their neighbours.
+//
+//
+//
+// function2:
+// main:
+// .BB0:
+// 	push rbp
+// 	mov rbp, rsp
+// 	sub rsp, 16
+// 	mov rbx, rbx
+// 	mov [rbp-16], rbx
+// 	call function0
+// 	mov rax, rax
+// 	mov rbx, 20
+// 	mov rbx, rbx
+// 	imul rbx, rax
+// 	mov rax, 10
+// 	mov rdi, rax
+// 	call function1
+// 	mov rax, rax
+// 	mov rbx, rbx
+// 	add rbx, rax
+// 	call function0
+// 	mov rax, rax
+// 	mov rbx, rbx
+// 	add rbx, rax
+// 	mov rax, 10
+// 	mov rdi, rax
+// 	call function1
+// 	mov rax, rax
+// 	mov rbx, rbx
+// 	add rbx, rax
+// 	call function0
+// 	mov rax, rax
+// 	mov rbx, rbx
+// 	add rbx, rax
+// 	mov rax, rbx
+// 	mov rbx, [rbp-16]
+// 	mov rbx, rbx
+// 	mov rsp, rbp
+// 	pop rbp
+// 	ret
+//
+// VS
+//
+//function2:
+//main:
+//.BB0:
+//	push rbp
+//	mov rbp, rsp
+//	sub rsp, 48
+//	mov rbx, rbx
+//	mov [rbp-24], rbx
+//	call function0
+//	mov rax, rax
+//	mov rbx, 20
+//	mov rbx, rbx
+//	mov [rbp-48], rbx
+//	mov rbx, [rbp-48]
+//	imul rbx, rax
+//	mov [rbp-48], rbx
+//	mov rax, 10
+//	mov rdi, rax
+//	call function1
+//	mov rcx, rax
+//	mov rbx, [rbp-48]
+//	mov rax, rbx
+//	mov [rbp-40], rax
+//	mov rax, [rbp-40]
+//	add rax, rcx
+//	mov [rbp-40], rax
+//	call function0
+//	mov rbx, rax
+//	mov rax, [rbp-40]
+//	mov rax, rax
+//	mov [rbp-32], rax
+//	mov rax, [rbp-32]
+//	add rax, rbx
+//	mov [rbp-32], rax
+//	mov rax, 10
+//	mov rdi, rax
+//	call function1
+//	mov rbx, rax
+//	mov rax, [rbp-32]
+//	mov rax, rax
+//	mov [rbp-16], rax
+//	mov rax, [rbp-16]
+//	add rax, rbx
+//	mov [rbp-16], rax
+//	call function0
+//	mov rbx, rax
+//	mov rax, [rbp-16]
+//	mov rax, rax
+//	add rax, rbx
+//	mov rax, rax
+//	mov rbx, [rbp-24]
+//	mov rbx, rbx
+//	mov rsp, rbp
+//	pop rbp
+//	ret
+
+int one() {
+    return 1;
+}
+
+int fun(int n) {
+    int a = 0;
+    while (n > 0) {
+        a = a + 1;
+        n = n - 1;
+    }
+    return a;
+}
+
+int main() {
+    return 20 * one() + fun(10) + one() + fun(10) + one();
+}
