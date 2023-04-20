@@ -1,7 +1,7 @@
 % vim: tw=80
 \fontfam[lm]
 \input ctustyle3
-\load[vlna, plain-at]
+\load[vlna]
 \singlechars{Czech}{AaIiVvOoUuSsZzKk}
 \cslang
 \csquotes
@@ -284,6 +284,7 @@ address space, would mean that our code would no longer be correct. Such
 absolute references require run time fix ups (called \"relocations") by the
 dynamic linker, which prevents reuse of the code between multiple processes.
 
+\label[sec:use-of-spilled]
 \secc Using spilled values
 
 As established, we will refer to spilled values through relative addressing
@@ -319,9 +320,11 @@ In this text, we care especially about the x86-64 architecture, which, like most
 CISC architectures, doesn't have a load-store architecture. There are
 instructions which can e.g. perform arithmetic directly on locations in memory.
 Though at most one operand of an instruction can be a location in memory, the
-other one has to be either a register or an immediate value. So we still have to
-solve the problem of having to use {\em registers} for storing/retrieving
-spilled values.
+other one has to be either a register or an immediate value. So on one hand, the
+problem of having to use {\em registers} for storing/retrieving
+spilled values reamins, but on the other hand, since one operand can be a
+location in memory, we can take advantage of that and not use an intermediate
+register at all.
 
 An interesting perspective is, that even though the x86-64 architecture allows
 the instructions to operate on memory operands, an implementation of the
@@ -338,10 +341,313 @@ have access to, which can mean less constraints on the use of the ordinary
 more values into registers instead of memory and hence have a significant {\em
 indirect impact} on performance.
 
-Live range vs value vs variable.
+For example, let's say that `t4` needs to be spilled in the following:
+
+\begtt
+add t3, t2
+\endtt
+
+Instead of adding a load before the instruction of `t4` and a store of `t4`
+after, like this:
+
+\begtt
+mov t4, [rbp+t3]
+add t4, t2
+mov [rbp+t3], t4
+\endtt
+
+We can just operate on the memory location:
+
+\begtt
+add [rbp+t3], t4
+\endtt
+
+This example also showed, that as mentioned, at least with a very narrow local
+view, and with the first simpler solution, spilling `t3` doesn't help with the
+use of registers! We needed to introduce another pseudoregister, `t4`, to hold
+the value of `t3` loaded from memory. Indeed, spilling helps only in a broader
+scope, where splitting definitions / uses of one pseudoregister into single
+definitions and singe uses of many different pseudoregisters help making the
+register allocation solvable (due to limited number of registers) or easier.
+
+Thus for spills, we want to introduce a new temporary for each new load and
+store, but that is not the case in the example, `t4` is used also for storing
+spilled `t3` back to memory. This is needed, since as we have discussed in TODO,
+most instructions on the x86-64 use the "two address code", where one of the
+operands is also the destination for the result. So it is not directly possible
+to store the result in a different location than the location of the first
+operand. Judging the snippet only locally, the transformation is fine, since the
+`original` value of `t3` was also \"destroyed" in the original version. In
+general, the original value of `t3`, before the addition, {\em might} be needed
+even after the addition. That is why the code generator might need to output the
+following sequence to add `t1` and `t2` into `t3` while preserving all of `t1`,
+`t2` and `t3`:
+
+\begtt
+mov t3, t1
+add t3, t2
+\endtt
+
+Now the prospect of naively spilling `t3` seems even worse:
+
+\begtt
+mov [rbp+t3], t1
+mov t4, [rbp+t3]
+add t4, t2
+mov [rbp+t3], t4
+\endtt
+
+The code generator hoped that by assigning `t1` and `t3` the same register, the
+move instruction could be eliminitaed. Since for some reason `t3` was spilled,
+that is now out of the question, but there is still a suboptimality - `t1` is
+copied to memory and then immediately loaded back again into `t4`, because it
+needs to be used in the `add` instruction and stored back into memory. Use of
+`t3`'s memory location as the first operand of the `add` instruction helps as
+before:
+
+\begtt
+mov [rbp+t3], t1
+add [rbp+t3], t2
+\endtt
+
+But in some sense, this is a red herring---the memory operations are still
+there, the CPU still has to load the value `t3` from memory in the `add`
+instruction, when we just had it in a register. Just because the addressing
+modes of x86 allow use of memory locations in the instruction encodings, doesn't
+mean that internally the ALU (Arithmetical logical unit) can suddenly operate
+directly on memory, the CPU still has to internally load the value into a
+register. So while we spare a general purpose register and instead use an
+architectural one, we still excessively operate on memory. Alternatively instead of
+using memory location for the `add` instruction we could move the value from
+`t1` directly into memory, because store/load pair didn't have any meaning at
+all---we store the result of addition to `t3` in the last instruction afterall.
+
+\begtt
+mov t4, t1
+add t4, t2
+mov [rbp+t3], t4
+\endtt
+
+Now, we keep the values in registers the whole time, and only store the final
+result in memory on assumption that later the value is needed and storing it in
+memory somehow helps the register allocator. While the first example is two
+instructions, it is X bytes, while the second one is 3 instructions and Y bytes
+TODO: compare lengths of instructions. But in fact this is how we started in the
+first place---just have the values in the registers. The important difference
+is, that the register `t4` introduced by spilling, is a temporary, it's value
+ends right at the store to `t3`'s location in memory. Thus it makes the register
+allocation problem much easier than previously just with `t3`. For example now
+it is even more likely that `t4` and `t1` are assigned the same register, thus
+making the first instruction a noop. The reason why it is easier to merge with
+`t4` instead of `t3` is not really apparent from this local view, but we have
+TODO less interference.
+
+Another point of view on the issue is, that essentially, in (the last snippet)
+in the first two instructions `t3` is represented by `t4`, while in the last
+instruction it shifts from being represented by `t4` to be represented by `t3`,
+which due to some previous decision, resides in a memory location. We have
+essentially split the register `t3` into multiple registers connected by moves
+and it improved the generated code. In contrast, we argued, that by merging `t4`
+and `t1` we would have had the chance to eliminate the move instruction, thus
+improving the code as well. Both "merging" (also called {\em coalescing}), and
+\"splitting" can both improve the code in different situations, this makes it
+even harder, because recklessly doing one or the other will make the code
+certainly worse, while doing neither may as adding these contrasting notions
+makes great register allocation an even harder problem.
+
+\secc Interaction with instruction selection
+
+As we have seen, the process of spilling needs to insert new instructions which
+together form the so colled "spill code". In simplest scenario they just load
+and store the value, but better code can be achieved if the spill code is
+inserted with better thought than just load from memory and move to memory. But
+both of these problems---selecting the instructions to use for operations and
+additionally making nontrivial transformations based on the code at hand was
+exactly the job of instruction selection.
+
+In principle, register allocator shouldn't care about the instructions. It
+should only cares about their effects on the registers. The result of register
+allocation should be the assignment of register to pseudoregisters. Since spills
+can be necessary, which requires insertion of new instructions, we have to
+decide how this spill code will be handled. The basic options are the following,
+and mostly depend on the chosen register allocation technique:
+
+\begitems
+* Insert spill code in the register allocator pass.
+* Return the list of spilled pseudoregisters, and expect to be called again with
+code transformed to include the spill code.
+\enditems
+
+The first option can make the register allocator depend on the target
+architecture---it now needs to know about the current target, its instructions,
+their meanings and how to insert them. On the other hand, register allocation is
+already in the "backend", where we expect to handle things on the level of the
+target, and generally hope to take advantage of that by, for example, doing
+optimizations specific to the particular target. This can be application of that
+idea. On the other hand, as mentioned previously, machine independent
+representations of machine depednent instructions are possible, thus spill code
+insertion {\em could} also be made machine independent similarly as instruction
+selection.
+
+The second makes the register allocation process pure in a sense. The register
+allocator never modifies the input, its result is a either a mapping of
+pseudoregisters to registers, or a list of pseudoregisters to be spilled.
+Though it still has to be decided on how to insert the instructions. Some
+instruction selection mechanisms which ultimately depend on the middle end IR,
+are not suitable for inserting and optimizing spill code, since we are already
+in the "low level" backend IR. Tree or DAG based instruction selection
+mechanisms may also not be directly applicable---we may no longer be using
+trees or DAGs for representing the machine code, especially efter instruction
+scheduling, which sets the order of instructions in stone. On the other hand
+peephole optimization is a great fit for improving inserted spill code. The
+inserted spill code can be very naive, and peephole optimization run on the
+spill code and its surroundings can make improvements. This is especially likely
+if we are able to find patterns which spilled code creates, such as in the
+example in the previous subsection (\ref[sec:use-of-spilled]).
+
+The obvios downside of the \"pure register allocation" approach is, that it has
+to start over with register allocation, if any spills need to be made. The first
+approach seems more suited to register allocation where we would want self
+contained and final results in possibly just one pass. The approaches used for
+spill code insertion are usually very connected to the core principle of the
+register allocation algorithm at hande, and choices of some approaches are
+discussed in the section~\ref[sec:regalloc-techniques].
+
+\sec Formalization
+
+The terms used in the previous sections about register allocation were not
+properly defined, and perhaps even not commonly used for the concepts. The
+intention was to practically show the problems register allocation tries to
+solve and what needs to do to solve it, which of course includes optimizations
+that try to make the register allocation process more optimal.
+
+One thing that has to be noted is the name \"register allocation" itself. We
+infact mentioned that register allocation is meant to map pseudoregisters to
+real machine registers of the target architecture, but the process isn't always
+so direct, and sometimes it makes sense and brings benefits to split this
+process into two parts, which really define what we mean by these names:
+
+\begitems\style n
+* {\em Register allocation}. In a narrower sense, by register allocation we mean
+the process of making sure that each pseudoregister can be assigned a register.
+At this point, we may not care too much about which one, but we care about spill
+code, because that is what allows us to fit into the limited amount of registers
+available.
+* {\em Register assignment}. The assignments follows allocation---now that we
+can map every pseudoregister left into at least one register, we choose the
+concrete one. Although this seems much more simpler than the allocation part,
+in practice register assignment is also very important, because we have seen
+situations where some assignments lead to better code, for example where the
+source and destination of a move instruction are assigned the same register, the
+move instruction can be eliminated.
+\enditems
+
+Some register allocation algorithms intertwine both parts and don't split them.
+Some algorithms strictly separate these concerns. In general simpler algorithms
+usually merge both of these parts, while more complex algorithms try to take
+advantage of the attacking each of those issues separately to reach more optimal
+results. But this distinction is of course not definitive.
+
+\secc Liveness, inteference
+
+\secc Live ranges
+
+vs value vs variable.
+
+\secc Coalescing
+
+\secc Live range splitting
+
+\label[sec:regalloc-techniques]
+\sec Techniques
+
+We have already seen a few things that can distinguish different register
+allocation algorithms:
+
+\begitems
+* Handling of spilling (section~\ref[ref:use-of-spilled]),
+* Split or no split of allocation and assignment
+(section~\ref[ref:regalloc-formalization]).
+\enditems
+
+\noindent But there are others:
+
+\begitems
+* Scope: {\em local} vs {\em global} vs {\em interprocedural} vs {\em whole
+program} algorithms. Local algorithms operate on singular basic blocks and use
+only information local to the basic block to decide on register allocation. The
+limited scope makes the algorithms generally simpler and produces worse results
+then global register allocation, which allocates registers to whole functions.
+Global register allocation is global in the sense that {\em all} basic blocks
+are considered at the same time. The analysis is more complex, since it has to
+handle control flow. Even techniques for allocating registers across function
+calls and whole programs exist. These can be less practical in practice, where
+functions may be required to conform to a {\em calling convention}, which
+specifies how arguments should be passed in function calls, what registers are
+preserved by calls and where will the return values reside. We will not discuss
+techniques operating in larger scopes than {\em global} (whole function, all
+basic blocks).
+
+* {\em Quality} vs {\em speed}. With no restrictions on time, we ideally would
+like to achieve {\em optimal} register allocation. With the right definition of
+optimal, it can be possible, but due to the difficulty of the register
+allocation, this approach is bound to be too slow (in {\em compile-time}),
+although it would produce code that would be fast (in {\em run-time}). In code
+compiled ahead of time, we can probably justify spending more time on
+compilation to achieve better run-time, since it is expected, that the program
+will run for some time and that the investment will return.
+
+On the other end of the spectre we may want a register allocation algorithm that
+runs very fast (due to constraints on compile-time), but in that case we can't
+expect good results (i.e. code that has fast run-time). This can be interesting
+for {\em Just-in-time} (JIT) compilers, where the compile time is part of
+run-time and hence it is not possible to spend much time on optimizations,
+because 
+
+Most of the code compiled ahead
+of time can usually benefit from
+\enditems
+
+\secc Top-down, bottom-up
+
+\secc Backward
+
+\secc Linear scan
+
+\secc Graph coloring
+
+\secc Reduction (to another NP-complete problem and using a solver)
+
+ILP, IBQP
+
+\secc SSA register allocation
 
 
 \bibchap
 \usebib/s (iso690) vlasami6-dip
 
 \bye
+
+This sequence simulates \"three address code" (see TODO) and the second instruction
+is in fact what we started with to show use of spilled pseudoregisters.
+
+
+As we have discussed in TODO, most instructions on
+the x86-64 use the "two address code", where one of the operands is also the
+destination for the result. Generally, three address code (where operations have
+two operands and one destination that may or may not coincide with one of the
+operadns), are nicer from the perspective of the compiler---it is (at least in
+principle, or while we are operating with pseudoregisters) non-destructive.
+
+
+
+
+
+Coalescing vs live range splitting.
+
+
+
+Zkratky:
+
+DAG
+JIT
