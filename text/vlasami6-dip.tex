@@ -3,11 +3,12 @@
 \input ctustyle3
 \load[vlna]
 \singlechars{Czech}{AaIiVvOoUuSsZzKk}
-\cslang
-\csquotes
+\enlang
+\enquotes
 \verbchar`
 \picdir={figures/}
 \nonstopmode
+\nonumcitations
 
 \newcount\tnotenum
 \def\tnotelist{}
@@ -52,8 +53,8 @@
 \faculty{F8}
 
 \department{Katedra teoretické informatiky}
-\title  {x86-64 nativní backend pro TinyC}
-\titleEN{x86-64 native backend for TinyC}
+\title  {x86-64 native backend for TinyC}
+\titleCZ{x86-64 nativní backend pro TinyC}
 \author{Michal Vlasák}
 \date{XX.\,XX.\,TODO}
 \supervisor{Ing. Petr Máj}
@@ -399,11 +400,11 @@ mov [rbp+t3], t4
 
 The code generator hoped that by assigning `t1` and `t3` the same register, the
 move instruction could be eliminitaed. Since for some reason `t3` was spilled,
-that is now out of the question, but there is still a suboptimality - `t1` is
+that is now out of the question, but there is still a suboptimality---`t1` is
 copied to memory and then immediately loaded back again into `t4`, because it
-needs to be used in the `add` instruction and stored back into memory. Use of
-`t3`'s memory location as the first operand of the `add` instruction helps as
-before:
+needs to be used in the `add` instruction and then also stored back into memory.
+Use of `t3`'s memory location as the first operand of the `add` instruction
+helps as before:
 
 \begtt
 mov [rbp+t3], t1
@@ -602,10 +603,17 @@ runs very fast (due to constraints on compile-time), but in that case we can't
 expect good results (i.e. code that has fast run-time). This can be interesting
 for {\em Just-in-time} (JIT) compilers, where the compile time is part of
 run-time and hence it is not possible to spend much time on optimizations,
-because 
+because it is possible that they wouldn't pay off (though they could, we don't
+know ahead of time).
 
-Most of the code compiled ahead
-of time can usually benefit from
+* {\em Control flow sensitivity}. Some global algorithms may completely
+disregard the actual control flow of the program and just use (global) liveness
+and/or interferences to do register allocation and assignment. But use of
+control flow information in an algorithm is likely to steer it to better
+results---spills in hot or nested loops are undesirable. Control flow sensitive
+register allocation (not assignment) may for example even try to purposefuly do
+spills before loops to make more registers available in loops.
+
 \enditems
 
 \secc Top-down, bottom-up
@@ -615,6 +623,76 @@ of time can usually benefit from
 \secc Linear scan
 
 \secc Graph coloring
+
+Even though the idea of using graph coloring for register allocation is older,
+first notable use of the technique is by Chaitin~\cite[Chaitin1981]. The core of
+the idea is to construct an interference graph from the interferences of
+pseudoregisters---all pseudoregisters are nodes in the graph and there is an
+edge between pseudoregisters, if and only if they interfere. Then on this graph
+we aim to find a {\em coloring}---mapping of nodes to colors, such that
+no neighbouring nodes get the same color. In our case the colors ultimately
+constitute the machine registers, because edges designate interference, it is
+guaranteed that no pseudoregisters that interfere are assigned the same
+register.
+
+If we have $K$ machine registers available, then we are looking for a $K$
+coloring---the coloring needs to use at most $K$ colors (registers). We call the
+minimum number of colors a graph can be colored with it's chromatic number.
+Obviously, no matter how $K$ is big, there are always graphs with a bigger
+chromatic number (which corresponds to the fact there we always could have a
+program needing more physical registers at the same time then we had available).
+
+By reducing the register allocation to graph coloring we may have seemingly not
+gained much, since graph coloring is an NP-complete
+problem\fnote{In~\cite[Chaitin1981] authors argue further that register
+allocation is also NP-complete, this has since been
+disputed~\cite[Bouchez2007].} However in~\cite[Chaitin1981] they rediscover a
+technique that can simplify and make graph coloring practical for register
+allocation. It is based on the observation that a node which has fewer than $K$
+neighbours can be always assigned a color distinct from all of its neighbours,
+because there are less neighbours than colors, even if all neighbours used
+different colors, there would still be a free color left.
+This simple, yet important observation is the base for their and subsequent
+techniques.
+
+Since incorporating a node with degree less than $K$ (an {\em insignificant}
+node) into an already colored graph is easy, initially we do the
+opposite---remove from the graph all insignificant nodes, such that later, in
+the reverse process we can add them back to the graph and color them trivially.
+Removing low degree nodes from the graph causes the degrees of neighbouring
+nodes to decrease as well and may thus lead to more simplifications. In
+Chaitin's algorithm this phase is understandably called {\em simplify} and the
+removed low degree nodes are pushed on the stack. In the final stage, {\em
+assign}, the nodes have colors assigned in the reverse order simply by popping
+them from the stack and assigning them a color not used by any of the (already
+colored) neighbours in the now being rebuilt graph. Use of this heuristic is not
+all saving---it is still likely that there will be nodes left with high degrees.
+TODO what Chaitin does exactly?
+
+Spill of any node means that the code needs to be updated with spill code, and
+the register allocation process repeated. Since the program is now different,
+and new pseudoregisters were introduced to accomodate spill code, the
+liveness analysis and building of interference graph have to be repeated as
+well. Then simplification can be tried again. The entire process is repeated
+until the simplification is able to reduce the graph to an empty graph, which is
+trivially colorable. At this point the invariant of pushing only nodes of
+insignificant degrees guarantees us that every node popped from top of the stack
+will have at least one free color.
+
+But, it is possible to do better. The fact, that a node has a {\em significant}
+number of neighbours doesn't mean, that it will be uncolorable in the assignment
+stage. There is a chance that all of the already colored neighbours will be
+assigned less than $K$ colors (TODO: figure), in that case the popped node could
+still be colored even though when it was pushed it was significant. Because of
+this, we may optimistically proceed to even remove and push high degree nodes on
+to the stack, without pesimistically spilling them in the simplify phase. If in
+the assignment phase it turns out that there isn't a color left for the popped
+node, we spill it only then. When we push a high degree node in the simplify
+phase, it can lead to other nodes being insignificant and thus trivially
+colorable. This strategy is called {\em optimistic coloring} and was devised by
+Briggs~\cite[BriggsXXXX].
+
+
 
 \secc Reduction (to another NP-complete problem and using a solver)
 
