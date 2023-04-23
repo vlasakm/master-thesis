@@ -2096,8 +2096,8 @@ wl_add(WorkList *wl, Oper op)
 	assert(op < wl->capacity);
 	if (wl->sparse[op] < wl->head || wl->sparse[op] >= wl->tail || wl->dense[wl->sparse[op]] != op) {
 		wl->sparse[op] = wl->tail;
-		wl->dense[wl->tail] = op;
-		wl->tail += 1;
+		wl->dense[wl->tail++] = op;
+		assert(wl->tail <= wl->capacity);
 		for (size_t i = wl->head; i < wl->tail; i++) {
 			assert(wl->sparse[wl->dense[i]] == (Oper) i);
 		}
@@ -2125,8 +2125,7 @@ wl_remove(WorkList *wl, Oper op)
 {
 	assert(op < wl->capacity);
 	if (wl_has(wl, op)) {
-		wl->tail -= 1;
-		Oper last = wl->dense[wl->tail];
+		Oper last = wl->dense[--wl->tail];
 		wl->dense[wl->sparse[op]] = last;
 		wl->sparse[last] = wl->sparse[op];
 		wl->dense[wl->tail] = op;
