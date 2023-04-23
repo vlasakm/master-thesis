@@ -1763,8 +1763,9 @@ static void
 translate_cmpop(TranslationState *ts, CondCode cc, Oper res, Oper *ops)
 {
 	add_set_zero(ts, res);
-	add_inst(ts, OP_CMP, ops[0], ops[1]);
-	add_inst(ts, OP_BIN_RR, op1, op1, op2, op);
+	// Cmp is like a binary operation, except it doesn't change any
+	// register, so we set the destination to `R_NONE`.
+	add_inst(ts, OP_BIN_RR, R_NONE, ops[0], ops[1], G1_CMP);
 	add_inst(ts, OP_SETCC, res, cc);
 }
 
