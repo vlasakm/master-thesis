@@ -1573,16 +1573,50 @@ print_inst(FILE *f, Inst *inst)
 		}
 		case 'G': {
 			const char *s;
-			switch (inst->ops[desc->src_cnt + i]) {
-			case G1_ADD:  s =  "add"; break;
-			case G1_OR:   s =   "or"; break;
-			case G1_ADC:  s =  "adc"; break;
-			case G1_SBB:  s =  "sbb"; break;
-			case G1_AND:  s =  "and"; break;
-			case G1_SUB:  s =  "sub"; break;
-			case G1_XOR:  s =  "xor"; break;
-			case G1_CMP:  s =  "cmp"; break;
-			case G1_IMUL: s = "imul"; break;
+			size_t g = i;
+			in += 2;
+			size_t i = *in - '0';
+			switch (g) {
+			case 1:
+				switch (inst->ops[desc->src_cnt + i]) {
+				case G1_ADD:  s =  "add"; break;
+				case G1_OR:   s =   "or"; break;
+				case G1_ADC:  s =  "adc"; break;
+				case G1_SBB:  s =  "sbb"; break;
+				case G1_AND:  s =  "and"; break;
+				case G1_SUB:  s =  "sub"; break;
+				case G1_XOR:  s =  "xor"; break;
+				case G1_CMP:  s =  "cmp"; break;
+				case G1_IMUL: s = "imul"; break;
+				default: UNREACHABLE();
+				}
+				break;
+			case 2:
+				switch (inst->ops[desc->src_cnt + i]) {
+				case G2_ROL: s = "rol"; break;
+				case G2_ROR: s = "ror"; break;
+				case G2_RCL: s = "rcl"; break;
+				case G2_RCR: s = "rcr"; break;
+				case G2_SHL: s = "shl"; break;
+				case G2_SHR: s = "shr"; break;
+				case G2_SAL: s = "sal"; break;
+				case G2_SAR: s = "sar"; break;
+				default: UNREACHABLE();
+				}
+				break;
+			case 3:
+				switch (inst->ops[desc->src_cnt + i]) {
+				case G3_TEST:  s = "test"; break;
+				case G3_TEST2: s = "test"; break;
+				case G3_NOT:   s = "not"; break;
+				case G3_NEG:   s = "neg"; break;
+				case G3_MUL:   s = "mul"; break;
+				case G3_IMUL:  s = "imul"; break;
+				case G3_DIV:   s = "div"; break;
+				case G3_IDIV:  s = "idiv"; break;
+				default: UNREACHABLE();
+				}
+				break;
 			default: UNREACHABLE();
 			}
 			fprintf(f, "%s", s);
@@ -1668,15 +1702,21 @@ add_set_zero(TranslationState *ts, Oper oper)
 }
 
 static void
-add_unop(TranslationState *ts, OpCode op, Oper op1)
+add_unop(TranslationState *ts, X86Group3 op, Oper op1)
 {
-	add_inst(ts, op, op1, op1);
+	add_inst(ts, OP_UNARY_RR, op1, op1, op);
 }
 
 static void
 add_binop(TranslationState *ts, X86Group1 op, Oper op1, Oper op2)
 {
 	add_inst(ts, OP_BIN_RR, op1, op1, op2, op);
+}
+
+static void
+add_shift(TranslationState *ts, X86Group2 op, Oper op1, Oper op2)
+{
+	add_inst(ts, OP_SHIFT_RR, op1, op1, op2, op);
 }
 
 static void
@@ -1728,7 +1768,7 @@ add_return(TranslationState *ts, Oper *ret_val)
 }
 
 static void
-translate_unop(TranslationState *ts, OpCode op, Oper res, Oper *ops)
+translate_unop(TranslationState *ts, X86Group3 op, Oper res, Oper *ops)
 {
 	add_copy(ts, res, ops[0]);
 	add_unop(ts, op, res);
@@ -1742,11 +1782,11 @@ translate_binop(TranslationState *ts, X86Group1 op, Oper res, Oper *ops)
 }
 
 static void
-translate_shift(TranslationState *ts, OpCode op, Oper res, Oper *ops)
+translate_shift(TranslationState *ts, X86Group2 op, Oper res, Oper *ops)
 {
 	add_copy(ts, res, ops[0]);
 	add_copy(ts, R_RCX, ops[1]);
-	add_inst(ts, op, res, R_RCX);
+	add_shift(ts, op, res, R_RCX);
 }
 
 static void
@@ -1875,16 +1915,16 @@ translate_value(TranslationState *ts, Value *v)
 		translate_binop(ts, G1_OR, res, ops);
 		break;
 	case VK_SHL:
-		translate_shift(ts, OP_SHL, res, ops);
+		translate_shift(ts, G2_SAL, res, ops);
 		break;
 	case VK_SHR:
-		translate_shift(ts, OP_SHR, res, ops);
+		translate_shift(ts, G2_SAR, res, ops);
 		break;
 	case VK_NEG:
-		translate_unop(ts, OP_NEG, res, ops);
+		translate_unop(ts, G3_NEG, res, ops);
 		break;
 	case VK_NOT:
-		translate_unop(ts, OP_NOT, res, ops);
+		translate_unop(ts, G3_NOT, res, ops);
 		break;
 	case VK_EQ:
 		translate_cmpop(ts, CC_Z, res, ops);

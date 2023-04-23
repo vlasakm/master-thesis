@@ -199,14 +199,12 @@ typedef enum {
 } X86Group3;
 
 #define INSTRUCTIONS(_) \
-	_(BIN_RR, "G0 D0, S1", 1, 2, 1, 0) \
+	_(BIN_RR, "G1:0 S0, S1", 1, 2, 1, 0) \
+	_(SHIFT_RR, "G2:0 D0, S1", 1, 2, 1, 0) \
+	_(UNARY_RR, "G3:0 D0, S1", 1, 1, 1, 0) \
 	_(TEST, "test S0, S1", 0, 2, 0, 0) \
-	_(NOT, "not D0", 1, 1, 0, 0) \
-	_(NEG, "neg D0", 1, 1, 0, 0) \
 	_(IMUL, "imul D0, S1", 1, 2, 0, 0) \
 	_(IDIV, "idiv S2", 2, 3, 0, 0) \
-	_(SHL, "shl D0, S1", 1, 2, 0, 0) \
-	_(SHR, "shr D0, S1", 1, 2, 0, 0) \
 	_(CALL, "call F0", 5, 4, 0, 1) \
 	_(JMP, "jmp B0", 0, 0, 0, 1) \
 	_(RET, "ret", 0, 2, 0, 0) \
