@@ -1,4 +1,5 @@
-% vim: tw=80
+% vim: tw=80 spell spelllang=en
+
 \fontfam[lm]
 \input ctustyle3
 \load[vlna]
@@ -52,7 +53,7 @@
 
 \faculty{F8}
 
-\department{Katedra teoretické informatiky}
+\department{Department of Theoretical Computer Science}
 \title  {x86-64 native backend for TinyC}
 \titleCZ{x86-64 nativní backend pro TinyC}
 \author{Michal Vlasák}
@@ -114,7 +115,7 @@ possible approaches are introduced.
 The x86-64 architecture (see \cite[ref:x86]) is what we mainly care about in
 this thesis. Since it is familiar, we will be using it as examples in the
 following sections. It is also a good candidate because it brings some
-challanges not found on other architectures, but shows the general problems just
+challenges not found on other architectures, but shows the general problems just
 as well as other architectures.
 
 Note that like with instruction selection although we are already working with
@@ -187,7 +188,7 @@ allocation alone:
 works well and fits into the 16 registers we have available. But we can notice
 that after the addition we no longer need the value stored in register `rax`.
 Thes is the core idea of register allocation, we only need to store such values
-that will be needed in the future, and contraty to SSA we can use that to
+that will be needed in the future, and contrary to SSA we can use that to
 "recycle" registers.
 
 * If we were to reuse `rax` for storing the result of addition, our situation
@@ -275,7 +276,7 @@ top of the stack", which means that code needing to access the values not
 fitting into registers can address their memory locations using relative
 addressing with small offsets (say smaller than 16 bits), also a feature
 efficiently supported by all common architectures these days. On the other hand
-accessing static slots of memory would pose similar challanges as global
+accessing static slots of memory would pose similar challenges as global
 variables have - they may not be reachable with small relative offsets from any
 register and especially on 64 bits systems their absolute address is not only too large
 to be stored in literals in code, but using absolute addresses is also
@@ -309,7 +310,7 @@ register in a long part of the code (because it is needed in all parts of that
 code), by putting the value into memory and retrieving it immediately before
 each use, we have made the register allocation problem simpler---a register is
 needed in more but smaller parts of the code. This means that a single machine
-register can be reused for several valuse, instead of being blocked by "one".
+register can be reused for several values, instead of being blocked by "one".
 
 At least the register used for the store, doesn't have to be the same one used
 for the load. So even though we are constrained by the fact that registers have
@@ -323,14 +324,14 @@ instructions which can e.g. perform arithmetic directly on locations in memory.
 Though at most one operand of an instruction can be a location in memory, the
 other one has to be either a register or an immediate value. So on one hand, the
 problem of having to use {\em registers} for storing/retrieving
-spilled values reamins, but on the other hand, since one operand can be a
+spilled values remains, but on the other hand, since one operand can be a
 location in memory, we can take advantage of that and not use an intermediate
 register at all.
 
 An interesting perspective is, that even though the x86-64 architecture allows
 the instructions to operate on memory operands, an implementation of the
 architecture in for example some new Intel processors splits these instructions
-into microoperations based on the load-store architecture, using some internal
+into micro-operations based on the load-store architecture, using some internal
 \"architectural" registers (not normally accessible directly) for storing the
 intermediate values. Because of this there probably isn't any {\em direct}
 performance difference of using the memory operands. But it is still very useful
@@ -399,7 +400,7 @@ mov [rbp+t3], t4
 \endtt
 
 The code generator hoped that by assigning `t1` and `t3` the same register, the
-move instruction could be eliminitaed. Since for some reason `t3` was spilled,
+move instruction could be eliminated. Since for some reason `t3` was spilled,
 that is now out of the question, but there is still a suboptimality---`t1` is
 copied to memory and then immediately loaded back again into `t4`, because it
 needs to be used in the `add` instruction and then also stored back into memory.
@@ -421,7 +422,7 @@ register. So while we spare a general purpose register and instead use an
 architectural one, we still excessively operate on memory. Alternatively instead of
 using memory location for the `add` instruction we could move the value from
 `t1` directly into memory, because store/load pair didn't have any meaning at
-all---we store the result of addition to `t3` in the last instruction afterall.
+all---we store the result of addition to `t3` in the last instruction after all.
 
 \begtt
 mov t4, t1
@@ -459,7 +460,7 @@ makes great register allocation an even harder problem.
 \secc Interaction with instruction selection
 
 As we have seen, the process of spilling needs to insert new instructions which
-together form the so colled "spill code". In simplest scenario they just load
+together form the so called "spill code". In simplest scenario they just load
 and store the value, but better code can be achieved if the spill code is
 inserted with better thought than just load from memory and move to memory. But
 both of these problems---selecting the instructions to use for operations and
@@ -486,7 +487,7 @@ already in the "backend", where we expect to handle things on the level of the
 target, and generally hope to take advantage of that by, for example, doing
 optimizations specific to the particular target. This can be application of that
 idea. On the other hand, as mentioned previously, machine independent
-representations of machine depednent instructions are possible, thus spill code
+representations of machine dependent instructions are possible, thus spill code
 insertion {\em could} also be made machine independent similarly as instruction
 selection.
 
@@ -498,7 +499,7 @@ instruction selection mechanisms which ultimately depend on the middle end IR,
 are not suitable for inserting and optimizing spill code, since we are already
 in the "low level" backend IR. Tree or DAG based instruction selection
 mechanisms may also not be directly applicable---we may no longer be using
-trees or DAGs for representing the machine code, especially efter instruction
+trees or DAGs for representing the machine code, especially after instruction
 scheduling, which sets the order of instructions in stone. On the other hand
 peephole optimization is a great fit for improving inserted spill code. The
 inserted spill code can be very naive, and peephole optimization run on the
@@ -506,12 +507,12 @@ spill code and its surroundings can make improvements. This is especially likely
 if we are able to find patterns which spilled code creates, such as in the
 example in the previous subsection (\ref[sec:use-of-spilled]).
 
-The obvios downside of the \"pure register allocation" approach is, that it has
+The obvious downside of the \"pure register allocation" approach is, that it has
 to start over with register allocation, if any spills need to be made. The first
 approach seems more suited to register allocation where we would want self
 contained and final results in possibly just one pass. The approaches used for
 spill code insertion are usually very connected to the core principle of the
-register allocation algorithm at hande, and choices of some approaches are
+register allocation algorithm at handle, and choices of some approaches are
 discussed in the section~\ref[sec:regalloc-techniques].
 
 \sec Formalization
@@ -523,7 +524,7 @@ solve and what needs to do to solve it, which of course includes optimizations
 that try to make the register allocation process more optimal.
 
 One thing that has to be noted is the name \"register allocation" itself. We
-infact mentioned that register allocation is meant to map pseudoregisters to
+in fact mentioned that register allocation is meant to map pseudoregisters to
 real machine registers of the target architecture, but the process isn't always
 so direct, and sometimes it makes sense and brings benefits to split this
 process into two parts, which really define what we mean by these names:
@@ -611,7 +612,7 @@ disregard the actual control flow of the program and just use (global) liveness
 and/or interferences to do register allocation and assignment. But use of
 control flow information in an algorithm is likely to steer it to better
 results---spills in hot or nested loops are undesirable. Control flow sensitive
-register allocation (not assignment) may for example even try to purposefuly do
+register allocation (not assignment) may for example even try to purposefully do
 spills before loops to make more registers available in loops.
 
 \enditems
@@ -714,7 +715,7 @@ As we have discussed in TODO, most instructions on
 the x86-64 use the "two address code", where one of the operands is also the
 destination for the result. Generally, three address code (where operations have
 two operands and one destination that may or may not coincide with one of the
-operadns), are nicer from the perspective of the compiler---it is (at least in
+operands), are nicer from the perspective of the compiler---it is (at least in
 principle, or while we are operating with pseudoregisters) non-destructive.
 
 
