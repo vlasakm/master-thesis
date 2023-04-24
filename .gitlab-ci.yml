@@ -1,0 +1,13 @@
+image: $CI_REGISTRY/vlasami6/ctustyle3:master
+
+pages:
+  stage: deploy
+  script:
+    - cd text
+    - mmoptex vlasami6-dip.tex
+    - mmoptex vlasami6-dip.tex
+    - mmoptex vlasami6-dip.tex
+  artifacts:
+    paths:
+      - text/vlasami6-dip.pdf
+    expire_in: 1 month
