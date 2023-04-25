@@ -11,6 +11,50 @@
 \nonstopmode
 \nonumcitations
 
+\draft
+
+\newcount \_secccnum
+\def \_thesecccnum {\_othe\_chapnum.\_the\_secnum.\_the\_seccnum.\_the\_secccnum}
+
+\_optdef\_seccc[]{\_trylabel \_scantoeol\_inseccc}
+
+\_def\_inseccc #1{\_par \_sectionlevel=4
+   \_def \_savedtitle {#1}% saved to .ref file
+   \_ifnonum \_else {\_globaldefs=1 \_incr\_secccnum \_secccx}\_fi
+   \_edef \_therefnum {\_ifnonum \_space \_else \_thesecccnum \_fi}%
+   \_printseccc{\_scantextokens{#1}}%
+   \_resetnonumnotoc
+}
+\public \seccc ;
+
+\_def \_chapx {\_secx   \_secnum=0   \_lfnotenum=0 }
+\_def \_secx  {\_seccx  \_seccnum=0  \_tnum=0 \_fnum=0 \_dnum=0 \_resetABCDE }
+\_def \_seccx {\_secccx \_secccnum=0 }
+\_def \_secccx {}
+
+
+\_def\_printseccc#1{\_par
+   \_abovetitle{\_penalty-100}{\_medskip}
+   {\_bf \_noindent \_raggedright \_printrefnum[@\_quad]#1\_nbpar}%
+   \_nobreak \_belowtitle{\_smallskip}%
+   \_firstnoindent
+}
+
+\_def\secccfont{\_scalemain\_typoscale[\_magstephalf/\_magstephalf]\_ctustyle_boldify}
+\_def\_printseccc#1{\_par \_abovetitle{\_goodbreak} 
+  \_smallskip\_medskip\_vskip.5\_parskip
+  \_ctustyle_begitemstest\seccc
+  \_line{%\Blue\_vrule height 3.5mm width4mm depth.3mm\Black 
+  \_hss\_vtop{\_advance\_hsize by-0mm
+     \secccfont \_noindent \_printrefnum[@\_quad]%
+     \_ctustyle_nBlue#1\_rightskip=0pt plus1fil \_strut\_nbpar\_kern-4.5pt}}%
+  \_nobreak\_vskip-.5\_parskip\_smallskip\_vskip2pt\_relax
+  \_firstnoindent
+}
+
+
+%\_sdef{_tocl:4}#1#2#3{\_advance\_leftskip by2\_iindent \_cs{_tocl:2}{#1}{#2}{#3}}
+
 \newcount\tnotenum
 \def\tnotelist{}
 \def\tnote#1{\incr\tnotenum $^{\rm\_romannumeral\tnotenum}$\global\addto\tnotelist{{#1}}}
@@ -94,7 +138,6 @@ V XX dne XX.\,XX.\,TODO
 \signature
 }
 
-\draft
 {\nopagenumbers
   {\pgbackground={
     \picwidth=\pagewidth \picheight=\pageheight
@@ -260,6 +303,7 @@ out of registers. So not only for variables (which for example in C nominally
 reside in memory), but even for temporaries we have to account for the fact that
 we simply can get out of registers.
 
+\label[sec:spilling]
 \sec Spilling
 
 We can get out of registers, but we still have to store our (say intermediate)
@@ -617,6 +661,7 @@ spills before loops to make more registers available in loops.
 
 \enditems
 
+\label[sec:regalloc-top-down]
 \secc Top-down, bottom-up
 
 \secc Backward
@@ -626,74 +671,230 @@ spills before loops to make more registers available in loops.
 \secc Graph coloring
 
 Even though the idea of using graph coloring for register allocation is older,
-first notable use of the technique is by Chaitin~\cite[Chaitin1981]. The core of
-the idea is to construct an interference graph from the interferences of
-pseudoregisters---all pseudoregisters are nodes in the graph and there is an
-edge between pseudoregisters, if and only if they interfere. Then on this graph
-we aim to find a {\em coloring}---mapping of nodes to colors, such that
-no neighbouring nodes get the same color. In our case the colors ultimately
-constitute the machine registers, because edges designate interference, it is
-guaranteed that no pseudoregisters that interfere are assigned the same
-register.
+first notable use of the technique is by Chaitin~\cite[Chaitin1981, Chaitin1982].
+The core of the idea is to construct an interference graph from the
+interferences of virtual registers---all virtual registers become nodes in a
+graph and there is an edge between virtual registers if and only if they
+interfere. Then on this graph we aim to find a {\em coloring}---mapping of nodes
+to colors, such that no neighbouring nodes get the same color. In our case the
+colors ultimately constitute the machine registers. Because edges designate
+interference, it is guaranteed that no virtual registers that interfere are
+assigned the same physical register. If we have $k$ machine registers available,
+then we are looking for a $k$ coloring---the coloring needs to use at most $k$
+colors (registers).
 
-If we have $K$ machine registers available, then we are looking for a $K$
-coloring---the coloring needs to use at most $K$ colors (registers). We call the
-minimum number of colors a graph can be colored with it's chromatic number.
-Obviously, no matter how $K$ is big, there are always graphs with a bigger
-chromatic number (which corresponds to the fact there we always could have a
-program needing more physical registers at the same time then we had available).
-
-By reducing the register allocation to graph coloring we may have seemingly not
-gained much, since graph coloring is an NP-complete
+By reducing the register allocation to graph coloring we may seemingly not
+gain much, since graph coloring is an NP-complete
 problem\fnote{In~\cite[Chaitin1981] authors argue further that register
 allocation is also NP-complete, this has since been
-disputed~\cite[Bouchez2007].} However in~\cite[Chaitin1981] they rediscover a
+disputed~\cite[Bouchez2007].}. However in~\cite[Chaitin1981] they rediscover a
 technique that can simplify and make graph coloring practical for register
-allocation. It is based on the observation that a node which has fewer than $K$
-neighbours can be always assigned a color distinct from all of its neighbours,
-because there are less neighbours than colors, even if all neighbours used
-different colors, there would still be a free color left.
-This simple, yet important observation is the base for their and subsequent
+allocation. It is based on the observation that a node which has fewer than $k$
+neighbours can be always assigned a color distinct from all of its neighbours.
+Because the node has less neighbours than there are available colors, even if
+all neighbours used different colors, there would still be a free color left.
+This simple, yet important observation is the base for their and derived
 techniques.
 
-Since incorporating a node with degree less than $K$ (an {\em insignificant}
+Since incorporating a node with degree (number of adjacent nodes) less than $k$
+(a so called {\em insignificant}
 node) into an already colored graph is easy, initially we do the
 opposite---remove from the graph all insignificant nodes, such that later, in
 the reverse process we can add them back to the graph and color them trivially.
 Removing low degree nodes from the graph causes the degrees of neighbouring
 nodes to decrease as well and may thus lead to more simplifications. In
-Chaitin's algorithm this phase is understandably called {\em simplify} and the
-removed low degree nodes are pushed on the stack. In the final stage, {\em
+Chaitin's algorithm this phase is called {\em simplify} and the
+removed low degree nodes are pushed onto a stack. In the final stage, called {\em
 assign}, the nodes have colors assigned in the reverse order simply by popping
 them from the stack and assigning them a color not used by any of the (already
-colored) neighbours in the now being rebuilt graph. Use of this heuristic is not
-all saving---it is still likely that there will be nodes left with high degrees.
-TODO what Chaitin does exactly?
+colored) neighbours in the (now being rebuilt) graph. Use of this heuristic is not
+all saving---it is possible that after after simplification (removal of low
+degree nodes) there will still be high degree nodes left. In that moment, push
+of any of the remaining nodes on to the stack, could mean that there won't be a
+color left for it. Chaitin's solution is to calculate spill costs of all the
+remaining high degree nodes, choose the one with the lowest cost, mark it as
+to be spilled and remove it from the graph. Due to the removal, the
+simplification process may find more simplifications, otherwise another spill
+decisions may be made. The removal of the to be spilled node from the graph
+simulates its replacement by loads and stores, which although will introduce new
+virtual registers, they will have very short live ranges, with (hopefully) much
+less interferences, so it suffices as an approximation.
 
 Spill of any node means that the code needs to be updated with spill code, and
 the register allocation process repeated. Since the program is now different,
-and new pseudoregisters were introduced to accomodate spill code, the
+and new pseudoregisters were introduced to accommodate spill code,
 liveness analysis and building of interference graph have to be repeated as
-well. Then simplification can be tried again. The entire process is repeated
+well. Then simplification can be tried again. This entire process is tried
 until the simplification is able to reduce the graph to an empty graph, which is
-trivially colorable. At this point the invariant of pushing only nodes of
-insignificant degrees guarantees us that every node popped from top of the stack
-will have at least one free color.
+trivially colorable. Since each iteration is very expensive, it is important
+that there can be multiple spill decisions made in a single {\em simplify} run,
+this way often the process can finish in less than 3 iterations.
+Being able to spill only one node on each iteration would mean that graphs with
+many high degree nodes would need {\em many} expensive iterations to finish.
+Proceeding from {\em simplify} only after all spill have been handled makes it
+possible to push only low degree nodes, guarantees that in the reverse {\em
+assign} stage, every node popped from top of the stack will have at least one
+free color.
 
 But, it is possible to do better. The fact, that a node has a {\em significant}
-number of neighbours doesn't mean, that it will be uncolorable in the assignment
-stage. There is a chance that all of the already colored neighbours will be
-assigned less than $K$ colors (TODO: figure), in that case the popped node could
-still be colored even though when it was pushed it was significant. Because of
-this, we may optimistically proceed to even remove and push high degree nodes on
-to the stack, without pesimistically spilling them in the simplify phase. If in
-the assignment phase it turns out that there isn't a color left for the popped
-node, we spill it only then. When we push a high degree node in the simplify
-phase, it can lead to other nodes being insignificant and thus trivially
-colorable. This strategy is called {\em optimistic coloring} and was devised by
-Briggs~\cite[BriggsXXXX].
+number of neighbours doesn't mean, that it will be uncolorable in the {\em
+assignment} stage. There is a chance that the already colored neighbours will be
+assigned less than $k$ distinct colors (TODO: figure), in that case the popped
+node could still be colored even though at the time it was pushed it was
+significant. Because of this, in {\em simplify} we may optimistically try to
+remove and push high degree nodes on to the stack, instead of pessimistically
+spilling them. If in the assignment phase it turns out that there isn't a color
+left for the popped node, we spill it only then. We call these pushed high
+degree nodes {\em potential spills}, since they become {\em actual spills}
+spilled in the {\em assign} stage. This strategy is called {\em optimistic
+coloring} and was devised by Briggs~\cite[Briggs1992, Briggs1994]. Even in this
+strategy, it can happen that more than one (potential) spill will be necessary.
+Like with Chaitin's \"pessimistic" spilling, that the best possible node as
+potential spill is the one with the lowest spill cost---first potential spill
+will be processed last in the {\em assign} stage, and will encounter a more
+complete interference graph, than potential spills pushed later, which are
+assigned colors earlier. Like before, we want to capture all {\em actual}
+spills, before we repeat the whole process with spill code inserted. To do this,
+in the {\em assignment} stage we don't allocate the actual spills any color,
+just mark them for spilling and proceed. This can make more some nodes
+neighbours of actual spills colorable, since by not coloring the actual spill,
+they effectively have one less interfering node. Like with Chaitin's spilling in
+{\em simplify} stage, this approximates the actual effect of spilling, which
+splits a single node into many temporaries whose interferences are more local
+and hopefully easier to deal with.
+
+As we have seen before (in section~\ref[sec:spilling]), spilling can always be
+necessary, reducing the register allocation problem to graph coloring doesn't
+change that. No matter how $k$ is big, there are always graphs which need more
+registers to be colored successfully. Even an exact graph coloring algorithm
+that tries all possibilities can fail to find coloring because of this. Spilling
+is thus {\em not} only due to Chaitin's heuristic. Though the heuristic even
+with Briggs' optimistic coloring can introduce more spills than a more exact
+algorithm would.
+
+The interference graph is a really great data structure, because apart from
+being able to represent the \"live at the same time, and thus unallocatable to
+the same register" constraints, it can express also other restrictions. Machine
+constraints (instructions working with only some registers) and calling
+conventions, which both restrict uses of {\em physical} registers, can be
+modelled by interferences (edges in the interference graph) if we also add
+physical registers as nodes. For example, we can force a virtual register node
+to be allocated to a particular physical register by making it interfere with
+nodes corresponding to all the other physical registers. This is often called
+"precoloring". In fact, since we need to be careful about not accidentally
+allocating physical register a different physical register, we make all physical
+registers interfere with each other, this way they are all guaranteed to be
+allocated their one color (register). But these additional constrains can lead
+to uncolorable (\"overconstrained") graphs if the live ranges of precolored
+registers are too long.
+
+For example on the x86-64 architecture shift instructions expect the shift size
+to be specified by either an immediate value or by the `cl` register. Having
+more than one shift instruction in one function can lead to uncolorable graph,
+if the precolored nodes interfere like in is the case below with `t2` and `t4`:
+
+\begtt
+sal t1, t2 // precolor t2 to cl
+sar t3, t4 // precolor t4 to cl
+\endtt
+
+Problem would occur in the {\em assignment} stage, where one of `t2` or `t4`
+would be assigned the `cl` register (since it interferes with all other physical
+registers), but the other of the two virtual registers would have no register
+left, since the only suitable register `cl` is occupied by a neighbour in the
+interference graph (an interfering virtual register, live at the same time).
+Spilling can save the situation, for example spill of `t4` helps if `t2` isn't
+needed after this snippet of code:
+
+\begtt
+sal t1, t2 // precolor t2 to cl
+mov t6, [rbp+t4]
+sar t3, t5 // precolor t5 to cl
+\endtt
+
+Spilling both of course also helps, but spill of `t2` alone doesn't, because the
+newly introduced temporary `t5` (precolored to `cl`) is still alive at the same
+as `t4` and thus interferes:
+
+\begtt
+mov t5, [rbp+t2]
+sal t1, t5 // precolor t5 to cl
+sar t3, t4 // precolor t4 to cl
+\endtt
+
+The problem with spilling here is, that the spilling decisions {\em usually}
+don't do that deep analysis to realize that spilling `t4` might make the graph
+colorable. The usual spill heuristics are based on the degree of the nodes
+(spilling nodes with high degree will decrease degrees of another nodes and thus
+simplify their allocation) and expensiveness of the spill (i.e. the cost of the
+load and store memory operations that would need to be introduced). But `t2` and
+`t4` may not be good spill candidates according to this metric. Spilling them
+helps, but if it occurs too late, it is possible that a lot of the other nodes
+would already be spilled first. An alternative approach based on {\em live range
+splitting} is what is much better at keeping local the effects of interferences
+introduced by machine or calling convention constraints. Splitting introduces a
+{\em copy} into a new virtual register for each constrained use as well as
+definition. This new temporary can be procolored and it is not going to clash
+with any other similar precolored use, since it has short range, just like other
+the other newly introduced precolored temporaries and importantly their live
+ranges {\em don't overlap}. In the previous example, this would look like this:
+
+\begtt
+mov t5, t2
+sal t1, t2 // precolor t5 to cl
+mov t6, t4
+sar t3, t6 // precolor t6 to cl
+\endtt
+
+Temporaries `t5` and `t6` don't interfere. If, like we assumed earlier, `t2`
+doesn't {\em live out}, then the best assignment would assign `t5` the `cl`
+(`rcx`) register as well, and the code after allocation could look like this:
+
+\begtt
+mov rcx, rcx
+sal rax, cl
+mov rcx, rdx
+sar rbx, cl
+\endtt
+
+Here it was possible to keep all values in registers. The first move can be
+easily optimized by subsequent peephole optimization pass.
+
+Register allocation by graph coloring is thus very powerful and flexible with
+regards to at least the machine and calling convention constraints presented
+here. But avoiding uncolorable graphs with splits means a lot of move
+instructions, which if allocated different registers, will not be optimized by
+peephole optimization and thus will incur often unnecessary overhead. We
+described (in section TODO) that coalescing is the name of the technique that
+tries to allocate the target and source into the same register. Chaitin already
+realized the need for coalescing. His solution was to 
+
+\rfc{Chaitin coalescing, Briggs coalescing, iterated coalescing}
 
 
+Nice thing about Chaitin's scheme (and Briggs' improvement) is that even the
+introduced spill code with new virtual registers gets the same general treatment
+as other virtual registers - they are allocated by the next iteration of graph
+coloring, so although the spill code needs to be inserted separately, it is
+{\em not handled specially}. The price for this is that multiple expensive
+iterations may be needed to finalize the allocation. An alternative would be to
+(like with the top down allocator in section~\ref[sec:regalloc-top-down])
+reserve a few registers off the side and use them to perform the loads and
+stores around spilled variables. This could be used to rewrite the program into
+final form after just one iteration of the graph coloring register allocator.
+While this potentially saves multiple expensive iterations, it is less
+flexible than coloring the spill code in a new iteration. In particular, since
+the few spill handling registers have to be set off the side for the whole
+program, we are not able to assign them, so in fact we are looking for a $k$
+coloring for a smaller $k$ than the number of available registers, which
+potentially means more spills by itself. On architectures like x86-64, where
+some instructions only work with certain registers there is another difficulty
+in choosing the on the side registers. If the registers needed by the
+constrained instructions are put off the side, they would prevent any
+allocation. But keeping them in the regular allocatable set would mean that
+they won't be available for handling the spills of the values constrained to
+such registers, the off the side registers would have to be used to somehow swap
+the values with the needed registers.
 
 \secc Reduction (to another NP-complete problem and using a solver)
 
@@ -723,6 +924,65 @@ principle, or while we are operating with pseudoregisters) non-destructive.
 
 
 Coalescing vs live range splitting.
+
+
+
+%The important takeaway is, that during register allocation by
+%graph coloring, there are multiple potential causes for the graph becoming
+%uncolorable, in any algorithm:
+%
+%\begitems
+%* The graph needs more than $k$ colors to be colored.
+%* The algorithm is too inexact to find a coloring.
+%\enditems
+
+needs to be noted that
+more exact algorithm are necessarily able to find colorings even for graphs
+which other algorithms would deem uncolorable. Briggs' approach is a 
+
+The
+interference graph has to change to 
+
+\seccc Test
+
+test
+
+
+
+
+CHAITIN RECKLESS COALESCING
+
+BRIGGS CONSERVATIVE COALESCING
+
+GEORGE APPEL ITERATED REGISTER COALESCING
+
+
+
+Since graph coloring can fail not only due to the graphs being uncolorable due
+to interferences of precolored nodes, but also due to the graph having simply
+needing more registers to be colored, we 
+
+Since nodes corresponding to physical registers have a color associated with
+them
+Machine instruction constraints and calling conventions can be modelled bmachine constraints apply to {\em physical}
+registers and by also adding them as nodes the interference graph, we can add
+interferences between physical and virtual registers. This allows us to model
+all usual constraints:
+
+\begitems
+* {\em Instructions allowing only specific input registers.} We 
+\enditems
+
+Graph coloring can fail not only because the graph's chromatic number is too
+high, but also just because the particular graph coloring algorithm at hand is
+{\em unable} to find a coloring.
+
+so such
+graphs (programs) need to be changed and graph coloring needs to be attempted
+again. The changes
+
+
+
 
 
 
