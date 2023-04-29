@@ -202,6 +202,7 @@ lex_next(Lexer *lexer, Token *token)
 		} break;
 		case LS_MINUS: switch(c) {
 			case '-': tok = TK_MINUS_MINUS; goto done;
+			case '>': tok = TK_RARROW; goto done;
 			default: tok = TK_MINUS; goto prev_done;
 		} break;
 		case LS_LESS: switch(c) {
