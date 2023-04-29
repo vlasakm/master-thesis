@@ -279,16 +279,8 @@ void
 table_init(Table *table, size_t capacity)
 {
 	table->entry_cnt = 0;
-	if (capacity == 0) {
-		table->capacity = 0;
-		table->entries = NULL;
-	} else {
-		table->capacity = 1;
-		while (table->capacity < capacity) {
-			table->capacity *= 2;
-		}
-		table->entries = calloc(table->capacity, sizeof(*table->entries));
-	}
+	table->capacity = 0;
+	table->entries = NULL;
 }
 
 void
@@ -370,7 +362,7 @@ void
 env_push(Environment **prev)
 {
 	Environment *env = calloc(sizeof(*env), 1);
-	table_init(&env->env, 0);
+	table_init(&env->env);
 	env->prev = *prev;
 	*prev = env;
 }
