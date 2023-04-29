@@ -282,7 +282,7 @@ typedef struct {
 } Table;
 
 void
-table_init(Table *table, size_t capacity)
+table_init(Table *table)
 {
 	table->entry_cnt = 0;
 	table->capacity = 0;
