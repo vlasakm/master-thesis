@@ -204,6 +204,7 @@ typedef enum {
 	_(UNARY_RR, "G3:0 D0, S1", 1, 1, 1, 0) \
 	_(TEST, "test S0, S1", 0, 2, 0, 0) \
 	_(IMUL, "imul D0, S1", 1, 2, 0, 0) \
+	_(IMUL_IMM, "imul D0, S0, I0", 1, 1, 1, 0) \
 	_(IDIV, "idiv S2", 2, 3, 0, 0) \
 	_(CALL, "call F0", 5, 4, 0, 1) \
 	_(JMP, "jmp B0", 0, 0, 0, 1) \
