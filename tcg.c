@@ -732,7 +732,6 @@ paren(Parser *parser)
 static CValue
 cast(Parser *parser)
 {
-	UNREACHABLE();
 	eat(parser, TK_CAST);
 	eat(parser, TK_LESS);
 	Type *new_type = parse_type(parser, true);
