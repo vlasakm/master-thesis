@@ -1013,12 +1013,13 @@ static void
 statement(Parser *parser)
 {
 	switch (peek(parser)) {
-	case TK_LBRACE:
+	case TK_LBRACE: {
 		eat(parser, TK_LBRACE);
 		env_push(&parser->env);
 		statements(parser);
 		env_pop(&parser->env);
 		break;
+	}
 	case TK_IF: {
 		eat(parser, TK_IF);
 		Block *cond_block = add_block(parser);
@@ -1044,9 +1045,10 @@ statement(Parser *parser)
 
 		break;
 	}
-	case TK_SWITCH:
+	case TK_SWITCH: {
 		UNREACHABLE();
 		break;
+	}
 	case TK_WHILE: {
 		eat(parser, TK_WHILE);
 		Block *cond_block = add_block(parser);
