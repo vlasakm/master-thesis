@@ -272,7 +272,7 @@ str_hash(Str id)
 
 typedef struct {
 	Str key;
-	Value *value;
+	void *value;
 } Entry;
 
 typedef struct {
@@ -329,21 +329,22 @@ table_grow(Table *table)
 	table->capacity = capacity;
 }
 
-Value **
-table_get(Table *table, Str key)
+bool
+table_get(Table *table, Str key, void **value)
 {
 	if (table->entry_cnt == 0) {
-		return NULL;
+		return false;
 	}
 	Entry *entry = table_find_entry(table->entries, table->capacity, key);
 	if (entry->key.str == NULL) {
-		return NULL;
+		return false;
 	}
-	return &entry->value;
+	*value = entry->value;
+	return true;
 }
 
 bool
-table_insert(Table *table, Str key, Value *value)
+table_insert(Table *table, Str key, void *value)
 {
 	if (table->entry_cnt + 1 >= table->capacity / 2) {
 		table_grow(table);
@@ -358,47 +359,45 @@ table_insert(Table *table, Str key, Value *value)
 	return new;
 }
 
-typedef struct Environment Environment;
-struct Environment {
-	Environment *prev;
-	Table env;
-};
+typedef struct {
+	Table *scopes;
+	size_t scope_cnt;
+	size_t scope_cap;
+} Environment;
 
 void
-env_push(Environment **prev)
+env_push(Environment *env)
 {
-	Environment *env = calloc(sizeof(*env), 1);
-	table_init(&env->env);
-	env->prev = *prev;
-	*prev = env;
+	if (env->scope_cnt == env->scope_cap) {
+		env->scope_cap = env->scope_cap ? env->scope_cap * 2 : 8;
+		GROW_ARRAY(env->scopes, env->scope_cap);
+	}
+	table_init(&env->scopes[env->scope_cnt++]);
 }
 
 void
-env_pop(Environment **env)
+env_pop(Environment *env)
 {
-	Environment *old = *env;
-	(*env) = (*env)->prev;
-	table_destroy(&old->env);
-	free(old);
+	assert(env->scope_cnt > 0);
+	table_destroy(&env->scopes[--env->scope_cnt]);
 }
 
 void
 env_define(Environment *env, Str name, Value *value)
 {
-	table_insert(&env->env, name, value);
+	assert(env->scope_cnt > 0);
+	table_insert(&env->scopes[env->scope_cnt - 1], name, value);
 }
 
-Value **
-env_lookup(Environment *env, Str name)
+bool
+env_lookup(Environment *env, Str name, void **value)
 {
-	if (!env) {
-		return NULL;
+	for (size_t i = env->scope_cnt; i--;) {
+		if (table_get(&env->scopes[i], name, value)) {
+			return true;
+		}
 	}
-	Value **lvalue = table_get(&env->env, name);
-	if (lvalue) {
-		return lvalue;
-	}
-	return env_lookup(env->prev, name);
+	return false;
 }
 
 
@@ -433,7 +432,7 @@ typedef struct {
 	Token prev;
 	bool had_error;
 	bool panic_mode;
-	Environment *env;
+	Environment env;
 	Value **prev_pos;
 	Function *current_function;
 	GArena functions; // array of Function *
@@ -718,12 +717,14 @@ ident(Parser *parser)
 {
 	eat(parser, TK_IDENTIFIER);
 	Str ident = prev_tok(parser).str;
-	Value **value = env_lookup(parser->env, ident);
-	assert(value);
-	if ((*value)->kind == VK_FUNCTION) {
-	     return rvalue(*value);
+	Value *value;
+	if (!env_lookup(&parser->env, ident, (void **) &value)) {
+		parser_error(parser, parser->lookahead, false, "Name '%.*s' not found", (int) ident.len, ident.str);
 	}
-	return lvalue(*value);
+	if (value->kind == VK_FUNCTION) {
+	     return rvalue(value);
+	}
+	return lvalue(value);
 }
 
 static CValue
@@ -1223,7 +1224,7 @@ function_declaration(Parser *parser)
 	Function *function = arena_alloc(parser->arena, sizeof(*function));
 	function->name = function_name;
 	value_init(&function->base, VK_FUNCTION, fun_type, NULL);
-	env_define(parser->env, function_name, &function->base);
+	env_define(&parser->env, function_name, &function->base);
 	eat(parser, TK_LBRACE);
 	parser->current_function = function;
 	function->block_cnt = 0;
@@ -1239,7 +1240,7 @@ function_declaration(Parser *parser)
 		Value *arg = args[i];
 		Value *addr = add_alloca(parser, param_types[i]);
 		add_binary(parser, VK_STORE, addr, arg);
-		env_define(parser->env, params[i].name, addr);
+		env_define(&parser->env, params[i].name, addr);
 	}
 	free(args);
 	statements(parser);
@@ -1274,7 +1275,7 @@ variable_declaration(Parser *parser)
 	Value *addr = add_alloca(parser, type);
 	assign(parser, lvalue(addr), 2);
 	//eat(parser, TK_SEMICOLON);
-	env_define(parser->env, name, addr);
+	env_define(&parser->env, name, addr);
 }
 
 static void
@@ -2650,7 +2651,7 @@ parse(Arena *arena, GArena *scratch, Str source, void (*error_callback)(void *us
 		.lexer = lex_create(source),
 		.had_error = false,
 		.panic_mode = false,
-		.env = NULL,
+		.env = {0},
 	};
 	discard(&parser);
 
