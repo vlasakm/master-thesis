@@ -31,6 +31,7 @@
 	OP(LOAD, "load", 1) \
 	OP(STORE, "store", 2) \
 	OP(GET_INDEX_PTR, "get_index_ptr", 2) \
+	OP(GET_MEMBER_PTR, "get_member_ptr", 2) \
 	OP(CALL, "call", 0) \
 	TERM(JUMP, "jump", 1) \
 	TERM(BRANCH, "branch", 3) \

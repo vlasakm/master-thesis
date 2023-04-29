@@ -119,6 +119,7 @@ typedef enum {
 	TY_INT,
 	TY_POINTER,
 	TY_FUNCTION,
+	TY_STRUCT,
 } TypeKind;
 
 typedef struct {
@@ -127,18 +128,54 @@ typedef struct {
 
 typedef struct {
 	Type base;
-	Type *ret_type;
-	size_t param_cnt;
-	Type **param_types;
-} FunctionType;
-
-typedef struct {
-	Type base;
 	Type *child;
 } PointerType;
 
+typedef struct {
+	Str name;
+	Type *type;
+} Parameter;
+
+typedef struct {
+	Type base;
+	Str name;
+	Type *ret_type;
+	size_t param_cnt;
+	Parameter *params;
+} FunctionType;
+
+typedef struct {
+	Str name;
+	Type *type;
+	size_t offset;
+} Field;
+
+typedef struct {
+	Type base;
+	size_t size;
+	size_t field_cnt;
+	Field *fields;
+} StructType;
+
 Type TYPE_VOID = { .kind = TY_VOID };
 Type TYPE_INT = { .kind = TY_INT };
+
+static size_t
+type_size(Type *type)
+{
+	switch (type->kind) {
+	case TY_VOID: return 0;
+	case TY_INT:  return 8;
+	case TY_POINTER:
+		return 8;
+	case TY_FUNCTION:
+		UNREACHABLE();
+		break;
+	case TY_STRUCT:
+		return ((StructType *) type)->size;
+	}
+	UNREACHABLE();
+}
 
 static Type *
 type_pointer(Arena *arena, Type *child)
@@ -149,30 +186,50 @@ type_pointer(Arena *arena, Type *child)
 	return &ptr_type->base;
 }
 
+static bool
+type_is_pointer(Type *pointer_type)
+{
+	return pointer_type->kind == TY_POINTER;
+}
+
 static Type *
-type_function(Arena *arena, Type *ret_type, Type **param_types, size_t param_cnt)
+pointer_child(Type *pointer_type)
+{
+	assert(type_is_pointer(pointer_type));
+	return ((PointerType *) pointer_type)->child;
+}
+
+static Type *
+type_function(Arena *arena, Type *ret_type, Parameter *parameters, size_t param_cnt)
 {
 	FunctionType *fun_type = arena_alloc(arena, sizeof(*fun_type));
 	fun_type->base.kind = TY_FUNCTION;
 	fun_type->ret_type = ret_type;
-	fun_type->param_types = param_types;
+	fun_type->params = parameters;
 	fun_type->param_cnt = param_cnt;
 	return &fun_type->base;
 }
 
-
-static size_t
-type_size(Type *type)
+static Type *
+type_struct(Arena *arena, Field *fields, size_t field_cnt)
 {
-	switch (type->kind) {
-	case TY_VOID: return 0;
-	case TY_INT:  return 8;
-	case TY_POINTER:
-	case TY_FUNCTION:
-		return 8;
+	StructType *struct_type = arena_alloc(arena, sizeof(*struct_type));
+	struct_type->base.kind = TY_STRUCT;
+	struct_type->fields = fields;
+	struct_type->field_cnt = field_cnt;
+
+	// TODO: alignment
+	size_t offset = 0;
+
+	for (size_t i = 0; i < field_cnt; i++) {
+		// TODO: align
+		fields[i].offset = offset;
+		offset += type_size(fields[i].type);
 	}
-	UNREACHABLE();
+
+	return &struct_type->base;
 }
+
 
 #include "defs.c"
 
@@ -433,6 +490,7 @@ typedef struct {
 	bool had_error;
 	bool panic_mode;
 	Environment env;
+	Table type_env;
 	Value **prev_pos;
 	Function *current_function;
 	GArena functions; // array of Function *
@@ -440,6 +498,11 @@ typedef struct {
 	Block *continue_block;
 	Block *break_block;
 } Parser;
+
+typedef struct {
+	Type *type;
+	Str name;
+} TypedName;
 
 static void printf_attr(4)
 parser_error(Parser *parser, Token errtok, bool panic, const char *msg, ...)
@@ -630,28 +693,162 @@ as_lvalue(Parser *parser, CValue cvalue, char *msg)
 	}
 }
 
+static Type *struct_body(Parser *parser);
 
 static Type *
-parse_type(Parser *parser, bool allow_void)
+type_specifier(Parser *parser)
 {
 	Type *type;
 	Token token = discard(parser);
 	switch (token.kind) {
 	case TK_VOID: type = &TYPE_VOID; break;
 	case TK_INT:  type = &TYPE_INT;  break;
-	case TK_IDENTIFIER:  assert(false);
-	default: return NULL;
+	case TK_IDENTIFIER: {
+		Str ident = prev_tok(parser).str;
+		if (!table_get(&parser->type_env, ident, (void **) &type)) {
+			parser_error(parser, token, false, "Type name '%.*s' not found", (int) ident.len, ident.str);
+		}
+		break;
+	}
+	case TK_STRUCT: {
+		if (peek(parser) == TK_IDENTIFIER) {
+			Str name = eat_identifier(parser);
+			if (peek(parser) == TK_LBRACE) {
+				type = struct_body(parser);
+				Type *prev;
+				if (table_get(&parser->type_env, name, (void **) &prev)) {
+					// TODO: type compatible?
+					UNREACHABLE();
+				} else {
+					table_insert(&parser->type_env, name, type);
+				}
+			} else {
+				if (!table_get(&parser->type_env, name, (void **) &type) || type->kind != TY_STRUCT) {
+					parser_error(parser, token, false, "Expected name to be defined as struct");
+				}
+			}
+		} else {
+			type = struct_body(parser);
+		}
+		break;
+	}
+	default:
+		type = &TYPE_VOID;
+		parser_error(parser, token, false, "Unexpected token %s in type specifier", tok_repr[token.kind]);
 	}
 
+	return type;
+}
+
+typedef enum {
+	DECLARATOR_ORDINARY,
+	DECLARATOR_ABSTRACT,
+	DECLARATOR_MAYBE_ABSTRACT,
+} DeclaratorKind;
+
+// `name` is output parameter
+static Type *
+declarator(Parser *parser, Str *name, Type *type, DeclaratorKind kind)
+{
 	while (try_eat(parser, TK_ASTERISK)) {
 		type = type_pointer(parser->arena, type);
 	}
 
-	if (!allow_void && type == &TYPE_VOID) {
-		return NULL;
+	switch (peek(parser)) {
+	case TK_IDENTIFIER: {
+		Str ident = eat_identifier(parser);
+		if (kind == DECLARATOR_ABSTRACT) {
+			parser_error(parser, parser->lookahead, false, "Abstract declarator has identifier");
+		}
+		if (name) {
+			*name = ident;
+		}
+		break;
+	}
+	case TK_LPAREN:
+		eat(parser, TK_LPAREN);
+		if (kind != DECLARATOR_ORDINARY) {
+			switch (peek(parser)) {
+			case TK_ASTERISK:
+			case TK_LPAREN:
+			case TK_IDENTIFIER:
+				break;
+			default:
+				goto function_declarator;
+			}
+		}
+		declarator(parser, name, type, kind);
+		eat(parser, TK_RPAREN);
+		break;
+	default:
+		if (kind != DECLARATOR_ORDINARY) {
+			parser_error(parser, parser->lookahead, true, "Unexpected token %s in declarator", tok_repr[parser->lookahead.kind]);
+		}
 	}
 
-	return type;
+	for (;;) {
+		switch (peek(parser)) {
+		case TK_LBRACKET: {
+			eat(parser, TK_LBRACKET);
+			// TODO
+			UNREACHABLE();
+			eat(parser, TK_RBRACKET);
+			break;
+		function_declarator:
+		case TK_LPAREN: {
+			eat(parser, TK_LPAREN);
+			size_t start = garena_save(parser->scratch);
+			while (!try_eat(parser, TK_RPAREN)) {
+				Type *type_spec = type_specifier(parser);
+				Str param_name;
+				Type *param_type = declarator(parser, &param_name, type_spec, DECLARATOR_MAYBE_ABSTRACT);
+				Parameter param = { param_name, param_type };
+				garena_push_value(parser->scratch, Parameter, param);
+				if (!try_eat(parser, TK_COMMA)) {
+					eat(parser, TK_RPAREN);
+					break;
+				}
+			}
+			size_t param_cnt = garena_cnt_from(parser->scratch, start, Parameter);
+			Parameter *params = move_to_arena(parser->arena, parser->scratch, start, Parameter);
+			type = type_function(parser->arena, type, params, param_cnt);
+			break;
+		}
+		default:
+			return type;
+		}
+		}
+	}
+}
+
+static Type *
+struct_body(Parser *parser)
+{
+	eat(parser, TK_LBRACE);
+	size_t start = garena_save(parser->scratch);
+	while (!try_eat(parser, TK_RBRACE)) {
+		Type *type_spec = type_specifier(parser);
+		Str field_name;
+		Type *field_type = declarator(parser, &field_name, type_spec, DECLARATOR_ORDINARY);
+
+		Field field = {
+			.name = field_name,
+			.type = field_type,
+		};
+		garena_push_value(parser->scratch, Field, field);
+		eat(parser, TK_SEMICOLON);
+	}
+	size_t field_cnt = garena_cnt_from(parser->scratch, start, Field);
+	Field *fields = move_to_arena(parser->arena, parser->scratch, start, Field);
+	Type *struct_type = type_struct(parser->arena, fields, field_cnt);
+	return struct_type;
+}
+
+static Type *
+type_name(Parser *parser)
+{
+	Type *type = type_specifier(parser);
+	return declarator(parser, NULL, type, DECLARATOR_ABSTRACT);
 }
 
 static CValue expression_bp(Parser *parser, int bp);
@@ -718,11 +915,10 @@ literal(Parser *parser)
 static CValue
 ident(Parser *parser)
 {
-	eat(parser, TK_IDENTIFIER);
-	Str ident = prev_tok(parser).str;
+	Str ident = eat_identifier(parser);
 	Value *value;
 	if (!env_lookup(&parser->env, ident, (void **) &value)) {
-		parser_error(parser, parser->lookahead, false, "Name '%.*s' not found", (int) ident.len, ident.str);
+		parser_error(parser, prev_tok(parser), false, "Name '%.*s' not found", (int) ident.len, ident.str);
 	}
 	if (value->kind == VK_FUNCTION) {
 	     return rvalue(value);
@@ -744,7 +940,7 @@ cast(Parser *parser)
 {
 	eat(parser, TK_CAST);
 	eat(parser, TK_LESS);
-	Type *new_type = parse_type(parser, true);
+	Type *new_type = type_name(parser);
 	eat(parser, TK_GREATER);
 	eat(parser, TK_LPAREN);
 	CValue cvalue = expression(parser);
@@ -921,7 +1117,7 @@ call(Parser *parser, CValue cleft, int rbp)
 		CValue carg = expression_no_comma(parser);
 		if (i - 1 < argument_cnt) {
 			call->operands[i] = as_rvalue(parser, carg);
-			if (call->operands[i]->type != fun_type->param_types[i - 1].type) {
+			if (call->operands[i]->type != fun_type->params[i - 1].type) {
 				parser_error(parser, parser->lookahead, false, "Argument type doesn't equal parameter type");
 			}
 		}
@@ -940,7 +1136,36 @@ call(Parser *parser, CValue cleft, int rbp)
 static CValue
 member(Parser *parser, CValue cleft, int rbp)
 {
-	UNREACHABLE();
+	(void) rbp;
+	bool indirect = discard(parser).kind == TK_RARROW;
+	Str name = eat_identifier(parser);
+	Value *left = as_rvalue(parser, cleft);
+	Type *struct_type = left->type;
+	if (indirect) {
+		if (struct_type->kind != TY_POINTER) {
+			parser_error(parser, parser->lookahead, false, "Member access with '->' on non-pointer");
+			return lvalue(&NOP);
+		}
+		struct_type = ((PointerType *) struct_type)->child;
+	}
+	if (struct_type->kind != TY_STRUCT) {
+		parser_error(parser, parser->lookahead, false, "Member access on non-struct");
+	}
+	StructType *type = (void *) struct_type;
+	Type *field_type;
+	size_t i;
+	for (i = 0; i < type->field_cnt; i++) {
+		if (str_eq(name, type->fields[i].name)) {
+			field_type = type->fields[i].type;
+			goto found;
+		}
+	}
+	parser_error(parser, parser->lookahead, false, "Field %.*s not found", (int) name.len, name.str);
+found:;
+	field_type = type_pointer(parser->arena, field_type);
+	Value *member_index = create_const(parser, i);
+	Value *member_access = add_binary(parser, VK_GET_MEMBER_PTR, field_type, left, member_index);
+	return lvalue(member_access);
 }
 
 static CValue
@@ -1204,33 +1429,15 @@ function_finalize(Arena *arena, Function *function)
 }
 
 static void
-function_declaration(Parser *parser)
+function_declaration(Parser *parser, Str fun_name, FunctionType *fun_type)
 {
-	Type *ret_type = parse_type(parser, true);
-	Str function_name = eat_identifier(parser);
-	eat(parser, TK_LPAREN);
-	typedef struct {
-		Type *type;
-		Str name;
-	} TypedName;
-	size_t start = garena_save(parser->scratch);
-	while (!try_eat(parser, TK_RPAREN)) {
-		Type *param_type = parse_type(parser, false);
-		Str param_name = eat_identifier(parser);
-		garena_push_value(parser->scratch, TypedName, ((TypedName) { .type = param_type, .name = param_name }));
-		if (!try_eat(parser, TK_COMMA)) {
-			eat(parser, TK_RPAREN);
-			break;
-		}
-	}
-	size_t param_cnt = garena_cnt_from(parser->scratch, start, TypedName);
-	TypedName *params = garena_array_from(parser->scratch, start, TypedName);
-	Type **param_types = arena_alloc(parser->arena, param_cnt * sizeof(*param_types));
-	Type *fun_type = type_function(parser->arena, ret_type, param_types, param_cnt);
+	Parameter *params = fun_type->params;
+	size_t param_cnt = fun_type->param_cnt;
+
 	Function *function = arena_alloc(parser->arena, sizeof(*function));
-	function->name = function_name;
-	value_init(&function->base, VK_FUNCTION, fun_type, NULL);
-	env_define(&parser->env, function_name, &function->base);
+	function->name = fun_name;
+	value_init(&function->base, VK_FUNCTION, (Type *) fun_type, NULL);
+	env_define(&parser->env, fun_name, &function->base);
 	eat(parser, TK_LBRACE);
 	parser->current_function = function;
 	function->block_cnt = 0;
@@ -1239,18 +1446,16 @@ function_declaration(Parser *parser)
 	env_push(&parser->env);
 	Value **args = calloc(param_cnt, sizeof(args[0]));
 	for (size_t i = 0; i < param_cnt; i++) {
-		param_types[i] = params[i].type;
-		args[i] = add_argument(parser, param_types[i], i);
+		args[i] = add_argument(parser, params[i].type, i);
 	}
 	for (size_t i = 0; i < param_cnt; i++) {
 		Value *arg = args[i];
-		Value *addr = add_alloca(parser, param_types[i]);
-		add_binary(parser, VK_STORE, param_types[i], addr, arg);
+		Value *addr = add_alloca(parser, params[i].type);
+		add_binary(parser, VK_STORE, params[i].type, addr, arg);
 		env_define(&parser->env, params[i].name, addr);
 	}
 	free(args);
 	statements(parser);
-	garena_restore(parser->scratch, start);
 	function_finalize(parser->arena, function);
 	function->base.index = garena_cnt(&parser->functions, Function *);
 	garena_push_value(&parser->functions, Function *, function);
@@ -1264,20 +1469,25 @@ external_declaration(Parser *parser)
 	case TK_STRUCT:
 		struct_declaration(parser);
 		break;
-	case TK_TYPEDEF:
-		typedef_declaration(parser);
+	case TK_TYPEDEF: {
+		eat(parser, TK_TYPEDEF);
+		Str name;
+		Type *type = type_specifier(parser);
+		type = declarator(parser, &name, type, DECLARATOR_ORDINARY);
+		table_insert(&parser->type_env, name, type);
 		break;
-	default:
-		function_declaration(parser);
+	}
+	default:;
+		//function_declaration(parser);
 	}
 }
 
 static void
 variable_declaration(Parser *parser)
 {
-	Type *type = parse_type(parser, false);
-	eat(parser, TK_IDENTIFIER);
-	Str name = prev_tok(parser).str;
+	Type *type_spec = type_specifier(parser);
+	Str name;
+	Type *type = declarator(parser, &name, type_spec, DECLARATOR_ORDINARY);
 	Value *addr = add_alloca(parser, type);
 	assign(parser, lvalue(addr), 2);
 	//eat(parser, TK_SEMICOLON);
@@ -1310,17 +1520,18 @@ expression_or_variable_declaration(Parser *parser)
 static void
 parse_program(Parser *parser)
 {
-	while (peek(parser) != TK_EOF) {
-		function_declaration(parser);
-		//external_declaration(parser);
-		//switch (peek(parser)) {
-		//case TK_INT:
-		//	variable_declarations(parser);
-		//	break;
-		//default:
-		//	expression(parser);
-		//	eat(parser, TK_SEMICOLON);
-		//}
+	for (;;) {
+		if (peek(parser) == TK_EOF) {
+			break;
+		}
+		Type *type_spec = type_specifier(parser);
+		Str name;
+		Type *type = declarator(parser, &name, type_spec, DECLARATOR_ORDINARY);
+		if (type->kind == TY_FUNCTION) {
+			function_declaration(parser, name, (FunctionType *) type);
+		} else {
+			eat(parser, TK_SEMICOLON);
+		}
 	}
 }
 
@@ -1398,6 +1609,20 @@ expression_bp(Parser *parser, int bp)
 	}
 
 	return left;
+}
+
+static Field *
+get_member(Value *value)
+{
+	assert(value->kind == VK_GET_MEMBER_PTR);
+	Operation *operation = (void*) value;
+	PointerType *pointer_type = (void *) operation->operands[0]->type;
+	assert(pointer_type->base.kind == TY_POINTER);
+	StructType *struct_type = (void *) pointer_type->child;
+	assert(struct_type->base.kind == TY_STRUCT);
+	assert(operation->operands[1]->kind == VK_CONSTANT);
+	size_t member_index = ((Constant *)operation->operands[1])->k;
+	return &struct_type->fields[member_index];
 }
 
 size_t
@@ -1973,8 +2198,22 @@ translate_value(TranslationState *ts, Value *v)
 	case VK_STORE:
 		add_inst(ts, OP_MOV_MR, ops[0], ops[1]);
 		break;
-	case VK_GET_INDEX_PTR:
+	case VK_GET_INDEX_PTR: {
+		size_t size = type_size(pointer_child(v->type));
+		Oper size_oper = ts->index++;
+		add_inst(ts, OP_IMUL_IMM, size_oper, ops[1], size);
+		Oper add_ops[] = { ops[0], size_oper };
+		translate_binop(ts, G1_ADD, res, add_ops);
 		break;
+	}
+	case VK_GET_MEMBER_PTR: {
+		Field *field = get_member(v);
+		// A hack. Since ops[1] (the field index) already got
+		// translated, let's change it to the field's offset.
+		container_of(ts->prev_pos, Inst, next)->ops[1] = field->offset;
+		translate_binop(ts, G1_ADD, res, ops);
+		break;
+	}
 	case VK_CALL: {
 		Operation *call = (void *) v;
 		Function *function = (Function *) call->operands[0];
@@ -2614,17 +2853,6 @@ print_function(FILE *f, Function *function)
 		for (Value *v = block->head; v; v = v->next) {
 			fprintf(f, "\tv%zu = ", v->index);
 			switch (v->kind) {
-#define CASE_OP(kind, ...) case VK_##kind:
-#define OTHER(...)
-	VALUE_KINDS(OTHER, CASE_OP, CASE_OP)
-#undef CASE_OP
-#undef OTHER
-			{
-				fprintf(f, "%s ", value_kind_repr[v->kind]);
-				for_each_operand(v, print_index, f);
-				fprintf(f, "\n");
-				break;
-			}
 			case VK_ALLOCA: {
 				Alloca *a = (void*) v;
 				fprintf(f, "alloca %zu\n", a->size);
@@ -2635,7 +2863,20 @@ print_function(FILE *f, Function *function)
 				fprintf(f, "argument %zu\n", a->index);
 				break;
 			}
-			default: UNREACHABLE();
+			case VK_GET_MEMBER_PTR: {
+				Operation *operation = (void*) v;
+				fprintf(f, "get_member_ptr ");
+				print_index(f, 0, operation->operands[0]);
+				Field *field = get_member(v);
+				fprintf(f, " %.*s\n", (int) field->name.len, field->name.str);
+				break;
+			}
+			default: {
+				fprintf(f, "%s ", value_kind_repr[v->kind]);
+				for_each_operand(v, print_index, f);
+				fprintf(f, "\n");
+				break;
+			}
 			}
 		}
 	}
