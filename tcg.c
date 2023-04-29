@@ -535,28 +535,28 @@ add_to_block(Parser *parser, Value *value)
 }
 
 static Operation *
-add_operation(Parser *parser, ValueKind kind, size_t operand_cnt)
+add_operation(Parser *parser, ValueKind kind, Type *type, size_t operand_cnt)
 {
 	Operation *op = arena_alloc(parser->arena, sizeof(*op) + sizeof(op->operands[0]) * operand_cnt);
 	value_init(&op->base, kind, &TYPE_INT, &parser->current_block->base);
 	add_to_block(parser, &op->base);
 	op->base.kind = kind;
-	op->base.type = &TYPE_INT;
+	op->base.type = type;
 	return op;
 }
 
 static Value *
-add_unary(Parser *parser, ValueKind kind, Value *arg)
+add_unary(Parser *parser, ValueKind kind, Type *type, Value *arg)
 {
-	Operation *op = add_operation(parser, kind, 1);
+	Operation *op = add_operation(parser, kind, type, 1);
 	op->operands[0] = arg;
 	return &op->base;
 }
 
 static Value *
-add_binary(Parser *parser, ValueKind kind, Value *left, Value *right)
+add_binary(Parser *parser, ValueKind kind, Type *type, Value *left, Value *right)
 {
-	Operation *op = add_operation(parser, kind, 2);
+	Operation *op = add_operation(parser, kind, type, 2);
 	op->operands[0] = left;
 	op->operands[1] = right;
 	return &op->base;
@@ -572,14 +572,14 @@ switch_to_block(Parser *parser, Block *new_block)
 static void
 add_jump(Parser *parser, Block *destination, Block *new_block)
 {
-	add_unary(parser, VK_JUMP, &destination->base);
+	add_unary(parser, VK_JUMP, &TYPE_VOID, &destination->base);
 	switch_to_block(parser, new_block);
 }
 
 static void
 add_cond_jump(Parser *parser, Value *cond, Block *true_block, Block *false_block, Block *new_block)
 {
-	Operation *op = add_operation(parser, VK_BRANCH, 3);
+	Operation *op = add_operation(parser, VK_BRANCH, &TYPE_VOID, 3);
 	op->operands[0] = cond;
 	op->operands[1] = &true_block->base;
 	op->operands[2] = &false_block->base;
@@ -610,7 +610,10 @@ static Value *
 as_rvalue(Parser *parser, CValue cvalue)
 {
 	if (cvalue.lvalue) {
-		return add_unary(parser, VK_LOAD, cvalue.value);
+		Value *lvalue = cvalue.value;
+		assert(lvalue->type->kind == TY_POINTER);
+		Type *type = ((PointerType *) lvalue->type)->child;
+		return add_unary(parser, VK_LOAD, type, lvalue);
 	} else {
 		return cvalue.value;
 	}
@@ -782,7 +785,7 @@ unop(Parser *parser)
 		result = arg;
 		break;
 	case TK_MINUS:
-		result = add_unary(parser, VK_NEG, arg);
+		result = add_unary(parser, VK_NEG, &TYPE_INT, arg);
 		break;
 	default:
 		UNREACHABLE();
@@ -815,7 +818,7 @@ lognot(Parser *parser)
 	CValue carg = expression_bp(parser, 14);
 	Value *arg = as_rvalue(parser, carg);
 	Value *zero = create_const(parser, 0);
-	return rvalue(add_binary(parser, VK_NEQ, arg, zero));
+	return rvalue(add_binary(parser, VK_NEQ, &TYPE_INT, arg, zero));
 }
 
 static CValue
@@ -824,7 +827,7 @@ bitnot(Parser *parser)
 	eat(parser, TK_TILDE);
 	CValue carg = expression_bp(parser, 14);
 	Value *arg = as_rvalue(parser, carg);
-	return rvalue(add_unary(parser, VK_NOT, arg));
+	return rvalue(add_unary(parser, VK_NOT, &TYPE_INT, arg));
 }
 
 static CValue
@@ -844,7 +847,7 @@ cmp(Parser *parser, CValue cleft, int rbp)
 	case TK_GREATER_EQUAL: kind = VK_GEQ; break;
 	default: UNREACHABLE();
 	}
-	return rvalue(add_binary(parser, kind, left, right));
+	return rvalue(add_binary(parser, kind, &TYPE_INT, left, right));
 }
 
 static CValue
@@ -863,7 +866,7 @@ binop(Parser *parser, CValue cleft, int rbp)
 	case TK_PERCENT:  kind = VK_MOD; break;
 	default: UNREACHABLE();
 	}
-	return rvalue(add_binary(parser, kind, left, right));
+	return rvalue(add_binary(parser, kind, &TYPE_INT, left, right));
 }
 
 static CValue
@@ -881,7 +884,7 @@ bitbinop(Parser *parser, CValue cleft, int rbp)
 	case TK_GREATER_GREATER: kind = VK_SHR; break;
 	default: UNREACHABLE();
 	}
-	return rvalue(add_binary(parser, kind, left, right));
+	return rvalue(add_binary(parser, kind, &TYPE_INT, left, right));
 }
 
 static CValue
@@ -892,8 +895,11 @@ indexing(Parser *parser, CValue cleft, int rbp)
 	CValue cright = expression(parser);
 	eat(parser, TK_RBRACKET);
 	Value *left = as_rvalue(parser, cleft);
+	if (left->type->kind != TY_POINTER) {
+		parser_error(parser, parser->lookahead, false, "Expected indexing to subscript a pointer");
+	}
 	Value *right = as_rvalue(parser, cright);
-	return rvalue(add_binary(parser, VK_GET_INDEX_PTR, left, right));
+	return lvalue(add_binary(parser, VK_GET_INDEX_PTR, left->type, left, right));
 }
 
 static CValue
@@ -907,7 +913,7 @@ call(Parser *parser, CValue cleft, int rbp)
 	}
 	FunctionType *fun_type = (void*) left->type;
 	size_t argument_cnt = fun_type->param_cnt;
-	Operation *call = add_operation(parser, VK_CALL, 1 + argument_cnt);
+	Operation *call = add_operation(parser, VK_CALL, fun_type->ret_type, 1 + argument_cnt);
 
 	size_t i = 0;
 	call->operands[i++] = left;
@@ -915,7 +921,7 @@ call(Parser *parser, CValue cleft, int rbp)
 		CValue carg = expression_no_comma(parser);
 		if (i - 1 < argument_cnt) {
 			call->operands[i] = as_rvalue(parser, carg);
-			if (call->operands[i]->type != fun_type->param_types[i - 1]) {
+			if (call->operands[i]->type != fun_type->params[i - 1].type) {
 				parser_error(parser, parser->lookahead, false, "Argument type doesn't equal parameter type");
 			}
 		}
@@ -965,7 +971,7 @@ assign(Parser *parser, CValue cleft, int rbp)
 	CValue cright = expression_bp(parser, rbp);
 	Value *left = as_lvalue(parser, cleft, "Expected lvalue on left hand side of assignment");
 	Value *right = as_rvalue(parser, cright);
-	add_binary(parser, VK_STORE, left, right);
+	add_binary(parser, VK_STORE, right->type, left, right);
 	return lvalue(left);
 }
 
@@ -1160,9 +1166,9 @@ statement(Parser *parser)
 			if (value->type != return_type) {
 				parser_error(parser, tok, false, "Type of 'return'ed value does not match nominal type");
 			}
-			add_unary(parser, VK_RET, value);
+			add_unary(parser, VK_RET, return_type, value);
 		} else if (return_type == &TYPE_VOID) {
-			add_operation(parser, VK_RETVOID, 0);
+			add_operation(parser, VK_RETVOID, &TYPE_VOID, 0);
 		} else {
 			parser_error(parser, tok, false, "Expected some value to be 'return'ed");
 		}
@@ -1239,7 +1245,7 @@ function_declaration(Parser *parser)
 	for (size_t i = 0; i < param_cnt; i++) {
 		Value *arg = args[i];
 		Value *addr = add_alloca(parser, param_types[i]);
-		add_binary(parser, VK_STORE, addr, arg);
+		add_binary(parser, VK_STORE, param_types[i], addr, arg);
 		env_define(&parser->env, params[i].name, addr);
 	}
 	free(args);
