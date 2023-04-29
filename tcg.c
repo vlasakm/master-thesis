@@ -921,7 +921,7 @@ call(Parser *parser, CValue cleft, int rbp)
 		CValue carg = expression_no_comma(parser);
 		if (i - 1 < argument_cnt) {
 			call->operands[i] = as_rvalue(parser, carg);
-			if (call->operands[i]->type != fun_type->params[i - 1].type) {
+			if (call->operands[i]->type != fun_type->param_types[i - 1].type) {
 				parser_error(parser, parser->lookahead, false, "Argument type doesn't equal parameter type");
 			}
 		}
