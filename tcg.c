@@ -1463,26 +1463,6 @@ function_declaration(Parser *parser, Str fun_name, FunctionType *fun_type)
 }
 
 static void
-external_declaration(Parser *parser)
-{
-	switch (peek(parser)) {
-	case TK_STRUCT:
-		struct_declaration(parser);
-		break;
-	case TK_TYPEDEF: {
-		eat(parser, TK_TYPEDEF);
-		Str name;
-		Type *type = type_specifier(parser);
-		type = declarator(parser, &name, type, DECLARATOR_ORDINARY);
-		table_insert(&parser->type_env, name, type);
-		break;
-	}
-	default:;
-		//function_declaration(parser);
-	}
-}
-
-static void
 variable_declaration(Parser *parser)
 {
 	Type *type_spec = type_specifier(parser);
@@ -1524,11 +1504,14 @@ parse_program(Parser *parser)
 		if (peek(parser) == TK_EOF) {
 			break;
 		}
+		bool had_typedef = try_eat(parser, TK_TYPEDEF);
 		Type *type_spec = type_specifier(parser);
 		Str name;
 		Type *type = declarator(parser, &name, type_spec, DECLARATOR_ORDINARY);
 		if (type->kind == TY_FUNCTION) {
 			function_declaration(parser, name, (FunctionType *) type);
+		} else if (had_typedef) {
+			table_insert(&parser->type_env, name, type);
 		} else {
 			eat(parser, TK_SEMICOLON);
 		}
