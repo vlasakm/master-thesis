@@ -1,1 +1,3 @@
 gcc -Wall -Wextra -Wno-unused-parameter -Wno-unused-function -Wno-sign-compare -std=c11 -ggdb tcg.c arena.c && ./a.out test2.tc > test.asm 2>/dev/null && nasm -f elf64 -o obj.o test.asm && ld obj.o -o obj && ./obj
+
+alias mk = !gcc -Wall -Wextra -Wno-unused-parameter -Wno-unused-function -Wno-sign-compare -std=c11 -ggdb -fsanitize=address,undefined tcg.c arena.c
