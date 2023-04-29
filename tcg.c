@@ -46,6 +46,12 @@ typedef int64_t i64;
 		memset((array), 0, (count) * sizeof((array)[0])); \
 	} while(0)
 
+#ifdef __GNUC__
+#define printf_attr(n) __attribute__((format(printf, n, n + 1)))
+#else
+#define printf_attr(n)
+#endif
+
 #define UNREACHABLE() unreachable(__FILE__, __LINE__)
 _Noreturn void
 unreachable(char *file, size_t line)
@@ -98,7 +104,7 @@ arena_vaprintf(Arena *arena, const char *fmt, va_list ap)
 	return (Str) { .str = mem, .len = len - 1 };
 }
 
-Str
+Str printf_attr(2)
 arena_aprintf(Arena *arena, const char *fmt, ...)
 {
 	va_list ap;
@@ -436,7 +442,7 @@ typedef struct {
 	Block *break_block;
 } Parser;
 
-static void
+static void printf_attr(4)
 parser_error(Parser *parser, Token errtok, bool panic, const char *msg, ...)
 {
 	va_list ap;
@@ -3369,7 +3375,7 @@ parse_source(ErrorContext *ec, Arena *arena, Str source)
 	return module;
 }
 
-static void
+static void printf_attr(2)
 argument_error(ErrorContext *ec, const char *msg, ...)
 {
 	va_list ap;
