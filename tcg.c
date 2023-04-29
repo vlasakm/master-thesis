@@ -741,6 +741,22 @@ static CValue
 cast(Parser *parser)
 {
 	UNREACHABLE();
+	eat(parser, TK_CAST);
+	eat(parser, TK_LESS);
+	Type *new_type = parse_type(parser, true);
+	eat(parser, TK_GREATER);
+	eat(parser, TK_LPAREN);
+	CValue cvalue = expression(parser);
+	Value *value = as_rvalue(parser, cvalue);
+	eat(parser, TK_RPAREN);
+	if (new_type == &TYPE_VOID) {
+		// TODO
+		UNREACHABLE();
+	}
+	if (new_type->kind == TY_POINTER && value->type->kind == TY_POINTER) {
+		value->type = new_type;
+	}
+	return rvalue(value);
 }
 
 static CValue
