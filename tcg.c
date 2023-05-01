@@ -506,6 +506,7 @@ typedef struct {
 	Value **prev_pos;
 	Function *current_function;
 	GArena functions; // array of Function *
+	GArena globals; // array of Global *
 	Block *current_block;
 	Block *continue_block;
 	Block *break_block;
@@ -675,6 +676,20 @@ add_alloca(Parser *parser, Type *type)
 	add_to_block(parser, &alloca->base);
 	alloca->size = type_size(type);
 	return &alloca->base;
+}
+
+static Value *
+create_global(Parser *parser, Str name, Type *type)
+{
+	Global *global = arena_alloc(parser->arena, sizeof(*global));
+	value_init(&global->base, VK_GLOBAL, type_pointer(parser->arena, type), NULL);
+	global->name = name;
+	global->init = NULL;
+
+	global->base.index = garena_cnt(&parser->globals, Global *);
+	garena_push_value(&parser->globals, Global *, global);
+
+	return &global->base;
 }
 
 static Value *
@@ -893,7 +908,8 @@ static Value *
 create_const(Parser *parser, i64 value)
 {
 	Constant *k = arena_alloc(parser->arena, sizeof(*k));
-	value_init(&k->base, VK_CONSTANT, &TYPE_INT, &parser->current_block->base);
+	// TODO: can parent really be NULL?
+	value_init(&k->base, VK_CONSTANT, &TYPE_INT, NULL);
 	k->k = value;
 	return &k->base;
 }
@@ -1486,6 +1502,18 @@ function_declaration(Parser *parser, Str fun_name, FunctionType *fun_type)
 	function->base.index = garena_cnt(&parser->functions, Function *);
 	garena_push_value(&parser->functions, Function *, function);
 	env_pop(&parser->env);
+	parser->current_function = NULL;
+}
+
+static void
+global_declaration(Parser *parser, Str name, Type *type)
+{
+	Value *addr = create_global(parser, name, type);
+	Global *global = (Global *) addr;
+	if (try_eat(parser, TK_EQUAL)) {
+		global->init = as_rvalue(parser, literal(parser));
+	}
+	env_define(&parser->env, name, addr);
 }
 
 static void
@@ -1494,6 +1522,7 @@ variable_declaration(Parser *parser)
 	Type *type_spec = type_specifier(parser);
 	Str name;
 	Type *type = declarator(parser, &name, type_spec, DECLARATOR_ORDINARY);
+	assert(parser->current_function);
 	Value *addr = add_alloca(parser, type);
 	if (peek(parser) == TK_EQUAL) {
 		assign(parser, lvalue(addr), 2);
@@ -1552,6 +1581,7 @@ parse_program(Parser *parser)
 		} else if (type->kind == TY_FUNCTION) {
 			function_declaration(parser, name, (FunctionType *) type);
 		} else {
+			global_declaration(parser, name, type);
 			eat(parser, TK_SEMICOLON);
 		}
 	}
@@ -1690,6 +1720,11 @@ print_index(void *user_data, size_t i, Value *operand)
 		fprintf(f, "function");
 		fprintf(f, "%zu", operand->index);
 		break;
+	case VK_GLOBAL: {
+		Global *global = (void*) operand;
+		print_str(f, global->name);
+		break;
+	}
 	case VK_CONSTANT: {
 		Constant *k = (void*) operand;
 		fprintf(f, "%"PRIi64, k->k);
@@ -1900,6 +1935,10 @@ print_inst(FILE *f, Inst *inst)
 			fprintf(f, "function%"PRIi32, inst->ops[desc->imm_cnt + i]);
 			in++;
 			break;
+		case 'g':
+			fprintf(f, "global%"PRIi32, inst->ops[desc->imm_cnt + i]);
+			in++;
+			break;
 		default:
 			fputc(c, f);
 		}
@@ -2101,6 +2140,12 @@ translate_operand(void *user_data, size_t i, Value *operand)
 		res = operand->index;
 		break;
 	}
+	case VK_GLOBAL: {
+		Global *global = (void*) operand;
+		res = tos->ts->index++;
+		add_inst(tos->ts, OP_LEA_RG, res, global->base.index);
+		break;
+	}
 	case VK_CONSTANT: {
 		Constant *k = (void*) operand;
 		res = tos->ts->index++;
@@ -2156,9 +2201,8 @@ translate_value(TranslationState *ts, Value *v)
 		break;
 	}
 	case VK_BLOCK:
-		UNREACHABLE();
-		break;
 	case VK_FUNCTION:
+	case VK_GLOBAL:
 		UNREACHABLE();
 		break;
 
@@ -2852,6 +2896,42 @@ number_values(Function *function, size_t start_index)
 	return i;
 }
 
+static void
+print_value(FILE *f, Value *v)
+{
+	switch (v->kind) {
+	case VK_CONSTANT: {
+		Constant *k = (void*) v;
+		fprintf(f, "%"PRIi64, k->k);
+		break;
+	}
+	case VK_ALLOCA: {
+		Alloca *a = (void*) v;
+		fprintf(f, "alloca %zu\n", a->size);
+		break;
+	}
+	case VK_ARGUMENT: {
+		Argument *a = (void*) v;
+		fprintf(f, "argument %zu\n", a->index);
+		break;
+	}
+	case VK_GET_MEMBER_PTR: {
+		Operation *operation = (void*) v;
+		fprintf(f, "get_member_ptr ");
+		print_index(f, 0, operation->operands[0]);
+		Field *field = get_member(v);
+		fprintf(f, " %.*s\n", (int) field->name.len, field->name.str);
+		break;
+	}
+	default: {
+		fprintf(f, "%s ", value_kind_repr[v->kind]);
+		for_each_operand(v, print_index, f);
+		fprintf(f, "\n");
+		break;
+	}
+	}
+}
+
 void
 print_function(FILE *f, Function *function)
 {
@@ -2874,32 +2954,7 @@ print_function(FILE *f, Function *function)
 
 		for (Value *v = block->head; v; v = v->next) {
 			fprintf(f, "\tv%zu = ", v->index);
-			switch (v->kind) {
-			case VK_ALLOCA: {
-				Alloca *a = (void*) v;
-				fprintf(f, "alloca %zu\n", a->size);
-				break;
-			}
-			case VK_ARGUMENT: {
-				Argument *a = (void*) v;
-				fprintf(f, "argument %zu\n", a->index);
-				break;
-			}
-			case VK_GET_MEMBER_PTR: {
-				Operation *operation = (void*) v;
-				fprintf(f, "get_member_ptr ");
-				print_index(f, 0, operation->operands[0]);
-				Field *field = get_member(v);
-				fprintf(f, " %.*s\n", (int) field->name.len, field->name.str);
-				break;
-			}
-			default: {
-				fprintf(f, "%s ", value_kind_repr[v->kind]);
-				for_each_operand(v, print_index, f);
-				fprintf(f, "\n");
-				break;
-			}
-			}
+			print_value(f, v);
 		}
 	}
 }
@@ -2907,7 +2962,25 @@ print_function(FILE *f, Function *function)
 typedef struct {
 	size_t function_cnt;
 	Function **functions;
+	size_t global_cnt;
+	Global **globals;
 } Module;
+
+
+void
+print_globals(FILE *f, Module *module)
+{
+	for (size_t i = 0; i < module->global_cnt; i++) {
+		Global *global = module->globals[i];
+		print_str(f, global->name);
+		if (global->init) {
+			fprintf(f, " = ");
+			print_value(f, global->init);
+		}
+		fprintf(f, "\n");
+	}
+}
+
 
 Module *
 parse(Arena *arena, GArena *scratch, Str source, void (*error_callback)(void *user_data, const u8 *err_pos, const char *msg, va_list ap), void *user_data)
@@ -2942,11 +3015,14 @@ parse(Arena *arena, GArena *scratch, Str source, void (*error_callback)(void *us
 	Module *module = arena_alloc(arena, sizeof(*module));
 	module->function_cnt = garena_cnt(&parser.functions, Function *);
 	module->functions = move_to_arena(arena, &parser.functions, 0, Function *);
+	module->global_cnt = garena_cnt(&parser.globals, Global *);
+	module->globals = move_to_arena(arena, &parser.globals, 0, Global *);
 	for (size_t f = 0; f < module->function_cnt; f++) {
 		//Function *function = module->functions[f];
 		//print_function(function);
 	}
 	garena_destroy(&parser.functions);
+	garena_destroy(&parser.globals);
 	return module;
 }
 
@@ -3710,6 +3786,9 @@ main(int argc, char **argv)
 	RegAllocState ras;
 	reg_alloc_state_init(&ras, arena);
 
+	fprintf(stderr, "Globals:\n");
+	print_globals(stderr, module);
+	fprintf(stderr, "\n");
 	for (size_t i = 0; i < function_cnt; i++) {
 		size_t index = number_values(functions[i], R__MAX);
 		print_function(stderr, functions[i]);
@@ -3720,9 +3799,39 @@ main(int argc, char **argv)
 
 	reg_alloc_state_destroy(&ras);
 
-	printf("section .text\n");
-	printf("\tglobal _start\n");
+	printf("\tdefault rel\n\n");
+
+	printf("\tsection .data\n");
+	for (size_t i = 0; i < module->global_cnt; i++) {
+		Global *global = module->globals[i];
+		if (global->init) {
+			//printf("\talign 8\n");
+			print_str(stdout, global->name);
+			printf(":\n");
+			printf("global%zu:\n", global->base.index);
+			printf("\tdq\t");
+			print_value(stdout, global->init);
+			printf("\n");
+		}
+	}
 	printf("\n");
+
+	printf("\tsection .bss\n");
+	for (size_t i = 0; i < module->global_cnt; i++) {
+		Global *global = module->globals[i];
+		if (!global->init) {
+			//printf("\talign 8\n");
+			print_str(stdout, global->name);
+			printf(":\n");
+			printf("global%zu:\n", global->base.index);
+			printf("\tresq\t1\n");
+		}
+	}
+	printf("\n");
+
+	printf("\tsection .text\n");
+	printf("\n");
+	printf("\tglobal _start\n");
 	printf("_start:\n");
 	printf("\txor rbp, rbp\n");
 	printf("\tand rsp, -8\n");
@@ -3730,6 +3839,7 @@ main(int argc, char **argv)
 	printf("\tmov rdi, rax\n");
 	printf("\tmov rax, 60\n");
 	printf("\tsyscall\n");
+
 	for (size_t i = 0; i < function_cnt; i++) {
 		printf("\n");
 		print_mfunction(stdout, functions[i]->mfunc);

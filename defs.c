@@ -4,6 +4,7 @@
 	OT(IDENTITY, "identity") \
 	OT(CONSTANT, "constant") \
 	OT(ALLOCA, "alloca") \
+	OT(GLOBAL, "global") \
 	OT(ARGUMENT, "argument") \
 	OT(BLOCK, "block") \
 	OT(FUNCTION, "function") \
@@ -85,6 +86,12 @@ typedef struct {
 	Value base;
 	size_t size;
 } Alloca;
+
+typedef struct {
+	Value base;
+	Str name;
+	Value *init;
+} Global;
 
 typedef struct {
 	Value base;
@@ -217,6 +224,7 @@ typedef enum {
 	_(MOV_MR, "mov [S0], S1", 0, 2, 0, 0) \
 	_(MOV_RM, "mov D0, [S0]", 1, 1, 0, 0) \
 	_(LEA_RMC, "lea D0, [S0-I0]", 1, 1, 1, 0) \
+	_(LEA_RG, "lea D0, [g0]", 1, 0, 0, 1) \
 	_(MOV_RMC, "mov D0, [S0-I0]", 1, 1, 1, 0) \
 	_(MOV_MCR, "mov [S0-I0], S1", 0, 2, 1, 0) \
 	_(MOVIMM, "mov D0, I0", 1, 0, 1, 0) \
