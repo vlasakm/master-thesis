@@ -138,7 +138,6 @@ typedef struct {
 
 typedef struct {
 	Type base;
-	Str name;
 	Type *ret_type;
 	size_t param_cnt;
 	Parameter *params;
@@ -227,7 +226,20 @@ type_struct(Arena *arena, Field *fields, size_t field_cnt)
 		offset += type_size(fields[i].type);
 	}
 
+	struct_type->size = offset;
+
 	return &struct_type->base;
+}
+
+static bool
+types_compatible(Type *a, Type *b)
+{
+	if (a == b) {
+		return true;
+	} else if (type_is_pointer(a) && type_is_pointer(b)) {
+		return types_compatible(pointer_child(a), pointer_child(b));
+	}
+	return false;
 }
 
 
@@ -465,7 +477,7 @@ typedef struct {
 	Value *value;
 } CValue;
 
-Value NOP = { .kind = VK_NOP };
+Value NOP = { .type = &TYPE_VOID, .kind = VK_NOP };
 
 static CValue
 rvalue(Value *value)
@@ -530,6 +542,12 @@ prev_tok(Parser *parser)
 }
 
 static Token
+curr_tok(Parser *parser)
+{
+	return parser->lookahead;
+}
+
+static Token
 discard(Parser *parser)
 {
 	parser->prev = parser->lookahead;
@@ -540,15 +558,15 @@ discard(Parser *parser)
 	return parser->prev;
 }
 
-static void
+static Token
 eat(Parser *parser, TokenKind kind)
 {
 	TokenKind tok = peek(parser);
 	if (tok != kind) {
 		parser_error(parser, parser->lookahead, true, "Expected %s, found %s", tok_repr[kind], tok_repr[tok]);
-		return;
+		// TODO: don't discard when error?
 	}
-	discard(parser);
+	return discard(parser);
 }
 
 static bool
@@ -916,10 +934,12 @@ static CValue
 ident(Parser *parser)
 {
 	Str ident = eat_identifier(parser);
-	Value *value;
+	Value *value = NULL;
 	if (!env_lookup(&parser->env, ident, (void **) &value)) {
 		parser_error(parser, prev_tok(parser), false, "Name '%.*s' not found", (int) ident.len, ident.str);
+		return rvalue(&NOP);
 	}
+	assert(value);
 	if (value->kind == VK_FUNCTION) {
 	     return rvalue(value);
 	}
@@ -1137,17 +1157,20 @@ static CValue
 member(Parser *parser, CValue cleft, int rbp)
 {
 	(void) rbp;
-	bool indirect = discard(parser).kind == TK_RARROW;
+	bool direct = discard(parser).kind == TK_DOT;
 	Str name = eat_identifier(parser);
-	Value *left = as_rvalue(parser, cleft);
-	Type *struct_type = left->type;
-	if (indirect) {
-		if (struct_type->kind != TY_POINTER) {
-			parser_error(parser, parser->lookahead, false, "Member access with '->' on non-pointer");
-			return lvalue(&NOP);
-		}
-		struct_type = ((PointerType *) struct_type)->child;
+	Value *left;
+	if (direct) {
+		left = as_lvalue(parser, cleft, "TODO: '.' on non-lvalues");
+	} else {
+		left = as_rvalue(parser, cleft);
 	}
+	Type *struct_type = left->type;
+	if (struct_type->kind != TY_POINTER) {
+		parser_error(parser, parser->lookahead, false, "Member access with '->' on non-pointer");
+		return lvalue(&NOP);
+	}
+	struct_type = ((PointerType *) struct_type)->child;
 	if (struct_type->kind != TY_STRUCT) {
 		parser_error(parser, parser->lookahead, false, "Member access on non-struct");
 	}
@@ -1192,10 +1215,13 @@ seq(Parser *parser, CValue cleft, int rbp)
 static CValue
 assign(Parser *parser, CValue cleft, int rbp)
 {
-	eat(parser, TK_EQUAL);
+	Token equal = eat(parser, TK_EQUAL);
 	CValue cright = expression_bp(parser, rbp);
 	Value *left = as_lvalue(parser, cleft, "Expected lvalue on left hand side of assignment");
 	Value *right = as_rvalue(parser, cright);
+	if (!types_compatible(pointer_child(left->type), right->type)) {
+		parser_error(parser, equal, false, "Assigned value has incorrect type");
+	}
 	add_binary(parser, VK_STORE, right->type, left, right);
 	return lvalue(left);
 }
@@ -1469,8 +1495,9 @@ variable_declaration(Parser *parser)
 	Str name;
 	Type *type = declarator(parser, &name, type_spec, DECLARATOR_ORDINARY);
 	Value *addr = add_alloca(parser, type);
-	assign(parser, lvalue(addr), 2);
-	//eat(parser, TK_SEMICOLON);
+	if (peek(parser) == TK_EQUAL) {
+		assign(parser, lvalue(addr), 2);
+	}
 	env_define(&parser->env, name, addr);
 }
 
@@ -1489,9 +1516,20 @@ static void
 expression_or_variable_declaration(Parser *parser)
 {
 	switch (peek(parser)) {
+	case TK_IDENTIFIER: {
+		Str ident = curr_tok(parser).str;
+		Type *type;
+		if (!table_get(&parser->type_env, ident, (void **) &type)) {
+			goto expression;
+		}
+	}
+	// fallthrough
+	case TK_VOID:
 	case TK_INT:
+	case TK_STRUCT:
 		variable_declarations(parser);
 		break;
+	expression:
 	default:
 		expression(parser);
 	}
@@ -1508,10 +1546,11 @@ parse_program(Parser *parser)
 		Type *type_spec = type_specifier(parser);
 		Str name;
 		Type *type = declarator(parser, &name, type_spec, DECLARATOR_ORDINARY);
-		if (type->kind == TY_FUNCTION) {
-			function_declaration(parser, name, (FunctionType *) type);
-		} else if (had_typedef) {
+		if (had_typedef) {
 			table_insert(&parser->type_env, name, type);
+			eat(parser, TK_SEMICOLON);
+		} else if (type->kind == TY_FUNCTION) {
+			function_declaration(parser, name, (FunctionType *) type);
 		} else {
 			eat(parser, TK_SEMICOLON);
 		}
