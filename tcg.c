@@ -52,6 +52,8 @@ typedef int64_t i64;
 		free((array)); \
 	} while(0)
 
+#define ARRAY_LEN(arr) (sizeof((arr)) / sizeof((arr)[0]))
+
 #ifdef __GNUC__
 #define printf_attr(n) __attribute__((format(printf, n, n + 1)))
 #else
@@ -1797,8 +1799,8 @@ dfs(Block *block, size_t *index, Block **post_order)
 		block->succ_cnt = 0;
 		break;
 	default:
-	     break;
 	     UNREACHABLE();
+	     break;
 	}
 	block->base.visited = 2;
 	post_order[(*index)++] = block;
@@ -2055,7 +2057,6 @@ add_pop(TranslationState *ts, Oper oper)
 }
 
 static Oper arg_regs[4] = { R_RDI, R_RSI, R_RDX, R_RCX };
-#define ARRAY_LEN(arr) (sizeof((arr)) / sizeof((arr)[0]))
 
 static void
 add_call(TranslationState *ts, Oper res, Oper fun, Oper *args, size_t arg_cnt)
@@ -2115,6 +2116,7 @@ translate_shift(TranslationState *ts, X86Group2 op, Oper res, Oper *ops)
 static void
 translate_div(TranslationState *ts, Oper res, Oper *ops, bool modulo)
 {
+	// TODO: cdq = sign extend RAX into RDX
 	add_set_zero(ts, R_RDX);
 	add_copy(ts, R_RAX, ops[0]);
 	add_inst(ts, OP_IDIV, R_RDX, R_RAX, R_RDX, R_RAX, ops[1]);
