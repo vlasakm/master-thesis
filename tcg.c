@@ -46,6 +46,12 @@ typedef int64_t i64;
 		memset((array), 0, (count) * sizeof((array)[0])); \
 	} while(0)
 
+#define FREE_ARRAY(array, count) \
+	do { \
+		(void) (count); \
+		free((array)); \
+	} while(0)
+
 #ifdef __GNUC__
 #define printf_attr(n) __attribute__((format(printf, n, n + 1)))
 #else
@@ -467,6 +473,15 @@ env_lookup(Environment *env, Str name, void **value)
 		}
 	}
 	return false;
+}
+
+void
+env_free(Environment *env)
+{
+	for (size_t i = 0; i < env->scope_cnt; i++) {
+		table_destroy(&env->scopes[--env->scope_cnt]);
+	}
+	FREE_ARRAY(env->scopes, env->scope_cnt);
 }
 
 
@@ -3000,6 +3015,8 @@ parse(Arena *arena, GArena *scratch, Str source, void (*error_callback)(void *us
 	env_push(&parser.env);
 	parse_program(&parser);
 	env_pop(&parser.env);
+	env_free(&parser.env);
+	table_destroy(&parser.type_env);
 
 	//Block ***post_orders = arena_alloc(parser.arena, sizeof(*post_orders) * function_cnt);
 
