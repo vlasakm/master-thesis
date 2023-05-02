@@ -208,6 +208,7 @@ typedef enum {
 
 #define INSTRUCTIONS(_) \
 	_(BIN_RR, "G1:0 S0, S1", 1, 2, 1, 0) \
+	_(BIN_RI, "G1:0 S0, I1", 1, 1, 2, 0) \
 	_(SHIFT_RR, "G2:0 D0, S1", 1, 2, 1, 0) \
 	_(UNARY_RR, "G3:0 D0, S1", 1, 1, 1, 0) \
 	_(TEST, "test S0, S1", 0, 2, 0, 0) \
@@ -222,9 +223,11 @@ typedef enum {
 	_(JCC, "jC0 B0", 0, 0, 1, 1) \
 	_(MOV, "mov D0, S0", 1, 1, 0, 0) \
 	_(MOV_MR, "mov [S0], S1", 0, 2, 0, 0) \
+	_(MOV_MI, "mov qword [S0], I0", 0, 1, 1, 0) \
 	_(MOV_RM, "mov D0, [S0]", 1, 1, 0, 0) \
 	_(LEA_RMC, "lea D0, [S0-I0]", 1, 1, 1, 0) \
 	_(LEA_RG, "lea D0, [g0]", 1, 0, 0, 1) \
+	_(MOV_RG, "mov D0, [g0]", 1, 0, 0, 1) \
 	_(MOV_RMC, "mov D0, [S0-I0]", 1, 1, 1, 0) \
 	_(MOV_MCR, "mov [S0-I0], S1", 0, 2, 1, 0) \
 	_(MOVIMM, "mov D0, I0", 1, 0, 1, 0) \

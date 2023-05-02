@@ -1979,7 +1979,8 @@ create_inst(Arena *arena, OpCode op, va_list ap)
 {
 	InstDesc *desc = &inst_desc[op];
 	size_t operand_cnt = desc->label_cnt;
-	Inst *inst = arena_alloc(arena, sizeof(*inst) + operand_cnt * sizeof(inst->ops[0]));
+	//Inst *inst = arena_alloc(arena, sizeof(*inst) + operand_cnt * sizeof(inst->ops[0]));
+	Inst *inst = arena_alloc(arena, sizeof(*inst) + 10 * sizeof(inst->ops[0]));
 	inst->op = op;
 	for (size_t i = 0; i < operand_cnt; i++) {
 		inst->ops[i] = va_arg(ap, Oper);
@@ -3658,14 +3659,65 @@ reg_alloc_function(RegAllocState *ras, MFunction *mfunction)
 }
 
 void
-peephole(MFunction *mfunction)
+peephole(MFunction *mfunction, Arena *arena)
 {
 	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
 		MBlock *mblock = &mfunction->mblocks[b];
 		for (Inst *inst = mblock->first; inst; inst = inst->next) {
+			print_inst(stderr, inst);
+			fprintf(stderr, "\n");
 			if (inst->op == OP_MOV && inst->ops[0] == inst->ops[1]) {
 				inst->prev->next = inst->next;
 				inst->next->prev = inst->prev;
+			}
+			Inst *prev = inst->prev;
+			if (!prev) {
+				continue;
+			}
+			// mov rcx, 8
+			// add rax, rcx
+			// =>
+			// add rax, 8
+			if (inst->op == OP_BIN_RR && prev->op == OP_MOVIMM && prev->ops[0] == inst->ops[2]) {
+				Inst *new = make_inst(arena, OP_BIN_RI, inst->ops[0], inst->ops[1], inst->ops[3], prev->ops[1]);
+				prev->prev->next = new;
+				inst->next->prev = new;
+				new->prev = prev->prev;
+				new->next = inst->next;
+				inst = new->prev;
+			}
+
+			// mov rcx, 5
+			// mov [rax], rcx
+			// =>
+			// mov [rax], 5
+			if (inst->op == OP_MOV_MR && prev->op == OP_MOVIMM && prev->ops[0] == inst->ops[1]) {
+				Inst *new = make_inst(arena, OP_MOV_MI, inst->ops[0], prev->ops[1]);
+				prev->prev->next = new;
+				inst->next->prev = new;
+				new->prev = prev->prev;
+				new->next = inst->next;
+				//inst = inst->prev;
+			}
+			// lea rax, [rbp-16]
+			// add rax, 8
+			// =>
+			// lea rax, [rbp-8]
+			if (inst->op == OP_BIN_RI && inst->ops[2] == G1_ADD && prev->op == OP_LEA_RMC && prev->ops[0] == inst->ops[0]) {
+				prev->ops[2] -= inst->ops[3];
+				prev->next = inst->next;
+				inst = inst->prev;
+			}
+			// lea rax, [global0]
+			// mov rax, [rax]
+			// =>
+			// mov rax, [global0]
+			if (inst->op == OP_MOV_RM && prev->op == OP_LEA_RG && prev->ops[0] == inst->ops[1]) {
+				Inst *new = make_inst(arena, OP_MOV_RG, inst->ops[0], prev->ops[1]);
+				prev->prev->next = new;
+				inst->next->prev = new;
+				new->prev = prev->prev;
+				new->next = inst->next;
 			}
       		}
 	}
@@ -3812,8 +3864,9 @@ main(int argc, char **argv)
 		size_t index = number_values(functions[i], R__MAX);
 		print_function(stderr, functions[i]);
 		translate_function(arena, functions[i], index);
+		peephole(functions[i]->mfunc, arena);
 		reg_alloc_function(&ras, functions[i]->mfunc);
-		peephole(functions[i]->mfunc);
+		peephole(functions[i]->mfunc, arena);
 	}
 
 	reg_alloc_state_destroy(&ras);
