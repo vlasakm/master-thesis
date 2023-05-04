@@ -265,6 +265,7 @@ typedef enum {
 	R_RSP,
 	R_RBP,
 
+	R__RIP,
 	R__MAX,
 } Reg;
 
@@ -302,6 +303,22 @@ typedef enum {
 	CC_LE = 0x0E,
 	CC_G = 0x0F,
 } CondCode;
+
+
+InsDesc ins_descs[IK__MAX] = {
+	[IK_MULDIV] = {
+		.extra_defs = (u8[]) { R_RAX, R_RDX },
+		.extra_uses = (u8[]) { R_RAX, R_RDX },
+	},
+	[IK_JUMP] = {
+		.extra_defs = (u8[]) { R_RAX, R_RCX, R_RDX, R_RSI, R_RDI, },
+		.maybe_uses = (u8[]) { R_RDI, R_RSI, R_RDX, R_RCX }, // TODO?
+	},
+};
+
+Oper callee_saved[] = { R_RBX };
+Oper caller_saved[] = { R_RAX, R_RCX, R_RDX, R_RSI, R_RDI };
+Oper argument_regs[] = { R_RDI, R_RSI, R_RDX, R_RCX };
 
 typedef struct {
 	enum {
@@ -1835,6 +1852,7 @@ print_reg8(FILE *f, Oper reg)
 void
 print_inst_d(FILE *f, Inst *inst)
 {
+	/*
 	InstDesc *desc = &inst_desc[inst->op];
 	fprintf(f, "%s", desc->format);
 	size_t i = 0;
@@ -1850,11 +1868,186 @@ print_inst_d(FILE *f, Inst *inst)
 		fprintf(f, " ");
 		fprintf(f, ".BB%"PRIi32, inst->ops[i]);
 	}
+	*/
 }
 
 void
 print_inst(FILE *f, Inst *inst)
 {
+	char *m;
+	switch (inst->kind) {
+	case IK_MOV: // MOV, LEA, ZX8, SX16, ...
+		switch (inst->subkind) {
+		case MOV: m = "mov"; break;
+		case LEA: m = "lea"; break;
+		default: UNREACHABLE();
+		}
+		break;
+	case IK_BINALU: // ADD, SUB, ...
+		switch (inst->subkind) {
+		case G1_ADD:  m =  "add"; break;
+		case G1_OR:   m =   "or"; break;
+		case G1_ADC:  m =  "adc"; break;
+		case G1_SBB:  m =  "sbb"; break;
+		case G1_AND:  m =  "and"; break;
+		case G1_SUB:  m =  "sub"; break;
+		case G1_XOR:  m =  "xor"; break;
+		case G1_CMP:  m =  "cmp"; break;
+		case G1_IMUL: m = "imul"; break;
+		case G1_TEST: m = "test"; break;
+		default: UNREACHABLE();
+		}
+		break;
+	case IK_UNALU: // NEG, NOT
+		switch (inst->subkind) {
+		case G3_NOT: m = "not"; break;
+		case G3_NEG: m = "neg"; break;
+		default: UNREACHABLE();
+		}
+		break;
+	case IK_IMUL3:
+		m = "imul";
+		break;
+	case IK_SHIFT: // SHR, ROL, ...
+		switch (inst->subkind) {
+		case G2_ROL: m = "rol"; break;
+		case G2_ROR: m = "ror"; break;
+		case G2_RCL: m = "rcl"; break;
+		case G2_RCR: m = "rcr"; break;
+		case G2_SHL: m = "shl"; break;
+		case G2_SHR: m = "shr"; break;
+		case G2_SAL: m = "sal"; break;
+		case G2_SAR: m = "sar"; break;
+		default: UNREACHABLE();
+		}
+		break;
+	case IK_JUMP: // JMP
+		m = "jmp";
+		break;
+	case IK_CALL: // CALL
+		m = "call";
+		break;
+	case IK_JCC: // JZ, JG, ...
+		switch (inst->subkind) {
+		case CC_Z:  m = "jz"; break;
+		case CC_NZ: m = "jnz"; break;
+		case CC_L:  m = "jl"; break;
+		case CC_GE: m = "jge"; break;
+		case CC_LE: m = "jle"; break;
+		case CC_G:  m = "jg"; break;
+		default: UNREACHABLE();
+		}
+		break;
+	case IK_SETCC: // SETZ, SETG, ...
+		switch (inst->subkind) {
+		case CC_Z:  m = "setz"; break;
+		case CC_NZ: m = "setnz"; break;
+		case CC_L:  m = "setl"; break;
+		case CC_GE: m = "setge"; break;
+		case CC_LE: m = "setle"; break;
+		case CC_G:  m = "setg"; break;
+		default: UNREACHABLE();
+		}
+		break;
+	case IK_CMOVCC: // CMOVZ, CMOVG, ...
+		switch (inst->subkind) {
+		case CC_Z:  m = "cmovz"; break;
+		case CC_NZ: m = "cmovnz"; break;
+		case CC_L:  m = "cmovl"; break;
+		case CC_GE: m = "cmovge"; break;
+		case CC_LE: m = "cmovle"; break;
+		case CC_G:  m = "cmovg"; break;
+		default: UNREACHABLE();
+		}
+		break;
+	case IK_MULDIV: // MUL, DIV, IMUL, IDIV
+		switch (inst->subkind) {
+		case G3_MUL:  m = "mul"; break;
+		case G3_IMUL: m = "imul"; break;
+		case G3_DIV:  m = "div"; break;
+		case G3_IDIV: m = "idiv"; break;
+		}
+		break;
+	case IK_RET:
+		m = "ret";
+		break;
+	case IK_NOP:
+		m = "nop";
+		break;
+	case IK_LEAVE:
+		m = "leave";
+		break;
+	case IK_PUSH:
+		m = "push";
+		break;
+	case IK_POP:
+		m = "pop";
+		break;
+	default:
+		UNREACHABLE();
+	}
+
+	fprintf(f, "%s ", m);
+
+	if (inst->kind == IK_CALL) {
+		fprintf(f, "function%"PRIi32, IIMM(inst));
+		return;
+	}
+	if (inst->kind == IK_RET) {
+		return;
+	}
+	if (inst->kind == IK_JUMP || inst->kind == IK_JCC) {
+		fprintf(f, ".BB%"PRIi32, IIMM(inst));
+		return;
+	}
+	if (inst->kind == IK_SETCC || inst->kind == IK_JCC) {
+		print_reg8(f, IREG(inst));
+		return;
+	}
+
+	if (inst->direction) {
+		print_reg(f, IREG(inst));
+	}
+
+
+	if (inst->is_memory) {
+		if (inst->direction) {
+			fprintf(f, ", ");
+		}
+		fprintf(f, "[");
+		if (IBASE(inst) == R_NONE) {
+			fprintf(f, "global%"PRIi32, IDISP(inst));
+		} else {
+			print_reg(f, IBASE(inst));
+			if (IINDEX(inst)) {
+				fprintf(f, "+");
+				if (ISCALE(inst) != 0) {
+					fprintf(f, "%d*", 1 << ISCALE(inst));
+				}
+				print_reg(f, IINDEX(inst));
+			}
+			if (IDISP(inst)) {
+				fprintf(f, "%+"PRIi32, IDISP(inst));
+			}
+		}
+		fprintf(f, "]");
+	} else if (IREG2(inst) != R_NONE) {
+		if (inst->direction) {
+			fprintf(f, ", ");
+		}
+		print_reg(f, IREG2(inst));
+	}
+
+	if (!inst->direction && IREG(inst) != R_NONE) {
+		fprintf(f, ", ");
+		print_reg(f, IREG(inst));
+	}
+
+	if (inst->has_imm) {
+		fprintf(f, ", %"PRIi32, IIMM(inst));
+	}
+
+	/*
 	InstDesc *desc = &inst_desc[inst->op];
 	const char *in = desc->format;
 	while (*in) {
@@ -1960,6 +2153,7 @@ print_inst(FILE *f, Inst *inst)
 			fputc(c, f);
 		}
 	}
+	*/
 }
 
 
@@ -1975,36 +2169,25 @@ typedef struct {
 } TranslationState;
 
 Inst *
-create_inst(Arena *arena, OpCode op, va_list ap)
+create_inst(Arena *arena, InstKind kind, int subkind)
 {
-	InstDesc *desc = &inst_desc[op];
-	size_t operand_cnt = desc->label_cnt;
+	//InstDesc *desc = &inst_desc[op];
+	//size_t operand_cnt = desc->label_cnt;
 	//Inst *inst = arena_alloc(arena, sizeof(*inst) + operand_cnt * sizeof(inst->ops[0]));
-	Inst *inst = arena_alloc(arena, sizeof(*inst) + 10 * sizeof(inst->ops[0]));
-	inst->op = op;
-	for (size_t i = 0; i < operand_cnt; i++) {
-		inst->ops[i] = va_arg(ap, Oper);
-	}
-	return inst;
-}
-
-Inst *
-make_inst(Arena *arena, OpCode op, ...)
-{
-	va_list ap;
-	va_start(ap, op);
-	Inst *inst = create_inst(arena, op, ap);
-	va_end(ap);
+	Inst *inst = arena_alloc(arena, sizeof(*inst) + 6 * sizeof(inst->ops[0]));
+	inst->kind = kind;
+	inst->subkind = subkind;
+	memset(&inst->ops[0], 0, 6 * sizeof(inst->ops[0]));
+	//for (size_t i = 0; i < 6; i++) {
+	//	inst->ops[i] = va_arg(ap, Oper);
+	//}
 	return inst;
 }
 
 static Inst *
-add_inst(TranslationState *ts, OpCode op, ...)
+add_inst(TranslationState *ts, InstKind kind, int subkind)
 {
-	va_list ap;
-	va_start(ap, op);
-	Inst *inst = create_inst(ts->arena, op, ap);
-	va_end(ap);
+	Inst *inst = create_inst(ts->arena, kind, subkind);
 	inst->next = NULL;
 	inst->prev = ts->prev_pos == &ts->block->first ? NULL : container_of(ts->prev_pos, Inst, next);
 	*ts->prev_pos = inst;
@@ -2015,7 +2198,64 @@ add_inst(TranslationState *ts, OpCode op, ...)
 static void
 add_copy(TranslationState *ts, Oper dest, Oper src)
 {
-	add_inst(ts, OP_MOV, dest, src);
+	Inst *inst = add_inst(ts, IK_MOV, MOV);
+	inst->direction = true;
+	inst->is_first_def = true;
+	inst->is_memory = false;
+	inst->has_imm = false;
+	IREG1(inst) = dest;
+	IREG2(inst) = src;
+}
+
+static void
+add_load(TranslationState *ts, Oper dest, Oper addr)
+{
+	Inst *inst = add_inst(ts, IK_MOV, MOV);
+	inst->direction = true;
+	inst->is_first_def = true;
+	inst->is_memory = true;
+	inst->has_imm = false;
+	IREG(inst) = dest;
+	IBASE(inst) = addr;
+}
+
+static void
+add_store(TranslationState *ts, Oper addr, Oper value)
+{
+	Inst *inst = add_inst(ts, IK_MOV, MOV);
+	inst->direction = false;
+	inst->is_first_def = false;
+	inst->is_memory = true;
+	inst->has_imm = false;
+	IREG(inst) = value;
+	IBASE(inst) = addr;
+}
+
+static void
+add_lea(TranslationState *ts, Oper dest, Oper base, Oper disp)
+{
+	Inst *inst = add_inst(ts, IK_MOV, LEA);
+	inst->direction = true;
+	inst->is_first_def = true;
+	inst->is_memory = true;
+	inst->has_imm = false;
+	IREG(inst) = dest;
+	IBASE(inst) = base;
+	IDISP(inst) = disp;
+}
+
+static void
+add_mov_imm(TranslationState *ts, Oper dest, u64 imm)
+{
+	// TODO: 64 bit immediates
+	Inst *inst = add_inst(ts, IK_MOV, MOV);
+	inst->direction = true;
+	inst->is_first_def = true;
+	inst->is_memory = false;
+	inst->has_imm = true;
+	IREG(inst) = dest;
+	// truncated to bottom 32 bits
+	IIMM(inst) = imm;
 }
 
 static void
@@ -2023,94 +2263,209 @@ add_set_zero(TranslationState *ts, Oper oper)
 {
 	// Set zero with `mov` so that we don't introduce additional constraints
 	// on the register through XOR register uses.
-	add_inst(ts, OP_MOVIMM, oper, 0);
-	//add_inst(ts, OP_XOR, oper, oper, oper);
+	// TODO: xor oper, oper
+	Inst *inst = add_inst(ts, IK_MOV, MOV);
+	inst->direction = true;
+	inst->is_first_def = true;
+	inst->is_memory = false;
+	inst->has_imm = true;
+	IREG(inst) = oper;
+	IIMM(inst) = 0;
 }
 
 static void
 add_unop(TranslationState *ts, X86Group3 op, Oper op1)
 {
-	add_inst(ts, OP_UNARY_RR, op1, op1, op);
+	Inst *inst = add_inst(ts, IK_UNALU, op);
+	inst->direction = true;
+	inst->is_first_def = true;
+	inst->is_memory = false;
+	inst->has_imm = false;
+	IREG(inst) = op1;
 }
 
 static void
 add_binop(TranslationState *ts, X86Group1 op, Oper op1, Oper op2)
 {
-	add_inst(ts, OP_BIN_RR, op1, op1, op2, op);
+	Inst *inst = add_inst(ts, IK_BINALU, op);
+	inst->direction = true;
+	inst->is_first_def = true;
+	inst->is_memory = false;
+	inst->has_imm = false;
+	IREG1(inst) = op1;
+	IREG2(inst) = op2;
+}
+
+static void
+add_cmp(TranslationState *ts, X86Group1 op, Oper op1, Oper op2)
+{
+	Inst *inst = add_inst(ts, IK_BINALU, op);
+	inst->direction = true;
+	inst->is_first_def = false;
+	inst->is_memory = false;
+	inst->has_imm = false;
+	IREG1(inst) = op1;
+	IREG2(inst) = op2;
 }
 
 static void
 add_shift(TranslationState *ts, X86Group2 op, Oper op1, Oper op2)
 {
-	add_inst(ts, OP_SHIFT_RR, op1, op1, op2, op);
+	Inst *inst = add_inst(ts, IK_SHIFT, op);
+	inst->direction = true;
+	inst->is_first_def = true;
+	inst->is_memory = false;
+	inst->has_imm = false;
+	IREG1(inst) = op1;
+	IREG2(inst) = op2;
+	assert(op2 == R_RCX);
 }
 
 static void
 add_push(TranslationState *ts, Oper oper)
 {
-	add_inst(ts, OP_PUSH, oper);
+	Inst *inst = add_inst(ts, IK_PUSH, 0);
+	inst->direction = true;
+	inst->is_first_def = false;
+	inst->is_memory = false;
+	inst->has_imm = false;
+	IREG(inst) = oper;
 }
 
 static void
 add_pop(TranslationState *ts, Oper oper)
 {
-	add_inst(ts, OP_POP, oper);
+	Inst *inst = add_inst(ts, IK_POP, 0);
+	inst->direction = true;
+	inst->is_first_def = true;
+	inst->is_memory = false;
+	inst->has_imm = false;
+	IREG(inst) = oper;
 }
 
-static Oper arg_regs[4] = { R_RDI, R_RSI, R_RDX, R_RCX };
+static void
+add_setcc(TranslationState *ts, CondCode cc, Oper oper)
+{
+	Inst *inst = add_inst(ts, IK_SETCC, cc);
+	inst->direction = true;
+	inst->is_first_def = true;
+	inst->is_memory = false;
+	inst->has_imm = false;
+	IREG(inst) = oper;
+}
 
 static void
-add_call(TranslationState *ts, Oper res, Oper fun, Oper *args, size_t arg_cnt)
+add_imul3(TranslationState *ts, Oper dest, Oper arg, Oper imm)
 {
-	Oper opers[ARRAY_LEN(arg_regs)] = {0};
-	assert(arg_cnt <= ARRAY_LEN(arg_regs));
+	Inst *inst = add_inst(ts, IK_IMUL3, 0);
+	inst->direction = true;
+	inst->is_first_def = true;
+	inst->is_memory = false;
+	inst->has_imm = true;
+	IREG(inst) = dest;
+	IREG2(inst) = dest;
+	IIMM(inst) = imm;
+}
+
+static void
+add_jmp(TranslationState *ts, Oper block_index)
+{
+	Inst *inst = add_inst(ts, IK_JUMP, 0);
+	inst->direction = true;
+	inst->is_first_def = false;
+	inst->is_memory = false;
+	inst->has_imm = true;
+	IIMM(inst) = block_index;
+}
+
+static void
+add_jcc(TranslationState *ts, CondCode cc, Oper block_index)
+{
+	Inst *inst = add_inst(ts, IK_JCC, cc);
+	inst->direction = true;
+	inst->is_first_def = false;
+	inst->is_memory = false;
+	inst->has_imm = true;
+	IIMM(inst) = block_index;
+}
+
+static void
+add_call(TranslationState *ts, Oper function_index, Oper arg_cnt)
+{
+	Inst *inst = add_inst(ts, IK_CALL, 0);
+	inst->direction = true;
+	inst->is_first_def = false;
+	inst->is_memory = false;
+	inst->has_imm = true;
+	IIMM(inst) = function_index;
+	IARG_CNT(inst) = arg_cnt;
+}
+
+static Inst *
+add_nullary(TranslationState *ts, InstKind kind, int subkind)
+{
+	Inst *inst = add_inst(ts, IK_RET, 0);
+	inst->direction = true;
+	inst->is_first_def = false;
+	inst->is_memory = false;
+	inst->has_imm = false;
+	return inst;
+}
+
+static void
+translate_call(TranslationState *ts, Oper res, Oper fun, Oper *args, size_t arg_cnt)
+{
+	assert(arg_cnt < ARRAY_LEN(argument_regs));
 	for (size_t i = 0; i < arg_cnt; i++) {
-		add_copy(ts, arg_regs[i], args[0]);
-		opers[i] = arg_regs[i];
+		add_copy(ts, argument_regs[i], args[0]);
 	}
-	add_inst(ts, OP_CALL, R_RAX, R_RCX, R_RDX, R_RSI, R_RDI,
-		opers[0],
-		opers[1],
-		opers[2],
-		opers[3],
-		fun
-	);
+	add_call(ts, fun, arg_cnt);
 	add_copy(ts, res, R_RAX);
 }
 
 static void
-add_return(TranslationState *ts, Oper *ret_val)
+translate_return(TranslationState *ts, Oper *ret_val)
 {
 	if (ret_val) {
 		add_copy(ts, R_RAX, *ret_val);
 	}
+	// Restore callee saved registers. See prologue for more details.
 	size_t callee_saved_reg = ts->callee_saved_reg_start;
-	add_copy(ts, R_RBX, callee_saved_reg++);
+	for (size_t i = 0; i < ARRAY_LEN(callee_saved); i++) {
+		add_copy(ts, callee_saved[i], callee_saved_reg++);
+	}
 	add_copy(ts, R_RSP, R_RBP);
 	add_pop(ts, R_RBP);
-	// ret "reads" return value callee saved registers
-	add_inst(ts, OP_RET, R_RAX, R_RBX);
+	// TODO: ret "reads" return value callee saved registers
+	Inst *ret = add_nullary(ts, IK_RET, 0); // TODO: subkind = calling convention?
+	if (ret_val) {
+		// Make return instruction read the returned value.
+		// NOTE: This has to be updated when multiple return registers
+		// are needed.
+		IREG(ret) = R_RAX;
+	}
+
 }
 
 static void
-translate_unop(TranslationState *ts, X86Group3 op, Oper res, Oper *ops)
+translate_unop(TranslationState *ts, X86Group3 op, Oper res, Oper arg)
 {
-	add_copy(ts, res, ops[0]);
+	add_copy(ts, res, op);
 	add_unop(ts, op, res);
 }
 
 static void
-translate_binop(TranslationState *ts, X86Group1 op, Oper res, Oper *ops)
+translate_binop(TranslationState *ts, X86Group1 op, Oper res, Oper arg1, Oper arg2)
 {
-	add_copy(ts, res, ops[0]);
-	add_binop(ts, op, res, ops[1]);
+	add_copy(ts, res, arg1);
+	add_binop(ts, op, res, arg2);
 }
 
 static void
-translate_shift(TranslationState *ts, X86Group2 op, Oper res, Oper *ops)
+translate_shift(TranslationState *ts, X86Group2 op, Oper res, Oper arg1, Oper arg2)
 {
-	add_copy(ts, res, ops[0]);
-	add_copy(ts, R_RCX, ops[1]);
+	add_copy(ts, res, arg1);
+	add_copy(ts, R_RCX, arg2);
 	add_shift(ts, op, res, R_RCX);
 }
 
@@ -2120,19 +2475,25 @@ translate_div(TranslationState *ts, Oper res, Oper *ops, bool modulo)
 	// TODO: cdq = sign extend RAX into RDX
 	add_set_zero(ts, R_RDX);
 	add_copy(ts, R_RAX, ops[0]);
-	add_inst(ts, OP_IDIV, R_RDX, R_RAX, R_RDX, R_RAX, ops[1]);
+
+	Inst *inst = add_inst(ts, IK_MULDIV, G3_IDIV);
+	inst->direction = true;
+	inst->is_first_def = false;
+	inst->is_memory = false;
+	inst->has_imm = false;
+	IREG(inst) = ops[1];
+
 	Oper result = modulo ? R_RDX : R_RAX;
 	add_copy(ts, res, result);
 }
 
 static void
-translate_cmpop(TranslationState *ts, CondCode cc, Oper res, Oper *ops)
+translate_cmpop(TranslationState *ts, CondCode cc, Oper res, Oper arg1, Oper arg2)
 {
+	// Zero out register first, so we don't change the flags before setcc.
 	add_set_zero(ts, res);
-	// Cmp is like a binary operation, except it doesn't change any
-	// register, so we set the destination to `R_NONE`.
-	add_inst(ts, OP_BIN_RR, R_NONE, ops[0], ops[1], G1_CMP);
-	add_inst(ts, OP_SETCC, res, cc);
+	add_cmp(ts, G1_CMP, arg1, arg2);
+	add_setcc(ts, cc, res);
 }
 
 typedef struct {
@@ -2161,19 +2522,19 @@ translate_operand(void *user_data, size_t i, Value *operand)
 	case VK_GLOBAL: {
 		Global *global = (void*) operand;
 		res = tos->ts->index++;
-		add_inst(tos->ts, OP_LEA_RG, res, global->base.index);
+		add_lea(tos->ts, res, R_NONE, global->base.index);
 		break;
 	}
 	case VK_CONSTANT: {
 		Constant *k = (void*) operand;
 		res = tos->ts->index++;
-		add_inst(tos->ts, OP_MOVIMM, res, k->k);
+		add_mov_imm(tos->ts, res, k->k);
 		break;
 	}
 	case VK_ALLOCA: {
 		Alloca *alloca = (Alloca *) operand;
 		res = tos->ts->index++;
-		add_inst(tos->ts, OP_LEA_RMC, res, R_RBP, 8 + alloca->size);
+		add_lea(tos->ts, res, R_RBP, - 8 - alloca->size);
 		break;
 	}
 	default:
@@ -2225,13 +2586,13 @@ translate_value(TranslationState *ts, Value *v)
 		break;
 
 	case VK_ADD:
-		translate_binop(ts, G1_ADD, res, ops);
+		translate_binop(ts, G1_ADD, res, ops[0], ops[1]);
 		break;
 	case VK_SUB:
-		translate_binop(ts, G1_SUB, res, ops);
+		translate_binop(ts, G1_SUB, res, ops[0], ops[1]);
 		break;
 	case VK_MUL:
-		translate_binop(ts, G1_IMUL, res, ops);
+		translate_binop(ts, G1_IMUL, res, ops[0], ops[1]);
 		break;
 	case VK_DIV:
 		translate_div(ts, res, ops, false);
@@ -2240,84 +2601,84 @@ translate_value(TranslationState *ts, Value *v)
 		translate_div(ts, res, ops, true);
 		break;
 	case VK_AND:
-		translate_binop(ts, G1_AND, res, ops);
+		translate_binop(ts, G1_AND, res, ops[0], ops[1]);
 		break;
 	case VK_OR:
-		translate_binop(ts, G1_OR, res, ops);
+		translate_binop(ts, G1_OR, res, ops[0], ops[1]);
 		break;
 	case VK_SHL:
-		translate_shift(ts, G2_SAL, res, ops);
+		translate_shift(ts, G2_SAL, res, ops[0], ops[1]);
 		break;
 	case VK_SHR:
-		translate_shift(ts, G2_SAR, res, ops);
+		translate_shift(ts, G2_SAR, res, ops[0], ops[1]);
 		break;
 	case VK_NEG:
-		translate_unop(ts, G3_NEG, res, ops);
+		translate_unop(ts, G3_NEG, res, ops[0]);
 		break;
 	case VK_NOT:
-		translate_unop(ts, G3_NOT, res, ops);
+		translate_unop(ts, G3_NOT, res, ops[0]);
 		break;
 	case VK_EQ:
-		translate_cmpop(ts, CC_Z, res, ops);
+		translate_cmpop(ts, CC_Z, res, ops[0], ops[1]);
 		break;
 	case VK_NEQ:
-		translate_cmpop(ts, CC_NZ, res, ops);
+		translate_cmpop(ts, CC_NZ, res, ops[0], ops[1]);
 		break;
 	case VK_LT:
-		translate_cmpop(ts, CC_L, res, ops);
+		translate_cmpop(ts, CC_L, res, ops[0], ops[1]);
 		break;
 	case VK_LEQ:
-		translate_cmpop(ts, CC_LE, res, ops);
+		translate_cmpop(ts, CC_LE, res, ops[0], ops[1]);
 		break;
 	case VK_GT:
-		translate_cmpop(ts, CC_G, res, ops);
+		translate_cmpop(ts, CC_G, res, ops[0], ops[1]);
 		break;
 	case VK_GEQ:
-		translate_cmpop(ts, CC_GE, res, ops);
+		translate_cmpop(ts, CC_GE, res, ops[0], ops[1]);
 		break;
 
 	case VK_LOAD:
-		add_inst(ts, OP_MOV_RM, res, ops[0]);
+		add_load(ts, res, ops[0]);
 		break;
 	case VK_STORE:
-		add_inst(ts, OP_MOV_MR, ops[0], ops[1]);
+		add_store(ts, ops[0], ops[1]);
 		break;
 	case VK_GET_INDEX_PTR: {
 		size_t size = type_size(pointer_child(v->type));
 		Oper size_oper = ts->index++;
-		add_inst(ts, OP_IMUL_IMM, size_oper, ops[1], size);
-		Oper add_ops[] = { ops[0], size_oper };
-		translate_binop(ts, G1_ADD, res, add_ops);
+		add_imul3(ts, size_oper, ops[1], size);
+		translate_binop(ts, G1_ADD, res, ops[0], size_oper);
 		break;
 	}
 	case VK_GET_MEMBER_PTR: {
 		Field *field = get_member(v);
 		// A hack. Since ops[1] (the field index) already got
 		// translated, let's change it to the field's offset.
-		container_of(ts->prev_pos, Inst, next)->ops[1] = field->offset;
-		translate_binop(ts, G1_ADD, res, ops);
+		IIMM(container_of(ts->prev_pos, Inst, next)) = field->offset;
+		translate_binop(ts, G1_ADD, res, ops[0], ops[1]);
 		break;
 	}
 	case VK_CALL: {
 		Operation *call = (void *) v;
+		// TODO: indirect calls
 		Function *function = (Function *) call->operands[0];
 		FunctionType *fun_type = (FunctionType *) function->base.type;
-		add_call(ts, res, ops[0], &ops[1], fun_type->param_cnt);
+		translate_call(ts, res, ops[0], &ops[1], fun_type->param_cnt);
 		break;
 	}
 	case VK_JUMP:
-		add_inst(ts, OP_JMP, ops[0]);
+		add_jmp(ts, ops[0]);
 		break;
 	case VK_BRANCH:
-		add_inst(ts, OP_TEST, ops[0], ops[0]);
-		add_inst(ts, OP_JCC, CC_Z, ops[2]);
-		add_inst(ts, OP_JMP, ops[1]);
+		add_cmp(ts, G1_TEST, ops[0], ops[0]);
+		add_jcc(ts, CC_Z, ops[2]);
+		add_jmp(ts, ops[1]);
 		break;
 	case VK_RET:
-		add_return(ts, &ops[0]);
+		translate_return(ts, &ops[0]);
 		break;
 	case VK_RETVOID:
-		add_return(ts, NULL);
+		translate_return(ts, NULL);
 		break;
 	default: UNREACHABLE();
 	}
@@ -2758,38 +3119,107 @@ get_live_out(RegAllocState *ras, Block *block, WorkList *live_set)
 	}
 }
 
+
+void
+for_each_def(Inst *inst, void (*fun)(void *user_data, Oper *def), void *user_data)
+{
+	if (inst->is_first_def) {
+		fun(user_data, &inst->ops[0]);
+	}
+	switch (inst->kind) {
+	case IK_MULDIV:
+		fun(user_data, &(Oper) { R_RAX });
+		fun(user_data, &(Oper) { R_RDX });
+		break;
+	case IK_CALL:
+		for (size_t i = 0; i < ARRAY_LEN(caller_saved); i++) {
+			fun(user_data, &caller_saved[i]);
+		}
+		break;
+	}
+}
+
+void
+for_each_use(Inst *inst, void (*fun)(void *user_data, Oper *use), void *user_data)
+{
+	if (!inst->direction || (inst->kind != IK_MOV && inst->kind != IK_POP && inst->kind != IK_IMUL3 && inst->kind != IK_CMOVCC)) {
+		fun(user_data, &IREG(inst));
+	}
+	fun(user_data, &IBASE(inst));
+	fun(user_data, &IINDEX(inst));
+	switch (inst->kind) {
+	case IK_MULDIV:
+		fun(user_data, &(Oper) { R_RAX });
+		fun(user_data, &(Oper) { R_RDX });
+		break;
+	case IK_CALL:
+		for (size_t i = 0; i < IARG_CNT(inst); i++) {
+			fun(user_data, &argument_regs[i]);
+		}
+		break;
+	case IK_RET:
+		for (size_t i = 0; i < ARRAY_LEN(callee_saved); i++) {
+			fun(user_data, &callee_saved[i]);
+		}
+		break;
+	}
+}
+
+void
+remove_from_live(void *user_data, Oper *oper)
+{
+	WorkList *live_set = user_data;
+	fprintf(stderr, "Removing from live ");
+	print_reg(stderr, *oper);
+	fprintf(stderr, "\n");
+	wl_remove(live_set, *oper);
+}
+
+void
+add_to_live(void *user_data, Oper *oper)
+{
+	WorkList *live_set = user_data;
+	fprintf(stderr, "Adding to live ");
+	print_reg(stderr, *oper);
+	fprintf(stderr, "\n");
+	wl_add(live_set, *oper);
+}
+
 void
 live_step(WorkList *live_set, Inst *inst)
 {
-	InstDesc *desc = &inst_desc[inst->op];
-
 	// Remove definitions from live.
-	for (size_t i = 0; i < desc->dest_cnt; i++) {
-		wl_remove(live_set, inst->ops[i]);
-	}
+	for_each_def(inst, remove_from_live, live_set);
 	// Add uses to live.
-	for (size_t i = desc->dest_cnt; i < desc->src_cnt; i++) {
-		wl_add(live_set, inst->ops[i]);
-	}
+	for_each_use(inst, add_to_live, live_set);
+}
+
+typedef struct {
+	InterferenceGraph *ig;
+	Oper live;
+} Tmp;
+
+void
+add_interference_with(void *user_data, Oper *oper)
+{
+	Tmp *tmp = user_data;
+	ig_add(tmp->ig, *oper, tmp->live);
 }
 
 void
 interference_step(RegAllocState *ras, WorkList *live_set, Inst *inst)
 {
 	InterferenceGraph *ig = &ras->ig;
-	InstDesc *desc = &inst_desc[inst->op];
 
 	// Special handling of moves:
 	// 1) We don't want to introduce interference between move source and
 	//    destination.
 	// 2) We want to note all moves and for all nodes the moves they are
 	//    contained in, because we want to try to coalesce the moves later.
-	if (inst->op == OP_MOV) {
+	if (inst->kind == IK_MOV && inst->is_first_def && !inst->is_memory && !inst->has_imm) {
 		// Remove uses from live to prevent interference between move
 		// destination and source.
-		for (size_t i = desc->dest_cnt; i < desc->src_cnt; i++) {
-			wl_remove(live_set, inst->ops[i]);
-		}
+		for_each_use(inst, remove_from_live, live_set);
 
 		// Accumulate moves.
 		size_t index = garena_cnt(&ras->gmoves, Inst *);
@@ -2804,17 +3234,95 @@ interference_step(RegAllocState *ras, WorkList *live_set, Inst *inst)
         // make all the definitions interfere with each other. Since the
 	// liveness step (run after us) removes all definitions, this is OK and
 	// local to the current instruction.
-        for (size_t i = 0; i < desc->dest_cnt; i++) {
-		wl_add(live_set, inst->ops[i]);
-	}
+	for_each_def(inst, add_to_live, live_set);
 
 	// Add interferences of all definitions with all live.
+	Tmp tmp = { .ig = ig };
 	for (size_t j = live_set->head; j < live_set->tail; j++) {
-		size_t live = live_set->dense[j];
-		for (size_t i = 0; i < desc->dest_cnt; i++) {
-			ig_add(ig, inst->ops[i], live);
-		}
+		tmp.live = live_set->dense[j];
+		for_each_def(inst, add_interference_with, &tmp);
 	}
+}
+
+typedef struct {
+	RegAllocState *ras;
+	Inst *inst;
+	Oper spill_start;
+} SpillState;
+
+void
+insert_loads_of_spilled(void *user_data, Oper *src)
+{
+	SpillState *ss = user_data;
+	RegAllocState *ras = ss->ras;
+	if (*src >= ss->spill_start || !ras->to_spill[*src]) {
+		return;
+	}
+	Inst *inst = ss->inst;
+
+	fprintf(stderr, "load ");
+	print_reg(stderr, *src);
+	fprintf(stderr, "\n");
+	Oper temp = ras->mfunction->vreg_cnt++;
+	Inst *load = create_inst(ras->arena, IK_MOV, MOV);
+	//Inst *load = make_inst(ras->arena, OP_MOV_RMC, temp, R_RBP, 8 + ras->to_spill[src]);
+	load->prev = inst->prev;
+	load->next = inst;
+	load->direction = true;
+	load->is_first_def = true;
+	load->is_memory = true;
+	load->has_imm = false;
+	IREG(load) = temp;
+	IBASE(load) = R_RBP;
+	IDISP(load) = - 8 - ras->to_spill[*src];
+
+	inst->prev->next = load;
+	inst->prev = load;
+
+	*src = temp;
+
+	// No longer needed
+	//ras->to_spill[temp] = ras->to_spill[src];
+	//for (size_t j = 0; j < desc->dest_cnt; j++) {
+	//	if (inst->ops[j] == src) {
+	//		inst->ops[j] = temp;
+	//	}
+	//}
+}
+
+void
+insert_stores_of_spilled(void *user_data, Oper *dest)
+{
+	SpillState *ss = user_data;
+	RegAllocState *ras = ss->ras;
+	if (*dest >= ss->spill_start || !ras->to_spill[*dest]) {
+		return;
+	}
+	Inst *inst = ss->inst;
+
+	fprintf(stderr, "store ");
+	print_reg(stderr, *dest);
+	fprintf(stderr, "\n");
+	// NOTE: Three address code would need something different
+	Oper temp = *dest;
+
+	//Inst *store = make_inst(ras->arena, OP_MOV_MCR, R_RBP, temp, 8 + ras->to_spill[dest]);
+	Inst *store = create_inst(ras->arena, IK_MOV, MOV);
+	store->prev = inst;
+	store->next = inst->next;
+	store->direction = false;
+	store->is_first_def = false;
+	store->is_memory = true;
+	store->has_imm = false;
+	IREG(store) = temp;
+	IBASE(store) = R_RBP;
+	IDISP(store) = - 8 - ras->to_spill[*dest];
+
+	inst->next->prev = store;
+	inst->next = store;
+	inst = inst->next;
+
+	*dest = temp;
 }
 
 void
@@ -2823,62 +3331,23 @@ spill(RegAllocState *ras)
 	// TODO: Infinite spill costs for uses immediately following
 	// definitions.
 	MFunction *mfunction = ras->mfunction;
-	Oper spill_start = mfunction->vreg_cnt;
+	SpillState ss = {
+		.ras = ras,
+		.spill_start = mfunction->vreg_cnt,
+	};
 	print_mfunction(stderr, mfunction);
 	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
 		MBlock *mblock = &mfunction->mblocks[b];
-		for (Inst *inst = mblock->first; inst; inst = inst->next) {
+		for (ss.inst = mblock->first; ss.inst; ss.inst = ss.inst->next) {
 			fprintf(stderr, "\n");
-			print_inst(stderr, inst);
+			print_inst(stderr, ss.inst);
 			fprintf(stderr, "\n");
 			//print_inst_d(stderr, inst);
 			//fprintf(stderr, "\n");
-			InstDesc *desc = &inst_desc[inst->op];
 			// Add loads for all spilled uses.
-			for (size_t i = desc->dest_cnt; i < desc->src_cnt; i++) {
-				Oper src = inst->ops[i];
-				if (!ras->to_spill[src]) {
-					continue;
-				}
-				fprintf(stderr, "load ");
-				print_reg(stderr, src);
-				fprintf(stderr, "\n");
-				Oper temp = mfunction->vreg_cnt++;
-				Inst *load = make_inst(ras->arena, OP_MOV_RMC, temp, R_RBP, 8 + ras->to_spill[src]);
-				load->prev = inst->prev;
-				load->next = inst;
-				inst->prev->next = load;
-				inst->prev = load;
-				inst->ops[i] = temp;
-
-				ras->to_spill[temp] = ras->to_spill[src];
-				for (size_t j = 0; j < desc->dest_cnt; j++) {
-					if (inst->ops[j] == src) {
-						inst->ops[j] = temp;
-					}
-				}
-			}
+			for_each_use(ss.inst, insert_loads_of_spilled, &ss);
 			// Add stores for all spilled defs.
-			for (size_t i = 0; i < desc->dest_cnt; i++) {
-				Oper dest = inst->ops[i];
-				if (!ras->to_spill[dest]) {
-					continue;
-				}
-				fprintf(stderr, "store ");
-				print_reg(stderr, dest);
-				fprintf(stderr, "\n");
-				Oper temp = dest;
-				if (temp < spill_start) {
-					mfunction->vreg_cnt++;
-				}
-				Inst *store = make_inst(ras->arena, OP_MOV_MCR, R_RBP, temp, 8 + ras->to_spill[dest]);
-				store->prev = inst;
-				store->next = inst->next;
-				inst->next->prev = store;
-				inst->next = store;
-				inst->ops[i] = temp;
-				inst = inst->next;
-			}
+			for_each_def(ss.inst, insert_stores_of_spilled, &ss);
 		}
 	}
 	print_mfunction(stderr, mfunction);
@@ -2890,9 +3359,8 @@ apply_reg_assignment(RegAllocState *ras)
 	for (size_t b = 0; b < ras->mfunction->mblock_cnt; b++) {
 		MBlock *mblock = &ras->mfunction->mblocks[b];
 		for (Inst *inst = mblock->first; inst; inst = inst->next) {
-			InstDesc *desc = &inst_desc[inst->op];
-			size_t i = 0;
-			for (; i < desc->src_cnt; i++) {
+			// TODO: different number of register slots per target
+			for (size_t i = 0; i < 3; i++) {
 				assert(inst->ops[i] >= 0);
 				inst->ops[i] = ras->reg_assignment[ras->alias[inst->ops[i]]];
 			}
@@ -3047,27 +3515,20 @@ parse(Arena *arena, GArena *scratch, Str source, void (*error_callback)(void *us
 }
 
 void
+add_to_use_or_def_count(void *user_data, Oper *oper)
+{
+	u8 *counts = user_data;
+	counts[*oper]++;
+}
+
+void
 calculate_spill_cost(MFunction *mfunction, u8 *def_counts, u8 *use_counts)
 {
 	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
 		MBlock *mblock = &mfunction->mblocks[b];
 		for (Inst *inst = mblock->first; inst; inst = inst->next) {
-			//print_inst(stderr, inst);
-			//fprintf(stderr, "\n");
-			InstDesc *desc = &inst_desc[inst->op];
-			size_t j = 0;
-			for (; j < desc->dest_cnt; j++) {
-				def_counts[inst->ops[j]]++;
-				//fprintf(stderr, "adding def of ");
-				//print_reg(stderr, inst->ops[j]);
-				//fprintf(stderr, "\n");
-			}
-			for (; j < desc->src_cnt; j++) {
-				use_counts[inst->ops[j]]++;
-				//fprintf(stderr, "adding use of ");
-				//print_reg(stderr, inst->ops[j]);
-				//fprintf(stderr, "\n");
-			}
+			for_each_def(inst, add_to_use_or_def_count, def_counts);
+			for_each_use(inst, add_to_use_or_def_count, use_counts);
 		}
 	}
 }
@@ -3105,9 +3566,26 @@ translate_function(Arena *arena, Function *function, size_t start_index)
 			// spill we don't know how much stack space to reserve
 			// yet, we will replace the dummy '0' with proper stack
 			// space requirement after register allocation.
-			ts->make_stack_space = add_inst(ts, OP_SUB_IMM, R_RSP, R_RSP, 0);
-			// rbx, r12, r13, r14, r15
-			add_copy(ts, ts->index++, R_RBX);
+			ts->make_stack_space = add_inst(ts, IK_BINALU, G1_SUB);
+			Inst *inst = ts->make_stack_space;
+			inst->direction = true;
+			inst->is_first_def = true;
+			inst->is_memory = false;
+			inst->has_imm = true;
+			IREG(inst) = R_RSP;
+			IIMM(inst) = 0;
+
+			// Save callee saved registers to temporaries. That way
+			// the registers don't automatically intefere with
+			// everything (since they will be "read" by the
+			// return instruction). If it makes sense to use the
+			// callee saved registers, they will be used, if
+			// not, due to coalescing these temporaries will
+			// likely be coalesced with the registers and
+			// the copies eliminated.
+			for (size_t i = 0; i < ARRAY_LEN(callee_saved); i++) {
+				add_copy(ts, ts->index++, callee_saved[i]);
+			}
 		}
 		for (Value *v = block->head; v; v = v->next) {
 			translate_value(ts, v);
@@ -3654,7 +4132,7 @@ reg_alloc_function(RegAllocState *ras, MFunction *mfunction)
 	}
 
 	// Fixup stack space amount reserved at the start of the function
-	mfunction->make_stack_space->ops[2] = mfunction->stack_space;
+	IIMM(mfunction->make_stack_space) = mfunction->stack_space;
 	apply_reg_assignment(ras);
 }
 
@@ -3666,6 +4144,7 @@ peephole(MFunction *mfunction, Arena *arena)
 		for (Inst *inst = mblock->first; inst; inst = inst->next) {
 			print_inst(stderr, inst);
 			fprintf(stderr, "\n");
+			/*
 			if (inst->op == OP_MOV && inst->ops[0] == inst->ops[1]) {
 				inst->prev->next = inst->next;
 				inst->next->prev = inst->prev;
@@ -3719,6 +4198,7 @@ peephole(MFunction *mfunction, Arena *arena)
 				new->prev = prev->prev;
 				new->next = inst->next;
 			}
+			*/
       		}
 	}
 }

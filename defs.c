@@ -127,6 +127,7 @@ struct Function {
 	MFunction *mfunc;
 };
 
+/*
 #define INST_KINDS(_) \
 	_(ADD) \
 	_(OR) \
@@ -160,6 +161,7 @@ char *inst_kind_repr[] = {
 INST_KINDS(REPR)
 #undef REPR
 };
+*/
 
 typedef i32 Oper;
 
@@ -182,6 +184,7 @@ typedef enum {
 	G1_CMP,
 
 	G1_IMUL,
+	G1_TEST,
 } X86Group1;
 
 typedef enum {
@@ -250,12 +253,416 @@ INSTRUCTIONS(DESC)
 
 typedef struct Inst Inst;
 
-struct Inst {
+struct InstOrig {
 	OpCode op;
 	Inst *prev;
 	Inst *next;
 	Oper ops[];
 };
+
+struct ArithInst {
+	Inst *next;
+	Inst *prev;
+	int kind;
+	int subkind;
+	bool first_is_destination;
+	bool is_memory;
+	bool is_immediate;
+	Oper reg;
+	Oper base; // or second reg
+	Oper index;
+	Oper scale;
+	Oper disp;
+	Oper imm;
+};
+
+//u32 bitmap of defs / saves ?
+//u32 bitmap of def / save indices ?
+//extra handling of calls?
+
+// Reuse reg for imm? What about 3 operand imul?
+
+// sets_flags
+// reads_flags
+// reads_regs [RAX, RDX, ...]
+// writes_regs [...]
+
+// OP mem64, reg64
+// kind = BINARITH
+// subkind = ADD / OR / SUB / ...
+// first_is_destination = false
+// is_memory = true
+// is_immediate = false
+// reg = reg64
+// scale/base/index/disp = mem64
+// imm = 0
+
+// OP reg64, mem64
+// kind = BINARITH
+// subkind = ADD / OR / SUB / ...
+// first_is_destination = true
+// is_memory = true
+// is_immediate = false
+// reg = reg64
+// scale/base/index/disp = mem64
+// imm = 0
+
+// OP reg64A, reg64B
+// kind = BINARITH
+// subkind = ADD / OR / SUB / ...
+// first_is_destination = true
+// is_memory = false
+// is_immediate = false
+// reg = reg64A
+// base = reg64B
+// imm = 0
+
+// OP reg64, imm
+// kind = BINARITH
+// subkind = ADD / OR / SUB / ...
+// first_is_destination = true
+// is_memory = false
+// is_immediate = true
+// reg = reg64
+// imm = imm
+
+// OP mem64, imm
+// kind = BINARITH
+// subkind = ADD / OR / SUB / ...
+// first_is_destination = false
+// is_memory = true
+// is_immediate = true
+// reg = 0
+// scale/base/index/disp = mem64
+// imm = imm
+
+// CMP mem64, reg64
+// kind = BINARITH
+// subkind = CMP
+// first_is_destination = false
+// is_memory = true
+// is_immediate = false
+// reg = reg64
+// scale/base/index/disp = mem64
+// imm = 0
+
+// CMP reg64, mem64
+// kind = BINARITH
+// subkind = CMP
+// first_is_destination = false
+// is_memory = true
+// is_immediate = false
+// reg = reg64
+// scale/base/index/disp = mem64
+// imm = 0
+
+// CMP reg64A, reg64B
+// kind = BINARITH
+// subkind = CMP
+// first_is_destination = false
+// is_memory = false
+// is_immediate = false
+// reg = reg64A
+// base = reg64B
+// imm = 0
+
+// CMP reg64, imm
+// kind = BINARITH
+// subkind = CMP
+// first_is_destination = false
+// is_memory = false
+// is_immediate = true
+// reg = reg64
+// imm = imm
+
+// CMP mem64, imm
+// kind = BINARITH
+// subkind = CMP
+// first_is_destination = false
+// is_memory = true
+// is_immediate = true
+// reg = 0
+// scale/base/index/disp = mem64
+// imm = imm
+
+// TEST mem64, reg64
+// kind = BINARITH
+// subkind = TEST
+// first_is_destination = false
+// is_memory = true
+// is_immediate = false
+// reg = reg64
+// scale/base/index/disp = mem64
+// imm = 0
+
+// TEST reg64A, reg64B
+// kind = BINARITH
+// subkind = TEST
+// first_is_destination = false
+// is_memory = false
+// is_immediate = false
+// reg = reg64A
+// base = reg64B
+// imm = 0
+
+// TEST reg64, imm
+// kind = BINARITH
+// subkind = TEST
+// first_is_destination = false
+// is_memory = false
+// is_immediate = true
+// reg = reg64
+// imm = imm
+
+// TEST mem64, imm
+// kind = BINARITH
+// subkind = TEST
+// first_is_destination = false
+// is_memory = true
+// is_immediate = true
+// reg = 0
+// scale/base/index/disp = mem64
+// imm = imm
+
+// OP mem64
+// kind = UNARITH
+// subkind = NOT / NEG
+// first_is_destination = false
+// is_memory = true
+// is_immediate = false
+// reg = 0
+// scale/base/index/disp = mem64
+// imm = 0
+
+// OP reg64
+// kind = UNARITH
+// subkind = NOT / NEG
+// first_is_destination = true
+// is_memory = false
+// is_immediate = false
+// reg = reg64
+// scale/base/index/disp = 0
+// imm = 0
+
+// SHIFT mem64, imm8
+// kind = SHL / SHR
+// subkind = SHL / SHR / ...
+// first_is_destination = false
+// is_memory = true
+// is_immediate = true
+// reg = 0
+// scale/base/index/disp = mem64
+// imm = imm8
+
+// SHIFT reg64, imm8
+// kind = SHL / SHR
+// subkind = SHL / SHR / ...
+// first_is_destination = true
+// is_memory = false
+// is_immediate = true
+// reg = reg64
+// scale/base/index/disp = 0
+// imm = imm8
+
+// SHIFT mem64, cl
+// kind = SHL / SHR
+// subkind = SHL / SHR / ...
+// first_is_destination = false
+// is_memory = true
+// is_immediate = false
+// reg = cl
+// scale/base/index/disp = mem64
+// imm = 0
+
+// SHIFT reg64, cl
+// kind = SHL / SHR
+// subkind = SHL / SHR / ...
+// first_is_destination = true
+// is_memory = false
+// is_immediate = true
+// reg = reg64
+// scale/base/index/disp = cl
+// imm = 0
+
+// JUMP/CALL label
+// kind = ControlFlow
+// subkind = JUMP / CALL
+// first_is_destination = false
+// is_memory = false
+// is_immediate = true
+// reg = 0
+// scale/base/index/disp = 0
+// imm = label
+
+// JUMP/CALL reg64
+// kind = ControlFlow
+// subkind = JUMP / CALL
+// first_is_destination = false
+// is_memory = false
+// is_immediate = false
+// reg = reg64
+// scale/base/index/disp = 0
+// imm = 0
+
+// JUMP/CALL mem64
+// kind = ControlFlow
+// subkind = JUMP / CALL
+// first_is_destination = false
+// is_memory = true
+// is_immediate = false
+// reg = 0
+// scale/base/index/disp = mem64
+// imm = 0
+
+// JCC label
+// kind = ControlFlow
+// subkind = O / E / Z / NZE
+// first_is_destination = false
+// is_memory = false
+// is_immediate = true
+// reg = 0
+// scale/base/index/disp = 0
+// imm = label
+
+// RET/LEAVE
+// kind = ARGUMENTLESS
+// subkind = RET / LEAVE
+// first_is_destination = false
+// is_memory = false
+// is_immediate = false
+// reg = 0
+// scale/base/index/disp = 0
+// imm = 0
+
+// RET/LEAVE
+// kind = ARGUMENTLESS
+// subkind = RET / LEAVE
+// first_is_destination = false
+// is_memory = false
+// is_immediate = false
+// reg = 0
+// scale/base/index/disp = 0
+// imm = 0
+
+// OP mem8
+// kind = SETCC
+// subkind = O / E / Z / NE
+// first_is_destination = false
+// is_memory = true
+// is_immediate = false
+// reg = 0
+// scale/base/index/disp = mem64
+// imm = 0
+
+// OP reg8
+// kind = SETCC
+// subkind = O / E / Z / NE
+// first_is_destination = true
+// is_memory = false
+// is_immediate = false
+// reg = reg64
+// scale/base/index/disp = 0
+// imm = 0
+
+// IMUL reg64A, reg64B, imm
+// kind = IMUL3
+// subkind = IMUL3
+// first_is_destination = true
+// is_memory = false
+// is_immediate = true
+// reg = reg64A
+// scale/base/index/disp = reg64B
+// imm = imm
+
+// IMUL reg64, mem64, imm
+// kind = IMUL3
+// subkind = IMUL3
+// first_is_destination = true
+// is_memory = true
+// is_immediate = true
+// reg = reg64
+// scale/base/index/disp = mem64
+// imm = imm
+
+// PUSH imm
+// kind = STACK
+// subkind = PUSH
+// first_is_destination = false
+// is_memory = false
+// is_immediate = true
+// reg = 0
+// scale/base/index/disp = 0
+// imm = imm
+
+struct Inst {
+	Inst *next;
+	Inst *prev;
+	u8 kind;
+	u8 subkind;
+	bool direction; // true => reg, reg/mem | false => reg/mem, reg
+	bool is_first_def; // is reg defined?
+	bool is_memory; // is the second reg/mem arg reg or mem?
+	bool has_imm; // does the instruction have an immediate operand?
+	Oper ops[];
+	//Oper reg;
+	//union {
+	//     Oper base; // or second reg
+	//     Oper reg2; // or second reg
+	//};
+	//Oper index;
+	//Oper scale;
+	//Oper disp;
+	//Oper imm;
+};
+
+#define IREG(inst) (inst->ops[0])
+#define IREG1(inst) (inst->ops[0])
+#define IBASE(inst) (inst->ops[1])
+#define IREG2(inst) (inst->ops[1])
+#define IINDEX(inst) (inst->ops[2])
+#define ISCALE(inst) (inst->ops[3])
+#define IDISP(inst) (inst->ops[4])
+#define IIMM(inst) (inst->ops[5])
+#define IARG_CNT(inst) (inst->ops[4])
+
+typedef enum {
+	IK_MOV, // MOV, LEA, ZX8, SX16, ... // 0-1 : 1-3
+	IK_BINALU, // ADD, SUB, ... // 0-1 : 1-3
+	IK_UNALU, // NEG, NOT // 0-1 : 1-3
+	IK_IMUL3,
+	IK_SHIFT, // SHR, ROL, ... // 0-1 : 1-3
+	IK_JUMP, // JMP
+	IK_CALL, // CALL
+	IK_JCC, // JZ, JG, ...
+	IK_SETCC, // SETZ, SETG, ... // 1 : 0
+	IK_CMOVCC, // CMOVZ, CMOVG, ... // 1 : 1-3
+	IK_MULDIV, // MUL, DIV, IMUL, IDIV // 0 : 1-3
+	IK_RET,
+	IK_NOP,
+	IK_LEAVE,
+	IK_PUSH, // 0 : 1-3
+	IK_POP, // 0-1 : 1-3
+	IK_INCDEC, // INC, DEC
+	IK__MAX,
+} InstKind;
+
+enum {
+	MOV,
+	LEA,
+};
+
+typedef struct {
+	char *fmt;
+	u8 *extra_defs;
+	u8 *extra_uses;
+	u8 *maybe_uses;
+} InsDesc;
+
+
+// "%s%s" str[kind], str[subkind]
+
+// Mapping from mnemonic to some kind of flag or whatever, so we can only have
+// kind, instead of kind + subkind?
 
 typedef struct {
 	Block *block;
