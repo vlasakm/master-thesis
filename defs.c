@@ -165,14 +165,6 @@ INST_KINDS(REPR)
 
 typedef i32 Oper;
 
-typedef struct {
-	const char *format;
-	size_t dest_cnt;
-	size_t src_cnt;
-	size_t imm_cnt;
-	size_t label_cnt;
-} InstDesc;
-
 typedef enum {
 	G1_ADD,
 	G1_OR,
@@ -239,42 +231,70 @@ typedef enum {
 	_(POP, "pop D0", 1, 0, 0, 0) \
 	_(SUB_IMM, "sub D0, I0", 1, 1, 1, 0) \
 
-typedef enum {
-#define ENUM(kind, ...) OP_##kind,
-INSTRUCTIONS(ENUM)
-#undef ENUM
-} OpCode;
-
-InstDesc inst_desc[] = {
-#define DESC(kind, fmt, dest, src, imm, lbl) { .format = fmt, .dest_cnt = dest, .src_cnt = dest + src, .imm_cnt = dest + src + imm, .label_cnt = dest + src + imm + lbl, },
-INSTRUCTIONS(DESC)
-#undef DESC
-};
-
 typedef struct Inst Inst;
-
-struct InstOrig {
-	OpCode op;
-	Inst *prev;
+struct Inst {
 	Inst *next;
+	Inst *prev;
+	u8 kind;
+	u8 subkind;
+	bool direction; // true => reg, reg/mem | false => reg/mem, reg
+	bool is_first_def; // is reg defined?
+	bool is_memory; // is the second reg/mem arg reg or mem?
+	bool has_imm; // does the instruction have an immediate operand?
 	Oper ops[];
+	//Oper reg;
+	//union {
+	//     Oper base; // or second reg
+	//     Oper reg2; // or second reg
+	//};
+	//Oper index;
+	//Oper scale;
+	//Oper disp;
+	//Oper imm;
 };
 
-struct ArithInst {
-	Inst *next;
-	Inst *prev;
-	int kind;
-	int subkind;
-	bool first_is_destination;
-	bool is_memory;
-	bool is_immediate;
-	Oper reg;
-	Oper base; // or second reg
-	Oper index;
-	Oper scale;
-	Oper disp;
-	Oper imm;
+#define IREG(inst) (inst->ops[0])
+#define IREG1(inst) (inst->ops[0])
+#define IBASE(inst) (inst->ops[1])
+#define IREG2(inst) (inst->ops[1])
+#define IINDEX(inst) (inst->ops[2])
+#define ISCALE(inst) (inst->ops[3])
+#define IDISP(inst) (inst->ops[4])
+#define IIMM(inst) (inst->ops[5])
+#define IARG_CNT(inst) (inst->ops[4])
+
+typedef enum {
+	IK_MOV, // MOV, LEA, ZX8, SX16, ... // 0-1 : 1-3
+	IK_BINALU, // ADD, SUB, ... // 0-1 : 1-3
+	IK_UNALU, // NEG, NOT // 0-1 : 1-3
+	IK_IMUL3,
+	IK_SHIFT, // SHR, ROL, ... // 0-1 : 1-3
+	IK_JUMP, // JMP
+	IK_CALL, // CALL
+	IK_JCC, // JZ, JG, ...
+	IK_SETCC, // SETZ, SETG, ... // 1 : 0
+	IK_CMOVCC, // CMOVZ, CMOVG, ... // 1 : 1-3
+	IK_MULDIV, // MUL, DIV, IMUL, IDIV // 0 : 1-3
+	IK_RET,
+	IK_NOP,
+	IK_LEAVE,
+	IK_PUSH, // 0 : 1-3
+	IK_POP, // 0-1 : 1-3
+	IK_INCDEC, // INC, DEC
+	IK__MAX,
+} InstKind;
+
+enum {
+	MOV,
+	LEA,
 };
+
+typedef struct {
+	char *fmt;
+	u8 *extra_defs;
+	u8 *extra_uses;
+	u8 *maybe_uses;
+} InsDesc;
 
 //u32 bitmap of defs / saves ?
 //u32 bitmap of def / save indices ?
@@ -593,71 +613,6 @@ struct ArithInst {
 // reg = 0
 // scale/base/index/disp = 0
 // imm = imm
-
-struct Inst {
-	Inst *next;
-	Inst *prev;
-	u8 kind;
-	u8 subkind;
-	bool direction; // true => reg, reg/mem | false => reg/mem, reg
-	bool is_first_def; // is reg defined?
-	bool is_memory; // is the second reg/mem arg reg or mem?
-	bool has_imm; // does the instruction have an immediate operand?
-	Oper ops[];
-	//Oper reg;
-	//union {
-	//     Oper base; // or second reg
-	//     Oper reg2; // or second reg
-	//};
-	//Oper index;
-	//Oper scale;
-	//Oper disp;
-	//Oper imm;
-};
-
-#define IREG(inst) (inst->ops[0])
-#define IREG1(inst) (inst->ops[0])
-#define IBASE(inst) (inst->ops[1])
-#define IREG2(inst) (inst->ops[1])
-#define IINDEX(inst) (inst->ops[2])
-#define ISCALE(inst) (inst->ops[3])
-#define IDISP(inst) (inst->ops[4])
-#define IIMM(inst) (inst->ops[5])
-#define IARG_CNT(inst) (inst->ops[4])
-
-typedef enum {
-	IK_MOV, // MOV, LEA, ZX8, SX16, ... // 0-1 : 1-3
-	IK_BINALU, // ADD, SUB, ... // 0-1 : 1-3
-	IK_UNALU, // NEG, NOT // 0-1 : 1-3
-	IK_IMUL3,
-	IK_SHIFT, // SHR, ROL, ... // 0-1 : 1-3
-	IK_JUMP, // JMP
-	IK_CALL, // CALL
-	IK_JCC, // JZ, JG, ...
-	IK_SETCC, // SETZ, SETG, ... // 1 : 0
-	IK_CMOVCC, // CMOVZ, CMOVG, ... // 1 : 1-3
-	IK_MULDIV, // MUL, DIV, IMUL, IDIV // 0 : 1-3
-	IK_RET,
-	IK_NOP,
-	IK_LEAVE,
-	IK_PUSH, // 0 : 1-3
-	IK_POP, // 0-1 : 1-3
-	IK_INCDEC, // INC, DEC
-	IK__MAX,
-} InstKind;
-
-enum {
-	MOV,
-	LEA,
-};
-
-typedef struct {
-	char *fmt;
-	u8 *extra_defs;
-	u8 *extra_uses;
-	u8 *maybe_uses;
-} InsDesc;
-
 
 // "%s%s" str[kind], str[subkind]
 

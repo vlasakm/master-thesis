@@ -320,31 +320,6 @@ Oper callee_saved[] = { R_RBX };
 Oper caller_saved[] = { R_RAX, R_RCX, R_RDX, R_RSI, R_RDI };
 Oper argument_regs[] = { R_RDI, R_RSI, R_RDX, R_RCX };
 
-typedef struct {
-	enum {
-		OK_NONE,
-		OK_REG,
-		OK_VREG,
-		OK_INDIR_REG,
-		OK_INDIR_VREG,
-		OK_LABEL,
-		OK_CONST,
-	} kind;
-	union {
-		Reg reg;
-		Value *vreg;
-		Str label;
-		i64 constant;
-	};
-} Operand;
-
-typedef struct Instruction Instruction;
-struct Instruction {
-	InstKind kind;
-	Instruction *prev;
-	Instruction *next;
-	Operand op[3];
-};
 
 // A simple hash table.
 // Inspired by: http://www.craftinginterpreters.com/hash-tables.html
