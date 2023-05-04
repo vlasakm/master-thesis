@@ -2543,15 +2543,8 @@ translate_value(TranslationState *ts, Value *v)
 	}
 	case VK_ARGUMENT: {
 		Argument *argument = (Argument *) v;
-		Oper src = 0;
-		switch (argument->index) {
-		case 0: src = R_RDI; break;
-		case 1: src = R_RSI; break;
-		case 2: src = R_RDX; break;
-		case 3: src = R_RCX; break;
-		default: UNREACHABLE();
-		}
-		add_copy(ts, res, src);
+		assert(argument->index < ARRAY_LEN(argument_regs));
+		add_copy(ts, res, argument_regs[argument->index]);
 		break;
 	}
 	case VK_BLOCK:
