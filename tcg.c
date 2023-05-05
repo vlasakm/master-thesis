@@ -4280,7 +4280,7 @@ peephole(MFunction *mfunction, Arena *arena)
 			// =>
 			// add rax, [global1]
 			// TODO: only valid if rcx is not used
-			if (IK(prev) == IK_MOV && IS(prev) == MOV && prev->direction && prev->is_memory && IK(inst) == IK_BINALU && !inst->is_memory && !inst->has_imm && inst->direction && IREG2(inst) == IREG(prev)) {
+			if (IK(prev) == IK_MOV && IS(prev) == MOV && prev->direction && prev->is_memory && IK(inst) == IK_BINALU && !inst->is_memory && !inst->has_imm && inst->direction && IREG2(inst) == IREG(prev) && IREG(inst) != IREG2(inst)) {
 				IK(prev) = IK(inst);
 				IS(prev) = IS(inst);
 				IREG(prev) = IREG(inst);
