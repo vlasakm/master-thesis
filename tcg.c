@@ -4566,6 +4566,7 @@ main(int argc, char **argv)
 		size_t index = number_values(functions[i], R__MAX);
 		print_function(stderr, functions[i]);
 		translate_function(arena, functions[i], index);
+		print_mfunction(stderr, functions[i]->mfunc);
 		peephole(functions[i]->mfunc, arena);
 		print_mfunction(stderr, functions[i]->mfunc);
 		reg_alloc_function(&ras, functions[i]->mfunc);
