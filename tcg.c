@@ -1251,18 +1251,6 @@ assign(Parser *parser, CValue cleft, int rbp)
 	return lvalue(left);
 }
 
-static void
-struct_declaration(Parser *parser)
-{
-	UNREACHABLE();
-}
-
-static void
-typedef_declaration(Parser *parser)
-{
-	UNREACHABLE();
-}
-
 static Value *
 condition(Parser *parser)
 {
