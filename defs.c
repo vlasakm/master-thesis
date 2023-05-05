@@ -253,6 +253,9 @@ struct Inst {
 	//Oper imm;
 };
 
+#define IK(inst) (inst->kind)
+#define IS(inst) (inst->subkind)
+
 #define IREG(inst) (inst->ops[0])
 #define IREG1(inst) (inst->ops[0])
 #define IBASE(inst) (inst->ops[1])
