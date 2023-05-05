@@ -4144,6 +4144,7 @@ peephole(MFunction *mfunction, Arena *arena)
 				inst->prev = prev->prev;
 				prev->prev->next = inst;
 				inst = prev;
+				continue;
 			}
 
 			// mov rcx, 5
@@ -4157,6 +4158,7 @@ peephole(MFunction *mfunction, Arena *arena)
 				inst->prev = prev->prev;
 				prev->prev->next = inst;
 				inst = prev;
+				continue;
 			}
 
 			// lea rax, [rbp-16]
@@ -4169,6 +4171,7 @@ peephole(MFunction *mfunction, Arena *arena)
 				inst->next->prev = prev;
 				prev->next = inst->next;
 				//inst = prev->prev;
+				continue;
 			}
 
 			// lea rax, [global0]
@@ -4190,6 +4193,7 @@ peephole(MFunction *mfunction, Arena *arena)
 				} else {
 					inst = prev;
 				}
+				continue;
 			}
 
 			// mov [global0], rcx
@@ -4223,6 +4227,7 @@ peephole(MFunction *mfunction, Arena *arena)
 				} else {
 					inst = prev;
 				}
+				continue;
 			}
 
 			// lea rax, [rbp-8]
@@ -4255,6 +4260,7 @@ peephole(MFunction *mfunction, Arena *arena)
 				if (prev->prev) {
 					inst = prev->prev;
 				}
+				continue;
 			}
 
 			Inst *pprev = prev->prev;
@@ -4275,6 +4281,32 @@ peephole(MFunction *mfunction, Arena *arena)
 				pprev->prev->next = prev;
 				prev->prev = pprev->prev;
 				inst = prev;
+				continue;
+			}
+
+			// setg cl
+			// test rcx, rcx
+			// jz .BB2
+			// =>
+			// 
+
+
+			// mov rax, [rbp-24]
+			// add rax, 1
+			// mov [rbp-24], rax
+			// =>
+			// add [rbp-24], 1
+			if (IK(pprev) == IK_MOV && IS(pprev) == MOV && pprev->direction && pprev->is_memory && (IK(prev) == IK_BINALU || IK(prev) == IK_UNALU) && prev->direction && IREG(prev) == IREG(pprev) && IK(inst) == IK_MOV && IS(inst) == IK_MOV && !inst->direction && inst->is_memory && IREG(inst) == IREG(prev) && ISCALE(pprev) == ISCALE(inst) && IINDEX(pprev) == IINDEX(inst) && IBASE(pprev) == IBASE(inst) && IDISP(pprev) == IDISP(inst)) {
+				prev->is_memory = true;
+				prev->direction = false;
+				ISCALE(prev) = ISCALE(inst);
+				IINDEX(prev) = IINDEX(inst);
+				IBASE(prev) = IBASE(inst);
+				IDISP(prev) = IDISP(inst);
+				prev->next = inst->next;
+				prev->prev = pprev->prev;
+				inst = prev;
+				continue;
 			}
       		}
 	}
@@ -4424,6 +4456,7 @@ main(int argc, char **argv)
 		peephole(functions[i]->mfunc, arena);
 		print_mfunction(stderr, functions[i]->mfunc);
 		reg_alloc_function(&ras, functions[i]->mfunc);
+		peephole(functions[i]->mfunc, arena);
 		peephole(functions[i]->mfunc, arena);
 	}
 
