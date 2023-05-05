@@ -3537,7 +3537,6 @@ translate_function(Arena *arena, Function *function, size_t start_index)
 		ts->prev_pos = &mblock->first;
 		ts->block = mblock;
 		if (b == function->block_cnt - 1) {
-			ts->callee_saved_reg_start = ts->index;
 			add_push(ts, R_RBP);
 			add_copy(ts, R_RBP, R_RSP);
 			// Add instruction to make stack space, since we may
@@ -3561,6 +3560,7 @@ translate_function(Arena *arena, Function *function, size_t start_index)
 			// not, due to coalescing these temporaries will
 			// likely be coalesced with the registers and
 			// the copies eliminated.
+			ts->callee_saved_reg_start = ts->index;
 			for (size_t i = 0; i < ARRAY_LEN(callee_saved); i++) {
 				add_copy(ts, ts->index++, callee_saved[i]);
 			}
