@@ -1977,6 +1977,9 @@ print_inst(FILE *f, Inst *inst)
 		if (inst->direction) {
 			fprintf(f, ", ");
 		}
+		if (inst->has_imm) {
+			fprintf(f, "qword ");
+		}
 		fprintf(f, "[");
 		if (IBASE(inst) == R_NONE) {
 			fprintf(f, "global%"PRIi32, IDISP(inst));
