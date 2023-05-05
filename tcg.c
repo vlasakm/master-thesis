@@ -296,13 +296,44 @@ static const char *reg_repr8[] = {
 };
 
 typedef enum {
+	CC_O = 0x00,
+	CC_NO = 0x01,
+	CC_B = 0x02,
+	CC_NAE = 0x02,
+	CC_C = 0x02,
+	CC_NB = 0x03,
+	CC_AE = 0x03,
+	CC_NC = 0x03,
 	CC_Z = 0x04,
+	CC_E = 0x04,
 	CC_NZ = 0x05,
+	CC_NE = 0x05,
+	CC_BE = 0x06,
+	CC_NA = 0x06,
+	CC_NBE = 0x07,
+	CC_JA = 0x07,
+	CC_S = 0x08,
+	CC_NS = 0x09,
+	CC_P = 0x0A,
+	CC_PE = 0x0A,
+	CC_NP = 0x0B,
+	CC_PO = 0x0B,
 	CC_L = 0x0C,
+	CC_NGE = 0x0C,
+	CC_NL = 0x0D,
 	CC_GE = 0x0D,
 	CC_LE = 0x0E,
+	CC_NG = 0x0E,
+	CC_NLE = 0x0F,
 	CC_G = 0x0F,
 } CondCode;
+
+CondCode
+cc_invert(CondCode cc)
+{
+	// Flip the least significant bit.
+	return cc ^ 1;
+}
 
 
 InsDesc ins_descs[IK__MAX] = {
