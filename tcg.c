@@ -3144,9 +3144,9 @@ void
 remove_from_live(void *user_data, Oper *oper)
 {
 	WorkList *live_set = user_data;
-	fprintf(stderr, "Removing from live ");
-	print_reg(stderr, *oper);
-	fprintf(stderr, "\n");
+	//fprintf(stderr, "Removing from live ");
+	//print_reg(stderr, *oper);
+	//fprintf(stderr, "\n");
 	wl_remove(live_set, *oper);
 }
 
@@ -3154,9 +3154,9 @@ void
 add_to_live(void *user_data, Oper *oper)
 {
 	WorkList *live_set = user_data;
-	fprintf(stderr, "Adding to live ");
-	print_reg(stderr, *oper);
-	fprintf(stderr, "\n");
+	//fprintf(stderr, "Adding to live ");
+	//print_reg(stderr, *oper);
+	//fprintf(stderr, "\n");
 	wl_add(live_set, *oper);
 }
 
