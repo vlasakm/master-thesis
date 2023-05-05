@@ -3235,10 +3235,11 @@ insert_loads_of_spilled(void *user_data, Oper *src)
 	}
 	Inst *inst = ss->inst;
 
+	Oper temp = ras->mfunction->vreg_cnt++;
 	fprintf(stderr, "load ");
 	print_reg(stderr, *src);
-	fprintf(stderr, "\n");
-	Oper temp = ras->mfunction->vreg_cnt++;
+	fprintf(stderr, " through ");
+	print_reg(stderr, temp);
 	Inst *load = create_inst(ras->arena, IK_MOV, MOV);
 	//Inst *load = make_inst(ras->arena, OP_MOV_RMC, temp, R_RBP, 8 + ras->to_spill[src]);
 	load->prev = inst->prev;
@@ -3275,11 +3276,13 @@ insert_stores_of_spilled(void *user_data, Oper *dest)
 	}
 	Inst *inst = ss->inst;
 
+	Oper temp = ras->mfunction->vreg_cnt++;
 	fprintf(stderr, "store ");
 	print_reg(stderr, *dest);
+	fprintf(stderr, " through ");
+	print_reg(stderr, temp);
 	fprintf(stderr, "\n");
 	// NOTE: Three address code would need something different
-	Oper temp = *dest;
 
 	//Inst *store = make_inst(ras->arena, OP_MOV_MCR, R_RBP, temp, 8 + ras->to_spill[dest]);
 	Inst *store = create_inst(ras->arena, IK_MOV, MOV);
