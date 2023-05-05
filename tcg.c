@@ -2710,11 +2710,13 @@ ig_interfere(InterferenceGraph *ig, Oper op1, Oper op2)
 	return one;
 }
 
+// TODO: For capacity 2^n worklists only allow 2^n - 1 elements. We should
+// probably overallocate to make it work transparently.
 
 typedef struct {
 	size_t head;
 	size_t tail;
-	size_t capacity;
+	size_t mask;
 	Oper *sparse;
 	Oper *dense;
 } WorkList;
@@ -2722,7 +2724,7 @@ typedef struct {
 void
 wl_grow(WorkList *wl, size_t new_capacity)
 {
-	wl->capacity = new_capacity;
+	wl->mask = new_capacity - 1;
 	GROW_ARRAY(wl->dense, new_capacity);
 	GROW_ARRAY(wl->sparse, new_capacity);
 }
@@ -2730,7 +2732,7 @@ wl_grow(WorkList *wl, size_t new_capacity)
 void
 wl_init_all(WorkList *wl, Oper op)
 {
-	assert(op < wl->capacity);
+	assert(op < wl->mask);
 	wl->tail = op;
 	for (size_t i = 0; i < op; i++) {
 		wl->dense[i] = i;
@@ -2741,41 +2743,21 @@ wl_init_all(WorkList *wl, Oper op)
 	}
 }
 
+#define FOR_EACH_WL_INDEX(wl, i) \
+	for (size_t i = (wl)->head; i != (wl)->tail; i = (i + 1) & (wl)->mask)
+
 void
 wl_init_all_reverse(WorkList *wl, Oper op)
 {
-	assert(op < wl->capacity);
+	assert(op < wl->mask);
+	wl->head = 0;
 	wl->tail = op;
 	for (size_t i = 0; i < op; i++) {
 		wl->dense[i] = op - i - 1;
 		wl->sparse[op - i - 1] = i;
 	}
-	for (size_t i = wl->head; i < wl->tail; i++) {
+	for (size_t i = 0; i < op; i++) {
 		assert(wl->sparse[wl->dense[i]] == (Oper) i);
-	}
-}
-
-bool
-wl_add(WorkList *wl, Oper op)
-{
-	assert(op < wl->capacity);
-	if (wl->sparse[op] < wl->head || wl->sparse[op] >= wl->tail || wl->dense[wl->sparse[op]] != op) {
-		wl->sparse[op] = wl->tail;
-		wl->dense[wl->tail++] = op;
-		assert(wl->tail <= wl->capacity);
-		for (size_t i = wl->head; i < wl->tail; i++) {
-			assert(wl->sparse[wl->dense[i]] == (Oper) i);
-		}
-		return true;
-	}
-	return false;
-}
-
-void
-wl_union(WorkList *wl, WorkList *other)
-{
-	for (size_t i = other->head; i < other->tail; i++) {
-		wl_add(wl, other->dense[i]);
 	}
 }
 
@@ -2786,15 +2768,40 @@ wl_has(WorkList *wl, Oper op)
 }
 
 bool
+wl_add(WorkList *wl, Oper op)
+{
+	assert(op < wl->mask);
+	if (!wl_has(wl, op)) {
+		wl->sparse[op] = wl->tail;
+		wl->dense[wl->tail] = op;
+		wl->tail = (wl->tail + 1) & wl->mask;
+		FOR_EACH_WL_INDEX(wl, i) {
+			assert(wl->sparse[wl->dense[i]] == (Oper) i);
+		}
+		return true;
+	}
+	return false;
+}
+
+void
+wl_union(WorkList *wl, WorkList *other)
+{
+	FOR_EACH_WL_INDEX(other, i) {
+		wl_add(wl, other->dense[i]);
+	}
+}
+
+bool
 wl_remove(WorkList *wl, Oper op)
 {
-	assert(op < wl->capacity);
+	assert(op < wl->mask);
 	if (wl_has(wl, op)) {
-		Oper last = wl->dense[--wl->tail];
+		wl->tail = (wl->tail - 1) & wl->mask;
+		Oper last = wl->dense[wl->tail];
 		wl->dense[wl->sparse[op]] = last;
 		wl->sparse[last] = wl->sparse[op];
 		wl->dense[wl->tail] = op;
-		for (size_t i = wl->head; i < wl->tail; i++) {
+		FOR_EACH_WL_INDEX(wl, i) {
 			assert(wl->sparse[wl->dense[i]] == (Oper) i);
 		}
 		return true;
@@ -2805,30 +2812,39 @@ wl_remove(WorkList *wl, Oper op)
 bool
 wl_take(WorkList *wl, Oper *taken)
 {
-	assert(wl->head <= wl->tail);
 	if (wl->head == wl->tail) {
 		return false;
 	}
-	*taken = wl->dense[wl->head++];
+	*taken = wl->dense[wl->head];
+	wl->head = (wl->head + 1) & wl->mask;
 	return true;
 }
 
 bool
 wl_take_back(WorkList *wl, Oper *taken)
 {
-	assert(wl->head <= wl->tail);
 	if (wl->head == wl->tail) {
 		return false;
 	}
-	*taken = wl->dense[--wl->tail];
+	wl->tail = (wl->tail - 1) & wl->mask;
+	*taken = wl->dense[wl->tail];
 	return true;
 }
 
 Oper
 wl_cnt(WorkList *wl)
 {
-	assert(wl->head <= wl->tail);
-	return wl->tail - wl->head;
+	if (wl->head <= wl->tail) {
+		return wl->tail - wl->head;
+	} else {
+		return wl->tail + wl->mask + 1 - wl->head;
+	}
+}
+
+Oper
+wl_empty(WorkList *wl)
+{
+	return wl->tail == wl->head;
 }
 
 void
@@ -2840,8 +2856,8 @@ wl_reset(WorkList *wl)
 bool
 wl_eq(WorkList *wl, WorkList *other)
 {
-	assert(wl->capacity == other->capacity);
-	if (wl->tail - wl->head != other->tail - other->head) {
+	assert(wl->mask == other->mask);
+	if (wl_cnt(wl) != wl_cnt(other)) {
 		return false;
 	}
 	for (size_t i = wl->head; i < wl->tail; i++) {
@@ -3197,7 +3213,7 @@ interference_step(RegAllocState *ras, WorkList *live_set, Inst *inst)
 
 	// Add interferences of all definitions with all live.
 	Tmp tmp = { .ig = ig };
-	for (size_t j = live_set->head; j < live_set->tail; j++) {
+	FOR_EACH_WL_INDEX(live_set, j) {
 		tmp.live = live_set->dense[j];
 		for_each_def(inst, add_interference_with, &tmp);
 	}
@@ -3820,7 +3836,7 @@ simplify(RegAllocState *ras)
 void
 select_potential_spill_if_needed(RegAllocState *ras)
 {
-	if (wl_cnt(&ras->spill_wl) != 0) {
+	if (!wl_empty(&ras->spill_wl)) {
 		fprintf(stderr, "Potential spill\n");
 		Oper candidate = ras->spill_wl.dense[ras->spill_wl.head];
 		size_t max = spill_metric(ras, candidate);
@@ -4079,7 +4095,7 @@ reg_alloc_function(RegAllocState *ras, MFunction *mfunction)
 			simplify(ras);
 			select_potential_spill_if_needed(ras);
 
-			if (wl_cnt(&ras->simplify_wl) == 0 && wl_cnt(&ras->spill_wl) == 0 && wl_cnt(&ras->freeze_wl) == 0) {
+			if (wl_empty(&ras->simplify_wl) && wl_empty(&ras->spill_wl) && wl_empty(&ras->freeze_wl)) {
 				break;
 			}
 		}
