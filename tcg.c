@@ -335,6 +335,20 @@ cc_invert(CondCode cc)
 	return cc ^ 1;
 }
 
+bool
+g1_is_commutative(X86Group1 g1)
+{
+	switch (g1) {
+	case G1_ADD:
+	case G1_IMUL:
+	case G1_AND:
+	case G1_OR:
+	case G1_TEST:
+		return true;
+	default:
+		return false;
+	}
+}
 
 InsDesc ins_descs[IK__MAX] = {
 	[IK_MULDIV] = {
@@ -4159,6 +4173,15 @@ peephole(MFunction *mfunction, Arena *arena)
 				continue;
 			}
 
+			// cmp rax, 0
+			// =>
+			// test rax, rax
+			if (IK(inst) == IK_BINALU && IS(inst) == G1_CMP && inst->direction && !inst->is_memory && inst->has_imm && IIMM(inst) == 0) {
+				IS(inst) = G1_TEST;
+				inst->has_imm = false;
+				IREG2(inst) = IREG(inst);
+			}
+
 			Inst *prev = inst->prev;
 			if (!prev) {
 				continue;
@@ -4177,6 +4200,16 @@ peephole(MFunction *mfunction, Arena *arena)
 				inst = prev;
 				continue;
 			}
+
+
+			// Produces longer instruction stream, but deletes one
+			// definition, so it may unlock other optimizations.
+			// mov rax, 5
+			// mov rcx, rax
+			// =>
+			// mov rax, 5
+			// mov rcx, 5
+
 
 			// mov rcx, 5
 			// mov [rax], rcx
@@ -4261,6 +4294,17 @@ peephole(MFunction *mfunction, Arena *arena)
 				continue;
 			}
 
+
+			// NOTE: Actually we likely transform `cmp REG, 0` to
+			// `test REG, REG` before this, but this pattern is more
+			// general than that.
+			//
+			// mov rax, [rbp-16]
+			// cmp rax, 0
+			// =>
+			// cmp [rbp-16]
+
+
 			// lea rax, [rbp-8]
 			// mov qword [rax], 3
 			// =>
@@ -4315,13 +4359,6 @@ peephole(MFunction *mfunction, Arena *arena)
 				continue;
 			}
 
-			// setg cl
-			// test rcx, rcx
-			// jz .BB2
-			// =>
-			// 
-
-
 			// mov rax, [rbp-24]
 			// add rax, 1
 			// mov [rbp-24], rax
@@ -4339,6 +4376,51 @@ peephole(MFunction *mfunction, Arena *arena)
 				inst = prev;
 				continue;
 			}
+
+			// mov t18, 4
+			// mov t12, t18
+			// add t12, t11
+			// =>
+			// mov t12, t11
+			// add t12, 4
+			if (IK(pprev) == IK_MOV && IS(pprev) == MOV && pprev->direction && !pprev->is_memory && pprev->has_imm && IK(prev) == IK_MOV && IS(prev) == IK_MOV && prev->direction && !prev->is_memory && !prev->has_imm && IREG2(prev) == IREG(pprev) && IK(inst) == IK_BINALU && g1_is_commutative(IS(inst)) && inst->direction && !inst->is_memory && !inst->has_imm && IREG(inst) == IREG(prev)) {
+				IREG2(prev) = IREG2(inst);
+				inst->has_imm = true;
+				IIMM(inst) = IIMM(pprev);
+				IREG2(inst) = R_NONE;
+				pprev->prev->next = prev;
+				prev->prev = pprev->prev;
+				inst = prev;
+				continue;
+			}
+
+			Inst *ppprev = pprev->prev;
+			if (!ppprev) {
+				continue;
+			}
+
+			Inst *pppprev = ppprev->prev;
+			if (!pppprev) {
+				continue;
+			}
+
+			// mov rcx, 0
+			// cmp rax, rdx
+			// setg cl
+			// test rcx, rcx
+			// jz .BB2
+			// =>
+			// cmp rax, rdx
+			// jng .BB2
+			if (IK(pppprev) == IK_MOV && IS(pppprev) == MOV && pppprev->has_imm && pppprev->direction && !pppprev->is_memory && IIMM(pppprev) == 0 && IK(ppprev) == IK_BINALU && IS(ppprev) == G1_CMP && IK(pprev) == IK_SETCC && IK(prev) == IK_BINALU && IS(prev) == G1_TEST && !prev->is_memory && !prev->has_imm && IREG(prev) == IREG(pprev) && IREG(prev) == IREG2(prev) && IK(inst) == IK_JCC && IS(inst) == CC_Z) {
+				IS(inst) = cc_invert(IS(pprev));
+				pppprev->prev->next = ppprev;
+				ppprev->prev = pppprev->prev;
+				inst->prev = ppprev;
+				ppprev->next = inst;
+				continue;
+			}
+
       		}
 	}
 }
