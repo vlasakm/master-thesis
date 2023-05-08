@@ -1415,6 +1415,7 @@ statement(Parser *parser)
 	}
 	case TK_FOR: {
 		eat(parser, TK_FOR);
+		eat(parser, TK_LPAREN);
 		Block *init_block = add_block(parser);
 		Block *cond_block = add_block(parser);
 		Block *body_block = add_block(parser);
