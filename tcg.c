@@ -2769,9 +2769,6 @@ ig_interfere(InterferenceGraph *ig, Oper op1, Oper op2)
 	return one;
 }
 
-// TODO: For capacity 2^n worklists only allow 2^n - 1 elements. We should
-// probably overallocate to make it work transparently.
-
 typedef struct {
 	size_t head;
 	size_t tail;
@@ -2783,6 +2780,10 @@ typedef struct {
 void
 wl_grow(WorkList *wl, size_t new_capacity)
 {
+	// Worklist can't be entirely full (2^new_capacity elements), because
+	// then we wouldn't be able to distinguish between "full" and "empty",
+	// so we overallocate to make sure we don't hit this edge case.
+	new_capacity *= 2;
 	wl->mask = new_capacity - 1;
 	GROW_ARRAY(wl->dense, new_capacity);
 	GROW_ARRAY(wl->sparse, new_capacity);
