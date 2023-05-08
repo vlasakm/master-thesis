@@ -1487,6 +1487,10 @@ statement(Parser *parser)
 		eat(parser, TK_SEMICOLON);
 		break;
 	}
+	case TK_SEMICOLON: {
+		eat(parser, TK_SEMICOLON);
+		break;
+	}
 	default:
 		expression_or_variable_declaration(parser);
 		eat(parser, TK_SEMICOLON);
