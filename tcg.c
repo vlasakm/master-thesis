@@ -1894,8 +1894,8 @@ print_inst(FILE *f, Inst *inst)
 	switch (inst->kind) {
 	case IK_BLOCK: {
 		MBlock *block = container_of(inst, MBlock, insts);
-		fprintf(f, ".BB%zu", block->index);
-		break;
+		fprintf(f, ".BB%zu:", block->index);
+		return;
 	}
 	case IK_MOV: // MOV, LEA, ZX8, SX16, ...
 		switch (inst->subkind) {
@@ -2183,6 +2183,7 @@ print_inst(FILE *f, Inst *inst)
 
 typedef struct {
 	Arena *arena;
+	MFunction *function;
 	MBlock *block;
 	size_t stack_space;
 	Oper index;
@@ -2207,16 +2208,23 @@ create_inst(Arena *arena, InstKind kind, int subkind)
 	return inst;
 }
 
-static Inst *
-add_inst(TranslationState *ts, InstKind kind, int subkind)
+static void
+add_inst_(TranslationState *ts, Inst *new)
 {
-	Inst *new = create_inst(ts->arena, kind, subkind);
-	Inst *head = &ts->block->insts;
+	Inst *head = &ts->function->insts;
 	Inst *last = head->prev;
 	new->prev = last;
 	new->next = head;
 	last->next = new;
 	head->prev = new;
+}
+
+
+static Inst *
+add_inst(TranslationState *ts, InstKind kind, int subkind)
+{
+	Inst *new = create_inst(ts->arena, kind, subkind);
+	add_inst_(ts, new);
 	return new;
 }
 
@@ -2672,7 +2680,7 @@ translate_value(TranslationState *ts, Value *v)
 		Field *field = get_member(v);
 		// A hack. Since ops[1] (the field index) already got
 		// translated, let's change it to the field's offset.
-		IIMM(ts->block->insts.prev) = field->offset;
+		IIMM(ts->function->insts.prev) = field->offset;
 		translate_binop(ts, G1_ADD, res, ops[0], ops[1]);
 		break;
 	}
@@ -2946,15 +2954,12 @@ print_mfunction(FILE *f, MFunction *mfunction)
 	fprintf(f, "function%zu:\n", mfunction->func->base.index);
 	print_str(f, mfunction->func->name);
 	fprintf(f, ":\n");
-	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
-		MBlock *mblock = mfunction->mblocks[b];
-		fprintf(f, ".BB%zu:\n", mblock->index);
-		//for (Inst *inst = mblock->first; inst; inst = inst->next) {
-		for (Inst *inst = mblock->insts.next; inst != &mblock->insts; inst = inst->next) {
+	for (Inst *inst = mfunction->insts.next; inst != &mfunction->insts; inst = inst->next) {
+		if (inst->kind != IK_BLOCK) {
 			fprintf(f, "\t");
-			print_inst(f, inst);
-			fprintf(f, "\n");
 		}
+		print_inst(f, inst);
+		fprintf(f, "\n");
 	}
 }
 
@@ -3180,6 +3185,9 @@ for_each_def(Inst *inst, void (*fun)(void *user_data, Oper *def), void *user_dat
 void
 for_each_use(Inst *inst, void (*fun)(void *user_data, Oper *use), void *user_data)
 {
+	if (inst->kind == IK_BLOCK || inst->kind == IK_FUNCTION) {
+		return;
+	}
 	if (!inst->direction || (inst->kind != IK_MOV && inst->kind != IK_POP && inst->kind != IK_IMUL3 && inst->kind != IK_CMOVCC)) {
 		fun(user_data, &IREG(inst));
 	}
@@ -3377,19 +3385,16 @@ spill(RegAllocState *ras)
 		.spill_start = mfunction->vreg_cnt,
 	};
 	print_mfunction(stderr, mfunction);
-	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
-		MBlock *mblock = mfunction->mblocks[b];
-		for (ss.inst = mblock->insts.next; ss.inst != &mblock->insts; ss.inst = ss.inst->next) {
-			fprintf(stderr, "\n");
-			print_inst(stderr, ss.inst);
-			fprintf(stderr, "\n");
-			//print_inst_d(stderr, inst);
-			//fprintf(stderr, "\n");
-			// Add loads for all spilled uses.
-			for_each_use(ss.inst, insert_loads_of_spilled, &ss);
-			// Add stores for all spilled defs.
-			for_each_def(ss.inst, insert_stores_of_spilled, &ss);
-		}
+	for (ss.inst = mfunction->insts.next; ss.inst != &mfunction->insts; ss.inst = ss.inst->next) {
+		fprintf(stderr, "\n");
+		print_inst(stderr, ss.inst);
+		fprintf(stderr, "\n");
+		//print_inst_d(stderr, inst);
+		//fprintf(stderr, "\n");
+		// Add loads for all spilled uses.
+		for_each_use(ss.inst, insert_loads_of_spilled, &ss);
+		// Add stores for all spilled defs.
+		for_each_def(ss.inst, insert_stores_of_spilled, &ss);
 	}
 	print_mfunction(stderr, mfunction);
 }
@@ -3397,14 +3402,15 @@ spill(RegAllocState *ras)
 void
 apply_reg_assignment(RegAllocState *ras)
 {
-	for (size_t b = 0; b < ras->mfunction->mblock_cnt; b++) {
-		MBlock *mblock = ras->mfunction->mblocks[b];
-		for (Inst *inst = mblock->insts.next; inst != &mblock->insts; inst = inst->next) {
-			// TODO: different number of register slots per target
-			for (size_t i = 0; i < 3; i++) {
-				assert(inst->ops[i] >= 0);
-				inst->ops[i] = ras->reg_assignment[ras->alias[inst->ops[i]]];
-			}
+	MFunction *mfunction = ras->mfunction;
+	for (Inst *inst = mfunction->insts.next; inst != &mfunction->insts; inst = inst->next) {
+		// TODO: different number of register slots per target
+		if (inst->kind == IK_BLOCK || inst->kind == IK_FUNCTION) {
+			continue;
+		}
+		for (size_t i = 0; i < 3; i++) {
+			assert(inst->ops[i] >= 0);
+			inst->ops[i] = ras->reg_assignment[ras->alias[inst->ops[i]]];
 		}
 	}
 }
@@ -3565,12 +3571,9 @@ add_to_use_or_def_count(void *user_data, Oper *oper)
 void
 calculate_spill_cost(MFunction *mfunction, u8 *def_counts, u8 *use_counts)
 {
-	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
-		MBlock *mblock = mfunction->mblocks[b];
-		for (Inst *inst = mblock->insts.next; inst != &mblock->insts; inst = inst->next) {
-			for_each_def(inst, add_to_use_or_def_count, def_counts);
-			for_each_use(inst, add_to_use_or_def_count, use_counts);
-		}
+	for (Inst *inst = mfunction->insts.next; inst != &mfunction->insts; inst = inst->next) {
+		for_each_def(inst, add_to_use_or_def_count, def_counts);
+		for_each_use(inst, add_to_use_or_def_count, use_counts);
 	}
 }
 
@@ -3579,26 +3582,38 @@ translate_function(Arena *arena, Function *function, size_t start_index)
 {
 	Block **post_order = function->post_order;
 
+	GArena gmblocks = {0};
+
+	MFunction *mfunction = arena_alloc(arena, sizeof(*mfunction));
+	memset(mfunction, 0, sizeof(*mfunction));
+	mfunction->insts.kind = IK_FUNCTION;
+	mfunction->insts.subkind = 0;
+	IIMM(&mfunction->insts) = function->base.index;
+	mfunction->insts.next = &mfunction->insts;
+	mfunction->insts.prev = &mfunction->insts;
+	mfunction->func = function;
+
 	TranslationState ts_ = {
 		.arena = arena,
 		.index = start_index,
 		.stack_space = 8,
 		.block = NULL,
+		.function = mfunction,
+
 	};
 	TranslationState *ts = &ts_;
-	GArena gmblocks = {0};
 
 	for (size_t b = function->block_cnt; b--;) {
 	//for (size_t j = 0; j < function->block_cnt; j++) {
 		Block *block = post_order[b];
 		//printf(".L%zu:\n", function->block_cnt - b - 1);
 		MBlock *mblock = arena_alloc(arena, sizeof(*mblock));
+		memset(mblock, 0, sizeof(*mblock));
 		garena_push_value(&gmblocks, MBlock *, mblock);
 		mblock->insts.kind = IK_BLOCK;
 		mblock->insts.subkind = 0;
 		IIMM(&mblock->insts) = block->base.index;
-		mblock->insts.next = &mblock->insts;
-		mblock->insts.prev = &mblock->insts;
+		add_inst_(ts, &mblock->insts);
 		mblock->block = block;
 		mblock->index = block->base.index;
 		ts->block = mblock;
@@ -3636,13 +3651,9 @@ translate_function(Arena *arena, Function *function, size_t start_index)
 		}
 	}
 
-	MFunction *mfunction = arena_alloc(arena, sizeof(*mfunction));
-	*mfunction = (MFunction) {
-		.func = function,
-		.vreg_cnt = ts->index,
-		.stack_space = ts->stack_space,
-		.make_stack_space = ts->make_stack_space,
-	};
+	mfunction->vreg_cnt = ts->index;
+	mfunction->stack_space = ts->stack_space;
+	mfunction->make_stack_space = ts->make_stack_space;
 	mfunction->mblock_cnt = garena_cnt(&gmblocks, MBlock *),
 	mfunction->mblocks = move_to_arena(arena, &gmblocks, 0, MBlock *),
 	garena_destroy(&gmblocks);
@@ -3664,7 +3675,7 @@ build_interference_graph(RegAllocState *ras)
 		get_live_out(ras, block, live_set);
 		// process the block back to front, updating live_set in the
 		// process
-		for (Inst *inst = mblock->insts.prev; inst != &mblock->insts; inst = inst->prev) {
+		for (Inst *inst = mblock->insts.prev; IK(inst) != IK_BLOCK; inst = inst->prev) {
 			live_step(live_set, inst);
 		}
 		if (!wl_eq(live_set, &ras->live_in[b])) {
@@ -3678,15 +3689,15 @@ build_interference_graph(RegAllocState *ras)
 		}
 	}
 
-	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
+
+	for (b = 0; b < mfunction->mblock_cnt; b++) {
 		MBlock *mblock = mfunction->mblocks[b];
 		Block *block = mblock->block;
 		get_live_out(ras, block, live_set);
-		for (Inst *inst = mblock->insts.prev; inst != &mblock->insts; inst = inst->prev) {
+		for (Inst *inst = mblock->insts.prev; IK(inst) != IK_BLOCK; inst = inst->prev) {
 			interference_step(ras, live_set, inst);
 			live_step(live_set, inst);
 		}
-
 	}
 
 	// Physical registers are initialized with infinite degree. This makes
@@ -4184,276 +4195,273 @@ peephole(MFunction *mfunction, Arena *arena)
 {
 	print_str(stderr, mfunction->func->name);
 	fprintf(stderr, "\n");
-	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
-		MBlock *mblock = mfunction->mblocks[b];
-		Inst *inst = &mblock->insts;
-		while (inst != &mblock->insts) {
-			print_inst(stderr, inst);
-			fprintf(stderr, "\n");
-			fflush(stderr);
-			// mov rax, rax
-			// =>
-			// [deleted]
-			if (IK(inst) == IK_MOV && inst->is_first_def && !inst->is_memory && !inst->has_imm && IREG(inst) == IREG2(inst)) {
-				inst->prev->next = inst->next;
-				inst->next->prev = inst->prev;
-				goto next;
-			}
+	Inst *inst = mfunction->insts.next;
+	while (inst != &mfunction->insts) {
+		print_inst(stderr, inst);
+		fprintf(stderr, "\n");
+		fflush(stderr);
+		// mov rax, rax
+		// =>
+		// [deleted]
+		if (IK(inst) == IK_MOV && inst->is_first_def && !inst->is_memory && !inst->has_imm && IREG(inst) == IREG2(inst)) {
+			inst->prev->next = inst->next;
+			inst->next->prev = inst->prev;
+			goto next;
+		}
 
-			// cmp rax, 0
-			// =>
-			// test rax, rax
-			if (IK(inst) == IK_BINALU && IS(inst) == G1_CMP && inst->direction && !inst->is_memory && inst->has_imm && IIMM(inst) == 0) {
-				IS(inst) = G1_TEST;
-				inst->has_imm = false;
-				IREG2(inst) = IREG(inst);
-				continue;
-			}
+		// cmp rax, 0
+		// =>
+		// test rax, rax
+		if (IK(inst) == IK_BINALU && IS(inst) == G1_CMP && inst->direction && !inst->is_memory && inst->has_imm && IIMM(inst) == 0) {
+			IS(inst) = G1_TEST;
+			inst->has_imm = false;
+			IREG2(inst) = IREG(inst);
+			continue;
+		}
 
-			Inst *prev = inst->prev;
-			if (!prev) {
-				goto next;
-			}
+		Inst *prev = inst->prev;
+		if (!prev) {
+			goto next;
+		}
 
-			// mov rcx, 8
-			// add rax, rcx
-			// =>
-			// add rax, 8
-			if (IK(inst) == IK_BINALU && inst->direction && !inst->is_memory && IK(prev) == IK_MOV && IS(prev) == MOV && !prev->is_memory && prev->has_imm && IREG(prev) == IREG2(inst)) {
-				inst->has_imm = true;
-				IREG2(inst) = R_NONE;
-				IIMM(inst) = IIMM(prev);
-				inst->prev = prev->prev;
-				prev->prev->next = inst;
-				inst = inst;
-				continue;
-			}
+		// mov rcx, 8
+		// add rax, rcx
+		// =>
+		// add rax, 8
+		if (IK(inst) == IK_BINALU && inst->direction && !inst->is_memory && IK(prev) == IK_MOV && IS(prev) == MOV && !prev->is_memory && prev->has_imm && IREG(prev) == IREG2(inst)) {
+			inst->has_imm = true;
+			IREG2(inst) = R_NONE;
+			IIMM(inst) = IIMM(prev);
+			inst->prev = prev->prev;
+			prev->prev->next = inst;
+			inst = inst;
+			continue;
+		}
 
-			// Produces longer instruction stream, but deletes one
-			// definition, so it may unlock other optimizations.
-			// mov rax, 5
-			// mov rcx, rax
-			// =>
-			// mov rax, 5
-			// mov rcx, 5
+		// Produces longer instruction stream, but deletes one
+		// definition, so it may unlock other optimizations.
+		// mov rax, 5
+		// mov rcx, rax
+		// =>
+		// mov rax, 5
+		// mov rcx, 5
 
 
-			// mov rcx, 5
-			// mov [rax], rcx
-			// =>
-			// mov [rax], 5
-			if (IK(inst) == IK_MOV && !inst->direction && inst->is_memory && IK(prev) == IK_MOV && prev->has_imm && IREG(prev) == IREG(inst)) {
-				inst->has_imm = true;
-				IREG(inst) = R_NONE;
-				IIMM(inst) = IIMM(prev);
-				inst->prev = prev->prev;
-				prev->prev->next = inst;
-				inst = inst;
-				continue;
-			}
+		// mov rcx, 5
+		// mov [rax], rcx
+		// =>
+		// mov [rax], 5
+		if (IK(inst) == IK_MOV && !inst->direction && inst->is_memory && IK(prev) == IK_MOV && prev->has_imm && IREG(prev) == IREG(inst)) {
+			inst->has_imm = true;
+			IREG(inst) = R_NONE;
+			IIMM(inst) = IIMM(prev);
+			inst->prev = prev->prev;
+			prev->prev->next = inst;
+			inst = inst;
+			continue;
+		}
 
-			// lea rax, [rbp-16]
-			// add rax, 8
-			// =>
-			// lea rax, [rbp-8]
-			if (IK(inst) == IK_BINALU && IS(inst) == G1_ADD && inst->direction && !inst->is_memory && inst->has_imm && IK(prev) == IK_MOV && IS(prev) == LEA && IREG(prev) == IREG(inst)) {
-				IDISP(prev) += IIMM(inst);
-				prev->next = inst->next;
-				inst->next->prev = prev;
-				prev->next = inst->next;
-				inst = prev;
-				continue;
-			}
+		// lea rax, [rbp-16]
+		// add rax, 8
+		// =>
+		// lea rax, [rbp-8]
+		if (IK(inst) == IK_BINALU && IS(inst) == G1_ADD && inst->direction && !inst->is_memory && inst->has_imm && IK(prev) == IK_MOV && IS(prev) == LEA && IREG(prev) == IREG(inst)) {
+			IDISP(prev) += IIMM(inst);
+			prev->next = inst->next;
+			inst->next->prev = prev;
+			prev->next = inst->next;
+			inst = prev;
+			continue;
+		}
 
-			// lea rax, [global0]
-			// mov rcx, [rax]
-			// =>
-			// mov rcx, [global0]
-			// TODO: this is incorrect if rax is used, should copy
-			// rcx? what does that imply currently? should
-			// we require a preceding use for every def to
-			// check these? what does regalloc produce? does
-			// SSA save us?
-			if (IK(inst) == IK_MOV && IS(inst) == MOV && inst->direction && inst->is_memory && IINDEX(inst) == R_NONE && ISCALE(inst) == 0 && IDISP(inst) == 0 && IK(prev) == IK_MOV && IS(prev) == LEA && IBASE(inst) == IREG(prev)) {
-				IS(prev) = MOV;
-				IREG(prev) = IREG(inst);
-				prev->next = inst->next;
-				inst->next->prev = prev;
-				inst = prev;
-				continue;
-			}
+		// lea rax, [global0]
+		// mov rcx, [rax]
+		// =>
+		// mov rcx, [global0]
+		// TODO: this is incorrect if rax is used, should copy
+		// rcx? what does that imply currently? should
+		// we require a preceding use for every def to
+		// check these? what does regalloc produce? does
+		// SSA save us?
+		if (IK(inst) == IK_MOV && IS(inst) == MOV && inst->direction && inst->is_memory && IINDEX(inst) == R_NONE && ISCALE(inst) == 0 && IDISP(inst) == 0 && IK(prev) == IK_MOV && IS(prev) == LEA && IBASE(inst) == IREG(prev)) {
+			IS(prev) = MOV;
+			IREG(prev) = IREG(inst);
+			prev->next = inst->next;
+			inst->next->prev = prev;
+			inst = prev;
+			continue;
+		}
 
-			// mov [global0], rcx
-			// mov rax, [global0]
-			// =>
-			// mov [global0], rcx
-			// mov rax, rcx
-			if (IK(prev) == IK_MOV && IS(prev) == MOV && !prev->direction && prev->is_memory && !prev->has_imm && IK(inst) == IK_MOV && IS(inst) == MOV && inst->direction && inst->is_memory && IBASE(inst) == IBASE(prev) && IINDEX(inst) == IINDEX(prev) && ISCALE(inst) == ISCALE(prev) && IDISP(inst) == IDISP(prev)) {
-				inst->is_memory = false;
-				ISCALE(inst) = 0;
-				IINDEX(inst) = R_NONE;
-				IBASE(inst) = R_NONE;
-				IDISP(inst) = 0;
-				IREG2(inst) = IREG(prev);
-				inst = inst;
-				continue;
-			}
-
-
-			// mov rcx, [global1]
-			// add rax, rcx
-			// =>
-			// add rax, [global1]
-			// TODO: only valid if rcx is not used
-			if (IK(prev) == IK_MOV && IS(prev) == MOV && prev->direction && prev->is_memory && IK(inst) == IK_BINALU && !inst->is_memory && !inst->has_imm && inst->direction && IREG2(inst) == IREG(prev) && IREG(inst) != IREG2(inst)) {
-				IK(prev) = IK(inst);
-				IS(prev) = IS(inst);
-				IREG(prev) = IREG(inst);
-				prev->next = inst->next;
-				inst->next->prev = prev;
-				inst = prev;
-				continue;
-			}
+		// mov [global0], rcx
+		// mov rax, [global0]
+		// =>
+		// mov [global0], rcx
+		// mov rax, rcx
+		if (IK(prev) == IK_MOV && IS(prev) == MOV && !prev->direction && prev->is_memory && !prev->has_imm && IK(inst) == IK_MOV && IS(inst) == MOV && inst->direction && inst->is_memory && IBASE(inst) == IBASE(prev) && IINDEX(inst) == IINDEX(prev) && ISCALE(inst) == ISCALE(prev) && IDISP(inst) == IDISP(prev)) {
+			inst->is_memory = false;
+			ISCALE(inst) = 0;
+			IINDEX(inst) = R_NONE;
+			IBASE(inst) = R_NONE;
+			IDISP(inst) = 0;
+			IREG2(inst) = IREG(prev);
+			inst = inst;
+			continue;
+		}
 
 
-			// NOTE: Actually we likely transform `cmp REG, 0` to
-			// `test REG, REG` before this, but this pattern is more
-			// general than that.
-			//
-			// mov rax, [rbp-16]
-			// cmp rax, 0
-			// =>
-			// cmp [rbp-16]
+		// mov rcx, [global1]
+		// add rax, rcx
+		// =>
+		// add rax, [global1]
+		// TODO: only valid if rcx is not used
+		if (IK(prev) == IK_MOV && IS(prev) == MOV && prev->direction && prev->is_memory && IK(inst) == IK_BINALU && !inst->is_memory && !inst->has_imm && inst->direction && IREG2(inst) == IREG(prev) && IREG(inst) != IREG2(inst)) {
+			IK(prev) = IK(inst);
+			IS(prev) = IS(inst);
+			IREG(prev) = IREG(inst);
+			prev->next = inst->next;
+			inst->next->prev = prev;
+			inst = prev;
+			continue;
+		}
 
 
-			// lea rax, [rbp-8]
-			// mov qword [rax], 3
-			// =>
-			// mov qword [rbp-8], 3
-			// TODO: incorrect if rax is used further
-			if (IK(prev) == IK_MOV && IS(prev) == LEA && IK(inst) == IK_MOV && IS(inst) == MOV && inst->is_memory && !inst->direction && IINDEX(inst) == R_NONE && ISCALE(inst) == 0 && IDISP(inst) == 0 && IBASE(inst) == IREG(prev)) {
-				ISCALE(inst) = ISCALE(prev);
-				IINDEX(inst) = IINDEX(prev);
-				IBASE(inst) = IBASE(prev);
-				IDISP(inst) = IDISP(prev);
-				inst->prev = prev->prev;
-				prev->prev->next = inst;
-				inst = inst;
-				continue;
-			}
-
-			// add t17, 8
-			// mov qword [t17], 5
-			// =>
-			// mov qword [t17+8], 5
-			// TODO: only valid if t17 is not used anywhere
-			if (IK(prev) == IK_BINALU && IS(prev) == G1_ADD && prev->direction && !prev->is_memory && prev->has_imm && inst->is_memory && IBASE(inst) == IREG(prev)) {
-				IDISP(inst) += IIMM(prev);
-				inst->prev = prev->prev;
-				prev->prev->next = inst;
-				inst = inst;
-				continue;
-			}
-
-			Inst *pprev = prev->prev;
-			if (!pprev) {
-				goto next;
-			}
-
-			// mov t35, 8
-			// mov t14, t34
-			// add t14, t35
-			// =>
-			// mov t14, t34
-			// add t14, 8
-			// TODO: only valid if t35 is not used anywhere
-			// (alternatively keep t35 and delete the unnecessery
-			// move somewhere else)
-			if (IK(inst) == IK_BINALU && inst->direction && !inst->is_memory && IK(pprev) == IK_MOV && IS(pprev) == MOV && !pprev->is_memory && pprev->has_imm && IREG(pprev) == IREG2(inst) && IK(prev) == IK_MOV && IS(prev) == MOV && !prev->is_memory && !prev->has_imm) {
-				inst->has_imm = true;
-				IREG2(inst) = R_NONE;
-				IIMM(inst) = IIMM(pprev);
-				pprev->prev->next = prev;
-				prev->prev = pprev->prev;
-				inst = prev;
-				continue;
-			}
-
-			// mov rax, [rbp-24]
-			// add rax, 1
-			// mov [rbp-24], rax
-			// =>
-			// add [rbp-24], 1
-			if (IK(pprev) == IK_MOV && IS(pprev) == MOV && pprev->direction && pprev->is_memory && (IK(prev) == IK_BINALU || IK(prev) == IK_UNALU) && prev->direction && IREG(prev) == IREG(pprev) && IK(inst) == IK_MOV && IS(inst) == IK_MOV && !inst->direction && inst->is_memory && IREG(inst) == IREG(prev) && ISCALE(pprev) == ISCALE(inst) && IINDEX(pprev) == IINDEX(inst) && IBASE(pprev) == IBASE(inst) && IDISP(pprev) == IDISP(inst)) {
-				prev->is_memory = true;
-				prev->direction = false;
-				ISCALE(prev) = ISCALE(inst);
-				IINDEX(prev) = IINDEX(inst);
-				IBASE(prev) = IBASE(inst);
-				IDISP(prev) = IDISP(inst);
-				IREG(prev) = R_NONE;
-				prev->prev = pprev->prev;
-				pprev->prev->next = prev;
-				prev->next = inst->next;
-				inst->next->prev = prev;
-				inst = prev;
-				continue;
-			}
+		// NOTE: Actually we likely transform `cmp REG, 0` to
+		// `test REG, REG` before this, but this pattern is more
+		// general than that.
+		//
+		// mov rax, [rbp-16]
+		// cmp rax, 0
+		// =>
+		// cmp [rbp-16]
 
 
-			// mov t21, [rbp-24]
-			// mov t22, t21
-			// add t22, 1
-			// mov [rbp-24], t22
+		// lea rax, [rbp-8]
+		// mov qword [rax], 3
+		// =>
+		// mov qword [rbp-8], 3
+		// TODO: incorrect if rax is used further
+		if (IK(prev) == IK_MOV && IS(prev) == LEA && IK(inst) == IK_MOV && IS(inst) == MOV && inst->is_memory && !inst->direction && IINDEX(inst) == R_NONE && ISCALE(inst) == 0 && IDISP(inst) == 0 && IBASE(inst) == IREG(prev)) {
+			ISCALE(inst) = ISCALE(prev);
+			IINDEX(inst) = IINDEX(prev);
+			IBASE(inst) = IBASE(prev);
+			IDISP(inst) = IDISP(prev);
+			inst->prev = prev->prev;
+			prev->prev->next = inst;
+			inst = inst;
+			continue;
+		}
+
+		// add t17, 8
+		// mov qword [t17], 5
+		// =>
+		// mov qword [t17+8], 5
+		// TODO: only valid if t17 is not used anywhere
+		if (IK(prev) == IK_BINALU && IS(prev) == G1_ADD && prev->direction && !prev->is_memory && prev->has_imm && inst->is_memory && IBASE(inst) == IREG(prev)) {
+			IDISP(inst) += IIMM(prev);
+			inst->prev = prev->prev;
+			prev->prev->next = inst;
+			inst = inst;
+			continue;
+		}
+
+		Inst *pprev = prev->prev;
+		if (!pprev) {
+			goto next;
+		}
+
+		// mov t35, 8
+		// mov t14, t34
+		// add t14, t35
+		// =>
+		// mov t14, t34
+		// add t14, 8
+		// TODO: only valid if t35 is not used anywhere
+		// (alternatively keep t35 and delete the unnecessery
+		// move somewhere else)
+		if (IK(inst) == IK_BINALU && inst->direction && !inst->is_memory && IK(pprev) == IK_MOV && IS(pprev) == MOV && !pprev->is_memory && pprev->has_imm && IREG(pprev) == IREG2(inst) && IK(prev) == IK_MOV && IS(prev) == MOV && !prev->is_memory && !prev->has_imm) {
+			inst->has_imm = true;
+			IREG2(inst) = R_NONE;
+			IIMM(inst) = IIMM(pprev);
+			pprev->prev->next = prev;
+			prev->prev = pprev->prev;
+			inst = prev;
+			continue;
+		}
+
+		// mov rax, [rbp-24]
+		// add rax, 1
+		// mov [rbp-24], rax
+		// =>
+		// add [rbp-24], 1
+		if (IK(pprev) == IK_MOV && IS(pprev) == MOV && pprev->direction && pprev->is_memory && (IK(prev) == IK_BINALU || IK(prev) == IK_UNALU) && prev->direction && IREG(prev) == IREG(pprev) && IK(inst) == IK_MOV && IS(inst) == IK_MOV && !inst->direction && inst->is_memory && IREG(inst) == IREG(prev) && ISCALE(pprev) == ISCALE(inst) && IINDEX(pprev) == IINDEX(inst) && IBASE(pprev) == IBASE(inst) && IDISP(pprev) == IDISP(inst)) {
+			prev->is_memory = true;
+			prev->direction = false;
+			ISCALE(prev) = ISCALE(inst);
+			IINDEX(prev) = IINDEX(inst);
+			IBASE(prev) = IBASE(inst);
+			IDISP(prev) = IDISP(inst);
+			IREG(prev) = R_NONE;
+			prev->prev = pprev->prev;
+			pprev->prev->next = prev;
+			prev->next = inst->next;
+			inst->next->prev = prev;
+			inst = prev;
+			continue;
+		}
 
 
-			// mov t18, 4
-			// mov t12, t18
-			// add t12, t11
-			// =>
-			// mov t12, t11
-			// add t12, 4
-			if (IK(pprev) == IK_MOV && IS(pprev) == MOV && pprev->direction && !pprev->is_memory && pprev->has_imm && IK(prev) == IK_MOV && IS(prev) == IK_MOV && prev->direction && !prev->is_memory && !prev->has_imm && IREG2(prev) == IREG(pprev) && IK(inst) == IK_BINALU && g1_is_commutative(IS(inst)) && inst->direction && !inst->is_memory && !inst->has_imm && IREG(inst) == IREG(prev)) {
-				IREG2(prev) = IREG2(inst);
-				inst->has_imm = true;
-				IIMM(inst) = IIMM(pprev);
-				IREG2(inst) = R_NONE;
-				pprev->prev->next = prev;
-				prev->prev = pprev->prev;
-				inst = prev;
-				continue;
-			}
+		// mov t21, [rbp-24]
+		// mov t22, t21
+		// add t22, 1
+		// mov [rbp-24], t22
 
-			Inst *ppprev = pprev->prev;
-			if (!ppprev) {
-				goto next;
-			}
 
-			Inst *pppprev = ppprev->prev;
-			if (!pppprev) {
-				goto next;
-			}
+		// mov t18, 4
+		// mov t12, t18
+		// add t12, t11
+		// =>
+		// mov t12, t11
+		// add t12, 4
+		if (IK(pprev) == IK_MOV && IS(pprev) == MOV && pprev->direction && !pprev->is_memory && pprev->has_imm && IK(prev) == IK_MOV && IS(prev) == IK_MOV && prev->direction && !prev->is_memory && !prev->has_imm && IREG2(prev) == IREG(pprev) && IK(inst) == IK_BINALU && g1_is_commutative(IS(inst)) && inst->direction && !inst->is_memory && !inst->has_imm && IREG(inst) == IREG(prev)) {
+			IREG2(prev) = IREG2(inst);
+			inst->has_imm = true;
+			IIMM(inst) = IIMM(pprev);
+			IREG2(inst) = R_NONE;
+			pprev->prev->next = prev;
+			prev->prev = pprev->prev;
+			inst = prev;
+			continue;
+		}
 
-			// mov rcx, 0
-			// cmp rax, rdx
-			// setg cl
-			// test rcx, rcx
-			// jz .BB2
-			// =>
-			// cmp rax, rdx
-			// jng .BB2
-			if (IK(pppprev) == IK_MOV && IS(pppprev) == MOV && pppprev->has_imm && pppprev->direction && !pppprev->is_memory && IIMM(pppprev) == 0 && IK(ppprev) == IK_BINALU && IS(ppprev) == G1_CMP && IK(pprev) == IK_SETCC && IK(prev) == IK_BINALU && IS(prev) == G1_TEST && !prev->is_memory && !prev->has_imm && IREG(prev) == IREG(pprev) && IREG(prev) == IREG2(prev) && IK(inst) == IK_JCC && IS(inst) == CC_Z) {
-				IS(inst) = cc_invert(IS(pprev));
-				pppprev->prev->next = ppprev;
-				ppprev->prev = pppprev->prev;
-				inst->prev = ppprev;
-				ppprev->next = inst;
-				inst = ppprev;
-				continue;
-			}
-		next:
-			inst = inst->next;
-      		}
+		Inst *ppprev = pprev->prev;
+		if (!ppprev) {
+			goto next;
+		}
+
+		Inst *pppprev = ppprev->prev;
+		if (!pppprev) {
+			goto next;
+		}
+
+		// mov rcx, 0
+		// cmp rax, rdx
+		// setg cl
+		// test rcx, rcx
+		// jz .BB2
+		// =>
+		// cmp rax, rdx
+		// jng .BB2
+		if (IK(pppprev) == IK_MOV && IS(pppprev) == MOV && pppprev->has_imm && pppprev->direction && !pppprev->is_memory && IIMM(pppprev) == 0 && IK(ppprev) == IK_BINALU && IS(ppprev) == G1_CMP && IK(pprev) == IK_SETCC && IK(prev) == IK_BINALU && IS(prev) == G1_TEST && !prev->is_memory && !prev->has_imm && IREG(prev) == IREG(pprev) && IREG(prev) == IREG2(prev) && IK(inst) == IK_JCC && IS(inst) == CC_Z) {
+			IS(inst) = cc_invert(IS(pprev));
+			pppprev->prev->next = ppprev;
+			ppprev->prev = pppprev->prev;
+			inst->prev = ppprev;
+			ppprev->next = inst;
+			inst = ppprev;
+			continue;
+		}
+	next:
+		inst = inst->next;
 	}
 }
 

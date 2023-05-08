@@ -267,6 +267,8 @@ struct Inst {
 #define IARG_CNT(inst) ((inst)->ops[4])
 
 typedef enum {
+	//IK_HEAD, // Machine Function or Machine Basic Block (head of the doubly linked list)
+	IK_FUNCTION, // Machine Function (head of the doubly linked list)
 	IK_BLOCK, // Machine Basic Block (head of the doubly linked list)
 	IK_MOV, // MOV, LEA, ZX8, SX16, ... // 0-1 : 1-3
 	IK_BINALU, // ADD, SUB, ... // 0-1 : 1-3
@@ -631,6 +633,7 @@ typedef struct {
 
 struct MFunction {
 	Function *func;
+	Inst insts;
 	MBlock **mblocks;
 	size_t mblock_cnt;
 	size_t stack_space;
