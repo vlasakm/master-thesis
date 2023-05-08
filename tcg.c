@@ -4173,15 +4173,23 @@ reg_alloc_function(RegAllocState *ras, MFunction *mfunction)
 void
 peephole(MFunction *mfunction, Arena *arena)
 {
+	print_str(stderr, mfunction->func->name);
+	fprintf(stderr, "\n");
 	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
 		MBlock *mblock = &mfunction->mblocks[b];
-		for (Inst *inst = mblock->first; inst; inst = inst->next) {
+		fprintf(stderr, ".BB%zu:\n", mblock->index);
+		Inst *inst = mblock->first;
+		while (inst) {
 			print_inst(stderr, inst);
 			fprintf(stderr, "\n");
+			fflush(stderr);
+			// mov rax, rax
+			// =>
+			// [deleted]
 			if (IK(inst) == IK_MOV && inst->is_first_def && !inst->is_memory && !inst->has_imm && IREG(inst) == IREG2(inst)) {
 				inst->prev->next = inst->next;
 				inst->next->prev = inst->prev;
-				continue;
+				goto next;
 			}
 
 			// cmp rax, 0
@@ -4191,11 +4199,12 @@ peephole(MFunction *mfunction, Arena *arena)
 				IS(inst) = G1_TEST;
 				inst->has_imm = false;
 				IREG2(inst) = IREG(inst);
+				continue;
 			}
 
 			Inst *prev = inst->prev;
 			if (!prev) {
-				continue;
+				goto next;
 			}
 
 			// mov rcx, 8
@@ -4208,10 +4217,9 @@ peephole(MFunction *mfunction, Arena *arena)
 				IIMM(inst) = IIMM(prev);
 				inst->prev = prev->prev;
 				prev->prev->next = inst;
-				inst = prev;
+				inst = inst;
 				continue;
 			}
-
 
 			// Produces longer instruction stream, but deletes one
 			// definition, so it may unlock other optimizations.
@@ -4232,7 +4240,7 @@ peephole(MFunction *mfunction, Arena *arena)
 				IIMM(inst) = IIMM(prev);
 				inst->prev = prev->prev;
 				prev->prev->next = inst;
-				inst = prev;
+				inst = inst;
 				continue;
 			}
 
@@ -4245,7 +4253,7 @@ peephole(MFunction *mfunction, Arena *arena)
 				prev->next = inst->next;
 				inst->next->prev = prev;
 				prev->next = inst->next;
-				//inst = prev->prev;
+				inst = prev;
 				continue;
 			}
 
@@ -4263,11 +4271,7 @@ peephole(MFunction *mfunction, Arena *arena)
 				IREG(prev) = IREG(inst);
 				prev->next = inst->next;
 				inst->next->prev = prev;
-				if (prev->prev) {
-					inst = prev->prev;
-				} else {
-					inst = prev;
-				}
+				inst = prev;
 				continue;
 			}
 
@@ -4283,6 +4287,8 @@ peephole(MFunction *mfunction, Arena *arena)
 				IBASE(inst) = R_NONE;
 				IDISP(inst) = 0;
 				IREG2(inst) = IREG(prev);
+				inst = inst;
+				continue;
 			}
 
 
@@ -4297,11 +4303,7 @@ peephole(MFunction *mfunction, Arena *arena)
 				IREG(prev) = IREG(inst);
 				prev->next = inst->next;
 				inst->next->prev = prev;
-				if (prev->prev) {
-					inst = prev->prev;
-				} else {
-					inst = prev;
-				}
+				inst = prev;
 				continue;
 			}
 
@@ -4326,12 +4328,10 @@ peephole(MFunction *mfunction, Arena *arena)
 				IINDEX(inst) = IINDEX(prev);
 				IBASE(inst) = IBASE(prev);
 				IDISP(inst) = IDISP(prev);
+				inst->prev = prev->prev;
 				prev->prev->next = inst;
-				if (prev->prev) {
-					inst = prev->prev;
-				} else {
-					inst = prev;
-				}
+				inst = inst;
+				continue;
 			}
 
 			// add t17, 8
@@ -4343,15 +4343,13 @@ peephole(MFunction *mfunction, Arena *arena)
 				IDISP(inst) += IIMM(prev);
 				inst->prev = prev->prev;
 				prev->prev->next = inst;
-				if (prev->prev) {
-					inst = prev->prev;
-				}
+				inst = inst;
 				continue;
 			}
 
 			Inst *pprev = prev->prev;
 			if (!pprev) {
-				continue;
+				goto next;
 			}
 
 			// mov t35, 8
@@ -4360,6 +4358,9 @@ peephole(MFunction *mfunction, Arena *arena)
 			// =>
 			// mov t14, t34
 			// add t14, 8
+			// TODO: only valid if t35 is not used anywhere
+			// (alternatively keep t35 and delete the unnecessery
+			// move somewhere else)
 			if (IK(inst) == IK_BINALU && inst->direction && !inst->is_memory && IK(pprev) == IK_MOV && IS(pprev) == MOV && !pprev->is_memory && pprev->has_imm && IREG(pprev) == IREG2(inst) && IK(prev) == IK_MOV && IS(prev) == MOV && !prev->is_memory && !prev->has_imm) {
 				inst->has_imm = true;
 				IREG2(inst) = R_NONE;
@@ -4382,11 +4383,21 @@ peephole(MFunction *mfunction, Arena *arena)
 				IINDEX(prev) = IINDEX(inst);
 				IBASE(prev) = IBASE(inst);
 				IDISP(prev) = IDISP(inst);
-				prev->next = inst->next;
+				IREG(prev) = R_NONE;
 				prev->prev = pprev->prev;
+				pprev->prev->next = prev;
+				prev->next = inst->next;
+				inst->next->prev = prev;
 				inst = prev;
 				continue;
 			}
+
+
+			// mov t21, [rbp-24]
+			// mov t22, t21
+			// add t22, 1
+			// mov [rbp-24], t22
+
 
 			// mov t18, 4
 			// mov t12, t18
@@ -4407,12 +4418,12 @@ peephole(MFunction *mfunction, Arena *arena)
 
 			Inst *ppprev = pprev->prev;
 			if (!ppprev) {
-				continue;
+				goto next;
 			}
 
 			Inst *pppprev = ppprev->prev;
 			if (!pppprev) {
-				continue;
+				goto next;
 			}
 
 			// mov rcx, 0
@@ -4429,9 +4440,11 @@ peephole(MFunction *mfunction, Arena *arena)
 				ppprev->prev = pppprev->prev;
 				inst->prev = ppprev;
 				ppprev->next = inst;
+				inst = ppprev;
 				continue;
 			}
-
+		next:
+			inst = inst->next;
       		}
 	}
 }
