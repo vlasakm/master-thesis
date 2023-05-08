@@ -60,6 +60,9 @@ typedef int64_t i64;
 #define printf_attr(n)
 #endif
 
+#define USE_VALGRIND
+
+
 #define UNREACHABLE() unreachable(__FILE__, __LINE__)
 _Noreturn void
 unreachable(char *file, size_t line)
@@ -2772,6 +2775,9 @@ wl_grow(WorkList *wl, size_t new_capacity)
 	wl->mask = new_capacity - 1;
 	GROW_ARRAY(wl->dense, new_capacity);
 	GROW_ARRAY(wl->sparse, new_capacity);
+#ifdef USE_VALGRIND
+	ZERO_ARRAY(wl->sparse, new_capacity);
+#endif
 }
 
 void
