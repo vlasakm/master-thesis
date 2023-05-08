@@ -253,20 +253,21 @@ struct Inst {
 	//Oper imm;
 };
 
-#define IK(inst) (inst->kind)
-#define IS(inst) (inst->subkind)
+#define IK(inst) ((inst)->kind)
+#define IS(inst) ((inst)->subkind)
 
-#define IREG(inst) (inst->ops[0])
-#define IREG1(inst) (inst->ops[0])
-#define IBASE(inst) (inst->ops[1])
-#define IREG2(inst) (inst->ops[1])
-#define IINDEX(inst) (inst->ops[2])
-#define ISCALE(inst) (inst->ops[3])
-#define IDISP(inst) (inst->ops[4])
-#define IIMM(inst) (inst->ops[5])
-#define IARG_CNT(inst) (inst->ops[4])
+#define IREG(inst) ((inst)->ops[0])
+#define IREG1(inst) ((inst)->ops[0])
+#define IBASE(inst) ((inst)->ops[1])
+#define IREG2(inst) ((inst)->ops[1])
+#define IINDEX(inst) ((inst)->ops[2])
+#define ISCALE(inst) ((inst)->ops[3])
+#define IDISP(inst) ((inst)->ops[4])
+#define IIMM(inst) ((inst)->ops[5])
+#define IARG_CNT(inst) ((inst)->ops[4])
 
 typedef enum {
+	IK_BLOCK, // Machine Basic Block (head of the doubly linked list)
 	IK_MOV, // MOV, LEA, ZX8, SX16, ... // 0-1 : 1-3
 	IK_BINALU, // ADD, SUB, ... // 0-1 : 1-3
 	IK_UNALU, // NEG, NOT // 0-1 : 1-3
@@ -625,13 +626,12 @@ typedef struct {
 typedef struct {
 	Block *block;
 	size_t index;
-	Inst *first;
-	Inst *last;
+	Inst insts;
 } MBlock;
 
 struct MFunction {
 	Function *func;
-	MBlock *mblocks;
+	MBlock **mblocks;
 	size_t mblock_cnt;
 	size_t stack_space;
 	size_t vreg_cnt;

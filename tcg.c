@@ -1892,6 +1892,11 @@ print_inst(FILE *f, Inst *inst)
 {
 	char *m;
 	switch (inst->kind) {
+	case IK_BLOCK: {
+		MBlock *block = container_of(inst, MBlock, insts);
+		fprintf(f, ".BB%zu", block->index);
+		break;
+	}
 	case IK_MOV: // MOV, LEA, ZX8, SX16, ...
 		switch (inst->subkind) {
 		case MOV: m = "mov"; break;
@@ -2179,7 +2184,6 @@ print_inst(FILE *f, Inst *inst)
 typedef struct {
 	Arena *arena;
 	MBlock *block;
-	Inst **prev_pos;
 	size_t stack_space;
 	Oper index;
 	size_t block_cnt;
@@ -2206,12 +2210,14 @@ create_inst(Arena *arena, InstKind kind, int subkind)
 static Inst *
 add_inst(TranslationState *ts, InstKind kind, int subkind)
 {
-	Inst *inst = create_inst(ts->arena, kind, subkind);
-	inst->next = NULL;
-	inst->prev = ts->prev_pos == &ts->block->first ? NULL : container_of(ts->prev_pos, Inst, next);
-	*ts->prev_pos = inst;
-	ts->prev_pos = &inst->next;
-	return inst;
+	Inst *new = create_inst(ts->arena, kind, subkind);
+	Inst *head = &ts->block->insts;
+	Inst *last = head->prev;
+	new->prev = last;
+	new->next = head;
+	last->next = new;
+	head->prev = new;
+	return new;
 }
 
 static void
@@ -2666,7 +2672,7 @@ translate_value(TranslationState *ts, Value *v)
 		Field *field = get_member(v);
 		// A hack. Since ops[1] (the field index) already got
 		// translated, let's change it to the field's offset.
-		IIMM(container_of(ts->prev_pos, Inst, next)) = field->offset;
+		IIMM(ts->block->insts.prev) = field->offset;
 		translate_binop(ts, G1_ADD, res, ops[0], ops[1]);
 		break;
 	}
@@ -2940,10 +2946,10 @@ print_mfunction(FILE *f, MFunction *mfunction)
 	print_str(f, mfunction->func->name);
 	fprintf(f, ":\n");
 	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
-		MBlock *mblock = &mfunction->mblocks[b];
+		MBlock *mblock = mfunction->mblocks[b];
 		fprintf(f, ".BB%zu:\n", mblock->index);
 		//for (Inst *inst = mblock->first; inst; inst = inst->next) {
-		for (Inst *inst = mblock->first; inst; inst = inst->next) {
+		for (Inst *inst = mblock->insts.next; inst != &mblock->insts; inst = inst->next) {
 			fprintf(f, "\t");
 			print_inst(f, inst);
 			fprintf(f, "\n");
@@ -3371,8 +3377,8 @@ spill(RegAllocState *ras)
 	};
 	print_mfunction(stderr, mfunction);
 	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
-		MBlock *mblock = &mfunction->mblocks[b];
-		for (ss.inst = mblock->first; ss.inst; ss.inst = ss.inst->next) {
+		MBlock *mblock = mfunction->mblocks[b];
+		for (ss.inst = mblock->insts.next; ss.inst != &mblock->insts; ss.inst = ss.inst->next) {
 			fprintf(stderr, "\n");
 			print_inst(stderr, ss.inst);
 			fprintf(stderr, "\n");
@@ -3391,8 +3397,8 @@ void
 apply_reg_assignment(RegAllocState *ras)
 {
 	for (size_t b = 0; b < ras->mfunction->mblock_cnt; b++) {
-		MBlock *mblock = &ras->mfunction->mblocks[b];
-		for (Inst *inst = mblock->first; inst; inst = inst->next) {
+		MBlock *mblock = ras->mfunction->mblocks[b];
+		for (Inst *inst = mblock->insts.next; inst != &mblock->insts; inst = inst->next) {
 			// TODO: different number of register slots per target
 			for (size_t i = 0; i < 3; i++) {
 				assert(inst->ops[i] >= 0);
@@ -3559,8 +3565,8 @@ void
 calculate_spill_cost(MFunction *mfunction, u8 *def_counts, u8 *use_counts)
 {
 	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
-		MBlock *mblock = &mfunction->mblocks[b];
-		for (Inst *inst = mblock->first; inst; inst = inst->next) {
+		MBlock *mblock = mfunction->mblocks[b];
+		for (Inst *inst = mblock->insts.next; inst != &mblock->insts; inst = inst->next) {
 			for_each_def(inst, add_to_use_or_def_count, def_counts);
 			for_each_use(inst, add_to_use_or_def_count, use_counts);
 		}
@@ -3576,7 +3582,6 @@ translate_function(Arena *arena, Function *function, size_t start_index)
 		.arena = arena,
 		.index = start_index,
 		.stack_space = 8,
-		.prev_pos = NULL,
 		.block = NULL,
 	};
 	TranslationState *ts = &ts_;
@@ -3586,11 +3591,15 @@ translate_function(Arena *arena, Function *function, size_t start_index)
 	//for (size_t j = 0; j < function->block_cnt; j++) {
 		Block *block = post_order[b];
 		//printf(".L%zu:\n", function->block_cnt - b - 1);
-		MBlock *mblock = garena_push(&gmblocks, MBlock);
+		MBlock *mblock = arena_alloc(arena, sizeof(*mblock));
+		garena_push_value(&gmblocks, MBlock *, mblock);
+		mblock->insts.kind = IK_BLOCK;
+		mblock->insts.subkind = 0;
+		IIMM(&mblock->insts) = block->base.index;
+		mblock->insts.next = &mblock->insts;
+		mblock->insts.prev = &mblock->insts;
 		mblock->block = block;
 		mblock->index = block->base.index;
-		mblock->first = NULL;
-		ts->prev_pos = &mblock->first;
 		ts->block = mblock;
 		if (b == function->block_cnt - 1) {
 			add_push(ts, R_RBP);
@@ -3624,7 +3633,6 @@ translate_function(Arena *arena, Function *function, size_t start_index)
 		for (Value *v = block->head; v; v = v->next) {
 			translate_value(ts, v);
 		}
-		mblock->last = ts->prev_pos == &mblock->first ? NULL : container_of(ts->prev_pos, Inst, next);
 	}
 
 	MFunction *mfunction = arena_alloc(arena, sizeof(*mfunction));
@@ -3634,8 +3642,8 @@ translate_function(Arena *arena, Function *function, size_t start_index)
 		.stack_space = ts->stack_space,
 		.make_stack_space = ts->make_stack_space,
 	};
-	mfunction->mblock_cnt = garena_cnt(&gmblocks, MBlock),
-	mfunction->mblocks = move_to_arena(arena, &gmblocks, 0, MBlock),
+	mfunction->mblock_cnt = garena_cnt(&gmblocks, MBlock *),
+	mfunction->mblocks = move_to_arena(arena, &gmblocks, 0, MBlock *),
 	garena_destroy(&gmblocks);
 	function->mfunc= mfunction;
 	return mfunction;
@@ -3650,12 +3658,12 @@ build_interference_graph(RegAllocState *ras)
 	wl_init_all_reverse(&ras->block_work_list, mfunction->mblock_cnt);
 	Oper b;
 	while (wl_take(&ras->block_work_list, &b)) {
-		MBlock *mblock = &mfunction->mblocks[b];
+		MBlock *mblock = mfunction->mblocks[b];
 		Block *block = mblock->block;
 		get_live_out(ras, block, live_set);
 		// process the block back to front, updating live_set in the
 		// process
-		for (Inst *inst = mblock->last; inst; inst = inst->prev) {
+		for (Inst *inst = mblock->insts.prev; inst != &mblock->insts; inst = inst->prev) {
 			live_step(live_set, inst);
 		}
 		if (!wl_eq(live_set, &ras->live_in[b])) {
@@ -3670,10 +3678,10 @@ build_interference_graph(RegAllocState *ras)
 	}
 
 	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
-		MBlock *mblock = &mfunction->mblocks[b];
+		MBlock *mblock = mfunction->mblocks[b];
 		Block *block = mblock->block;
 		get_live_out(ras, block, live_set);
-		for (Inst *inst = mblock->last; inst; inst = inst->prev) {
+		for (Inst *inst = mblock->insts.prev; inst != &mblock->insts; inst = inst->prev) {
 			interference_step(ras, live_set, inst);
 			live_step(live_set, inst);
 		}
@@ -4176,10 +4184,9 @@ peephole(MFunction *mfunction, Arena *arena)
 	print_str(stderr, mfunction->func->name);
 	fprintf(stderr, "\n");
 	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
-		MBlock *mblock = &mfunction->mblocks[b];
-		fprintf(stderr, ".BB%zu:\n", mblock->index);
-		Inst *inst = mblock->first;
-		while (inst) {
+		MBlock *mblock = mfunction->mblocks[b];
+		Inst *inst = &mblock->insts;
+		while (inst != &mblock->insts) {
 			print_inst(stderr, inst);
 			fprintf(stderr, "\n");
 			fflush(stderr);
@@ -4595,7 +4602,7 @@ main(int argc, char **argv)
 		print_mfunction(stderr, functions[i]->mfunc);
 		reg_alloc_function(&ras, functions[i]->mfunc);
 		peephole(functions[i]->mfunc, arena);
-		peephole(functions[i]->mfunc, arena);
+		//peephole(functions[i]->mfunc, arena);
 	}
 
 	reg_alloc_state_destroy(&ras);

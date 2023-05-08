@@ -1,0 +1,19 @@
+// mov rax, [rbp-24]
+// mov rax, rax
+// add rax, 1
+// mov [rbp-24], rax
+// tcg.c:4398:23: runtime error: member access within null pointer of type 'struct Inst'
+
+// Trying to apply:
+
+// mov rax, [rbp-24]
+// add rax, 1
+// mov [rbp-24], rax
+// =>
+// add [rbp-24], 1
+
+// Needs to modify block's head, which is not an instruction and has to be handled specially.
+int main() {
+    for (int i = 0; i < 10; i = i + 1) ;
+    return 0;
+}
