@@ -235,6 +235,7 @@ struct Inst {
 	Inst *prev;
 	u8 kind;
 	u8 subkind;
+	u8 mode;
 	bool direction; // true => reg, reg/mem | false => reg/mem, reg
 	bool is_first_def; // is reg defined?
 	bool is_memory; // is the second reg/mem arg reg or mem?
@@ -262,7 +263,8 @@ struct Inst {
 #define ISCALE(inst) ((inst)->ops[3])
 #define IDISP(inst) ((inst)->ops[4])
 #define IIMM(inst) ((inst)->ops[5])
-#define IARG_CNT(inst) ((inst)->ops[4])
+#define IARG_CNT(inst) ((inst)->ops[0])
+#define IRET_CNT(inst) ((inst)->ops[0])
 
 typedef enum {
 	//IK_HEAD, // Machine Function or Machine Basic Block (head of the doubly linked list)
@@ -291,6 +293,89 @@ typedef enum {
 enum {
 	MOV,
 	LEA,
+};
+
+// R = RW register
+// r = R register
+// C = W register ("clobber")
+// M = memory (base R, index R, scale, displacement)
+// I = immediate
+// L = label
+// A = RW rax
+// D = RW rdx
+typedef enum {
+	M_Rr,   // direction = true,  is_first_def = true,  is_memory = false, has_imm = false
+	M_rr,   // direction = true,  is_frist_def = false, is_memory = false, has_imm = false
+	M_Cr,   // direction = true,  is_first_def = true,  is_memory = false, has_imm = false
+	M_RM,   // direction = true,  is_first_def = true,  is_memory = true,  has_imm = false
+	M_rM,
+	M_CM,   // direction = true,  is_first_def = true,  is_memory = true,  has_imm = false
+	M_Mr,   // direction = false, is_first_def = false, is_memory = true,  has_imm = false
+	M_RI,   // direction = true,  is_frist_def = true,  is_memory = false, has_imm = false
+	M_rI,
+	M_CI,   // direction = true,  is_first_def = true,  is_memory = false, has_imm = true
+	M_MI,
+	M_CrI,  // direction = true,  is_first_def = true,  is_memory = false, has_imm = true
+	M_CMI,
+	M_R,    // direction = true,  is_first_def = true,  is_memory = false, has_imm = false
+	M_r,    // direction = true,  is_first_def = false, is_memory = false, has_imm = false
+	M_C,    // direction = true,  is_first_def = true,  is_memory = false, has_imm = false
+	M_M,
+	M_I,
+	M_L,    // direction = true,  is_first_def = false, is_memory = false, has_imm = false
+	M_N,    // direction = true,  is_first_def = false, is_memory = false, has_imm = false
+	M_CALL, // direction = true,  is_first_def = false, is_memory = false, has_imm = false
+	M_RET,  // direction = true,  is_first_def = false, is_memory = false, has_imm = false
+	M_ADr,  // direction = true,  is_first_def = false, is_memory = false, has_imm = false
+	M_ADM,  // direction = true,  is_first_def = false, is_memory = true, has_imm = false
+} X86Mode;
+
+typedef struct {
+	u8 def_start;
+	u8 def_end;
+	u8 use_start;
+	u8 use_end;
+	bool use_cnt_given_by_first;
+	Oper *extra_defs;
+	Oper *extra_uses;
+} InsFormat;
+
+
+static Oper none[] = { R_NONE };
+
+static Oper rax_rdx[] = { R_RAX, R_RDX, R_NONE };
+static Oper callee_saved[] = { R_RBX, R_RBP, R_RSP, R_NONE };
+static Oper saved[] = { R_RBX };
+static Oper caller_saved[] = { R_RAX, R_RCX, R_RDX, R_RSI, R_RDI, R_NONE };
+static Oper argument_regs[] = { R_RDI, R_RSI, R_RDX, R_RCX, R_NONE };
+//static Oper return_regs[] = { R_RAX, R_RDX, R_NONE };
+
+
+InsFormat formats[] = {
+	[M_Rr]   = { 0, 1, 0, 2,  0, none, none },
+	[M_rr]   = { 0, 0, 0, 2,  0, none, none },
+	[M_Cr]   = { 0, 1, 1, 2,  0, none, none },
+	[M_RM]   = { 0, 1, 0, 3,  0, none, none },
+	[M_rM]   = { 0, 0, 0, 3,  0, none, none },
+	[M_CM]   = { 0, 1, 1, 3,  0, none, none },
+	[M_Mr]   = { 0, 0, 0, 3,  0, none, none },
+	[M_RI]   = { 0, 1, 0, 1,  0, none, none },
+	[M_rI]   = { 0, 0, 0, 1,  0, none, none },
+	[M_CI]   = { 0, 1, 0, 0,  0, none, none },
+	[M_MI]   = { 0, 0, 1, 3,  0, none, none },
+	[M_CrI]  = { 0, 1, 1, 2,  0, none, none },
+	[M_CMI]  = { 0, 1, 1, 3,  0, none, none },
+	[M_R]    = { 0, 1, 0, 1,  0, none, none },
+	[M_r]    = { 0, 0, 0, 1,  0, none, none },
+	[M_C]    = { 0, 1, 0, 0,  0, none, none },
+	[M_M]    = { 0, 0, 1, 3,  0, none, none },
+	[M_I]    = { 0, 0, 0, 0,  0, none, none },
+	[M_L]    = { 0, 0, 0, 0,  0, none, none },
+	[M_N]    = { 0, 0, 0, 0,  0, none, none },
+	[M_CALL] = { 0, 0, 0, 0,  1, caller_saved, argument_regs },
+	[M_RET]  = { 0, 0, 0, 1,  0, none, callee_saved }, // hack for use of R_RAX (and potentially R_RDX)
+	[M_ADr]  = { 0, 0, 0, 1,  0, rax_rdx, rax_rdx },
+	[M_ADM]  = { 0, 0, 1, 3,  0, rax_rdx, rax_rdx },
 };
 
 typedef struct {

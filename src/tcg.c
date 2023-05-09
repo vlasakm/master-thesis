@@ -216,9 +216,6 @@ types_compatible(Type *a, Type *b)
 	return false;
 }
 
-
-#include "defs.c"
-
 typedef enum {
 	R_NONE = 0,
 	R_RAX,
@@ -234,6 +231,8 @@ typedef enum {
 	R__RIP,
 	R__MAX,
 } Reg;
+
+#include "defs.c"
 
 static const char *reg_repr[] = {
 	"NONE",
@@ -326,10 +325,6 @@ InsDesc ins_descs[IK__MAX] = {
 		.maybe_uses = (u8[]) { R_RDI, R_RSI, R_RDX, R_RCX }, // TODO?
 	},
 };
-
-Oper callee_saved[] = { R_RBX };
-Oper caller_saved[] = { R_RAX, R_RCX, R_RDX, R_RSI, R_RDI };
-Oper argument_regs[] = { R_RDI, R_RSI, R_RDX, R_RCX };
 
 
 // A simple hash table.
@@ -1855,6 +1850,10 @@ print_inst(FILE *f, Inst *inst)
 {
 	char *m;
 	switch (inst->kind) {
+	case IK_FUNCTION: {
+		fprintf(f, "function:");
+		return;
+	}
 	case IK_BLOCK: {
 		MBlock *block = container_of(inst, MBlock, insts);
 		fprintf(f, ".BB%zu:", block->index);
@@ -2195,6 +2194,7 @@ static void
 add_copy(TranslationState *ts, Oper dest, Oper src)
 {
 	Inst *inst = add_inst(ts, IK_MOV, MOV);
+	inst->mode = M_Cr;
 	inst->direction = true;
 	inst->is_first_def = true;
 	inst->is_memory = false;
@@ -2207,6 +2207,7 @@ static void
 add_load(TranslationState *ts, Oper dest, Oper addr)
 {
 	Inst *inst = add_inst(ts, IK_MOV, MOV);
+	inst->mode = M_CM;
 	inst->direction = true;
 	inst->is_first_def = true;
 	inst->is_memory = true;
@@ -2219,6 +2220,7 @@ static void
 add_store(TranslationState *ts, Oper addr, Oper value)
 {
 	Inst *inst = add_inst(ts, IK_MOV, MOV);
+	inst->mode = M_Mr;
 	inst->direction = false;
 	inst->is_first_def = false;
 	inst->is_memory = true;
@@ -2231,6 +2233,7 @@ static void
 add_lea(TranslationState *ts, Oper dest, Oper base, Oper disp)
 {
 	Inst *inst = add_inst(ts, IK_MOV, LEA);
+	inst->mode = M_CM;
 	inst->direction = true;
 	inst->is_first_def = true;
 	inst->is_memory = true;
@@ -2245,6 +2248,7 @@ add_mov_imm(TranslationState *ts, Oper dest, u64 imm)
 {
 	// TODO: 64 bit immediates
 	Inst *inst = add_inst(ts, IK_MOV, MOV);
+	inst->mode = M_CI;
 	inst->direction = true;
 	inst->is_first_def = true;
 	inst->is_memory = false;
@@ -2261,6 +2265,7 @@ add_set_zero(TranslationState *ts, Oper oper)
 	// on the register through XOR register uses.
 	// TODO: xor oper, oper
 	Inst *inst = add_inst(ts, IK_MOV, MOV);
+	inst->mode = M_CI;
 	inst->direction = true;
 	inst->is_first_def = true;
 	inst->is_memory = false;
@@ -2273,6 +2278,7 @@ static void
 add_unop(TranslationState *ts, X86Group3 op, Oper op1)
 {
 	Inst *inst = add_inst(ts, IK_UNALU, op);
+	inst->mode = M_R;
 	inst->direction = true;
 	inst->is_first_def = true;
 	inst->is_memory = false;
@@ -2284,6 +2290,7 @@ static void
 add_binop(TranslationState *ts, X86Group1 op, Oper op1, Oper op2)
 {
 	Inst *inst = add_inst(ts, IK_BINALU, op);
+	inst->mode = M_Rr;
 	inst->direction = true;
 	inst->is_first_def = true;
 	inst->is_memory = false;
@@ -2296,6 +2303,7 @@ static void
 add_cmp(TranslationState *ts, X86Group1 op, Oper op1, Oper op2)
 {
 	Inst *inst = add_inst(ts, IK_BINALU, op);
+	inst->mode = M_rr;
 	inst->direction = true;
 	inst->is_first_def = false;
 	inst->is_memory = false;
@@ -2308,6 +2316,7 @@ static void
 add_shift(TranslationState *ts, X86Group2 op, Oper op1, Oper op2)
 {
 	Inst *inst = add_inst(ts, IK_SHIFT, op);
+	inst->mode = M_Rr;
 	inst->direction = true;
 	inst->is_first_def = true;
 	inst->is_memory = false;
@@ -2321,6 +2330,7 @@ static void
 add_push(TranslationState *ts, Oper oper)
 {
 	Inst *inst = add_inst(ts, IK_PUSH, 0);
+	inst->mode = M_r;
 	inst->direction = true;
 	inst->is_first_def = false;
 	inst->is_memory = false;
@@ -2332,6 +2342,7 @@ static void
 add_pop(TranslationState *ts, Oper oper)
 {
 	Inst *inst = add_inst(ts, IK_POP, 0);
+	inst->mode = M_C;
 	inst->direction = true;
 	inst->is_first_def = true;
 	inst->is_memory = false;
@@ -2343,6 +2354,7 @@ static void
 add_setcc(TranslationState *ts, CondCode cc, Oper oper)
 {
 	Inst *inst = add_inst(ts, IK_SETCC, cc);
+	inst->mode = M_C;
 	inst->direction = true;
 	inst->is_first_def = true;
 	inst->is_memory = false;
@@ -2354,6 +2366,7 @@ static void
 add_imul3(TranslationState *ts, Oper dest, Oper arg, Oper imm)
 {
 	Inst *inst = add_inst(ts, IK_IMUL3, 0);
+	inst->mode = M_CrI;
 	inst->direction = true;
 	inst->is_first_def = true;
 	inst->is_memory = false;
@@ -2367,6 +2380,7 @@ static void
 add_jmp(TranslationState *ts, Oper block_index)
 {
 	Inst *inst = add_inst(ts, IK_JUMP, 0);
+	inst->mode = M_L;
 	inst->direction = true;
 	inst->is_first_def = false;
 	inst->is_memory = false;
@@ -2378,6 +2392,7 @@ static void
 add_jcc(TranslationState *ts, CondCode cc, Oper block_index)
 {
 	Inst *inst = add_inst(ts, IK_JCC, cc);
+	inst->mode = M_L;
 	inst->direction = true;
 	inst->is_first_def = false;
 	inst->is_memory = false;
@@ -2389,23 +2404,13 @@ static void
 add_call(TranslationState *ts, Oper function_index, Oper arg_cnt)
 {
 	Inst *inst = add_inst(ts, IK_CALL, 0);
+	inst->mode = M_L;
 	inst->direction = true;
 	inst->is_first_def = false;
 	inst->is_memory = false;
 	inst->has_imm = true;
 	IIMM(inst) = function_index;
 	IARG_CNT(inst) = arg_cnt;
-}
-
-static Inst *
-add_nullary(TranslationState *ts, InstKind kind, int subkind)
-{
-	Inst *inst = add_inst(ts, IK_RET, 0);
-	inst->direction = true;
-	inst->is_first_def = false;
-	inst->is_memory = false;
-	inst->has_imm = false;
-	return inst;
 }
 
 static void
@@ -2427,13 +2432,18 @@ translate_return(TranslationState *ts, Oper *ret_val)
 	}
 	// Restore callee saved registers. See prologue for more details.
 	size_t callee_saved_reg = ts->callee_saved_reg_start;
-	for (size_t i = 0; i < ARRAY_LEN(callee_saved); i++) {
-		add_copy(ts, callee_saved[i], callee_saved_reg++);
+	for (size_t i = 0; i < ARRAY_LEN(saved); i++) {
+		add_copy(ts, saved[i], callee_saved_reg++);
 	}
 	add_copy(ts, R_RSP, R_RBP);
 	add_pop(ts, R_RBP);
 	// TODO: ret "reads" return value callee saved registers
-	Inst *ret = add_nullary(ts, IK_RET, 0); // TODO: subkind = calling convention?
+	Inst *ret = add_inst(ts, IK_RET, 0); // TODO: subkind = calling convention?
+	ret->mode = M_RET;
+	ret->direction = true;
+	ret->is_first_def = false;
+	ret->is_memory = false;
+	ret->has_imm = false;
 	if (ret_val) {
 		// Make return instruction read the returned value.
 		// NOTE: This has to be updated when multiple return registers
@@ -2466,18 +2476,19 @@ translate_shift(TranslationState *ts, X86Group2 op, Oper res, Oper arg1, Oper ar
 }
 
 static void
-translate_div(TranslationState *ts, Oper res, Oper *ops, bool modulo)
+translate_div(TranslationState *ts, Oper res, Oper arg1, Oper arg2, bool modulo)
 {
 	// TODO: cdq = sign extend RAX into RDX
 	add_set_zero(ts, R_RDX);
-	add_copy(ts, R_RAX, ops[0]);
+	add_copy(ts, R_RAX, arg1);
 
 	Inst *inst = add_inst(ts, IK_MULDIV, G3_IDIV);
+	inst->mode = M_ADr;
 	inst->direction = true;
 	inst->is_first_def = false;
 	inst->is_memory = false;
 	inst->has_imm = false;
-	IREG(inst) = ops[1];
+	IREG(inst) = arg2;
 
 	Oper result = modulo ? R_RDX : R_RAX;
 	add_copy(ts, res, result);
@@ -2584,10 +2595,10 @@ translate_value(TranslationState *ts, Value *v)
 		translate_binop(ts, G1_IMUL, res, ops[0], ops[1]);
 		break;
 	case VK_DIV:
-		translate_div(ts, res, ops, false);
+		translate_div(ts, res, ops[0], ops[1], false);
 		break;
 	case VK_MOD:
-		translate_div(ts, res, ops, true);
+		translate_div(ts, res, ops[0], ops[1], true);
 		break;
 	case VK_AND:
 		translate_binop(ts, G1_AND, res, ops[0], ops[1]);
@@ -2958,48 +2969,31 @@ get_live_out(RegAllocState *ras, Block *block, WorkList *live_set)
 void
 for_each_def(Inst *inst, void (*fun)(void *user_data, Oper *def), void *user_data)
 {
-	if (inst->is_first_def) {
-		fun(user_data, &inst->ops[0]);
+	InsFormat *mode = &formats[inst->mode];
+	for (size_t i = mode->def_start; i < mode->def_end; i++) {
+		fun(user_data, &inst->ops[i]);
 	}
-	switch (inst->kind) {
-	case IK_MULDIV:
-		fun(user_data, &(Oper) { R_RAX });
-		fun(user_data, &(Oper) { R_RDX });
-		break;
-	case IK_CALL:
-		for (size_t i = 0; i < ARRAY_LEN(caller_saved); i++) {
-			fun(user_data, &caller_saved[i]);
-		}
-		break;
+	for (Oper *def = mode->extra_defs; *def != R_NONE; def++) {
+		fun(user_data, def);
 	}
 }
 
 void
 for_each_use(Inst *inst, void (*fun)(void *user_data, Oper *use), void *user_data)
 {
-	if (inst->kind == IK_BLOCK || inst->kind == IK_FUNCTION) {
-		return;
+	InsFormat *mode = &formats[inst->mode];
+	for (size_t i = mode->use_start; i < mode->use_end; i++) {
+		fun(user_data, &inst->ops[i]);
 	}
-	if (!inst->direction || (inst->kind != IK_MOV && inst->kind != IK_POP && inst->kind != IK_IMUL3 && inst->kind != IK_CMOVCC)) {
-		fun(user_data, &IREG(inst));
-	}
-	fun(user_data, &IBASE(inst));
-	fun(user_data, &IINDEX(inst));
-	switch (inst->kind) {
-	case IK_MULDIV:
-		fun(user_data, &(Oper) { R_RAX });
-		fun(user_data, &(Oper) { R_RDX });
-		break;
-	case IK_CALL:
-		for (size_t i = 0; i < IARG_CNT(inst); i++) {
-			fun(user_data, &argument_regs[i]);
+	if (mode->use_cnt_given_by_first) {
+		size_t use_cnt = inst->ops[0];
+		for (size_t i = 0; i < use_cnt; i++) {
+			fun(user_data, &mode->extra_uses[i]);
 		}
-		break;
-	case IK_RET:
-		for (size_t i = 0; i < ARRAY_LEN(callee_saved); i++) {
-			fun(user_data, &callee_saved[i]);
+	} else {
+		for (Oper *use = mode->extra_uses; *use != R_NONE; use++) {
+			fun(user_data, use);
 		}
-		break;
 	}
 }
 
@@ -3026,6 +3020,9 @@ add_to_live(void *user_data, Oper *oper)
 void
 live_step(WorkList *live_set, Inst *inst)
 {
+	fprintf(stderr, "Live step at\t");
+	print_inst(stderr, inst);
+	fprintf(stderr, "\n");
 	// Remove definitions from live.
 	for_each_def(inst, remove_from_live, live_set);
 	// Add uses to live.
@@ -3105,6 +3102,7 @@ insert_loads_of_spilled(void *user_data, Oper *src)
 	print_reg(stderr, temp);
 	Inst *load = create_inst(ras->arena, IK_MOV, MOV);
 	//Inst *load = make_inst(ras->arena, OP_MOV_RMC, temp, R_RBP, 8 + ras->to_spill[src]);
+	load->mode = M_CM;
 	load->prev = inst->prev;
 	load->next = inst;
 	load->direction = true;
@@ -3149,6 +3147,7 @@ insert_stores_of_spilled(void *user_data, Oper *dest)
 
 	//Inst *store = make_inst(ras->arena, OP_MOV_MCR, R_RBP, temp, 8 + ras->to_spill[dest]);
 	Inst *store = create_inst(ras->arena, IK_MOV, MOV);
+	store->mode = M_Mr;
 	store->prev = inst;
 	store->next = inst->next;
 	store->direction = false;
@@ -3197,10 +3196,10 @@ apply_reg_assignment(RegAllocState *ras)
 	MFunction *mfunction = ras->mfunction;
 	for (Inst *inst = mfunction->insts.next; inst != &mfunction->insts; inst = inst->next) {
 		// TODO: different number of register slots per target
-		if (inst->kind == IK_BLOCK || inst->kind == IK_FUNCTION) {
-			continue;
-		}
-		for (size_t i = 0; i < 3; i++) {
+		// TODO: store number of registers in mode
+		InsFormat *mode = &formats[inst->mode];
+		size_t end = mode->use_end > mode->def_end ? mode->use_end : mode->def_end;
+		for (size_t i = 0; i < end; i++) {
 			assert(inst->ops[i] >= 0);
 			inst->ops[i] = ras->reg_assignment[ras->alias[inst->ops[i]]];
 		}
@@ -3380,6 +3379,7 @@ translate_function(Arena *arena, Function *function, size_t start_index)
 	memset(mfunction, 0, sizeof(*mfunction));
 	mfunction->insts.kind = IK_FUNCTION;
 	mfunction->insts.subkind = 0;
+	mfunction->insts.mode = M_N;
 	IIMM(&mfunction->insts) = function->base.index;
 	mfunction->insts.next = &mfunction->insts;
 	mfunction->insts.prev = &mfunction->insts;
@@ -3404,6 +3404,7 @@ translate_function(Arena *arena, Function *function, size_t start_index)
 		garena_push_value(&gmblocks, MBlock *, mblock);
 		mblock->insts.kind = IK_BLOCK;
 		mblock->insts.subkind = 0;
+		mblock->insts.mode = M_N;
 		add_inst_(ts, &mblock->insts);
 		mblock->block = block;
 		mblock->index = block->base.index;
@@ -3417,6 +3418,7 @@ translate_function(Arena *arena, Function *function, size_t start_index)
 			// space requirement after register allocation.
 			ts->make_stack_space = add_inst(ts, IK_BINALU, G1_SUB);
 			Inst *inst = ts->make_stack_space;
+			inst->mode = M_RI;
 			inst->direction = true;
 			inst->is_first_def = true;
 			inst->is_memory = false;
@@ -3433,8 +3435,8 @@ translate_function(Arena *arena, Function *function, size_t start_index)
 			// likely be coalesced with the registers and
 			// the copies eliminated.
 			ts->callee_saved_reg_start = ts->index;
-			for (size_t i = 0; i < ARRAY_LEN(callee_saved); i++) {
-				add_copy(ts, ts->index++, callee_saved[i]);
+			for (size_t i = 0; i < ARRAY_LEN(saved); i++) {
+				add_copy(ts, ts->index++, saved[i]);
 			}
 		}
 		for (Value *v = block->head; v; v = v->next) {
