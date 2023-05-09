@@ -3612,7 +3612,6 @@ translate_function(Arena *arena, Function *function, size_t start_index)
 		garena_push_value(&gmblocks, MBlock *, mblock);
 		mblock->insts.kind = IK_BLOCK;
 		mblock->insts.subkind = 0;
-		IIMM(&mblock->insts) = block->base.index;
 		add_inst_(ts, &mblock->insts);
 		mblock->block = block;
 		mblock->index = block->base.index;
@@ -3657,7 +3656,7 @@ translate_function(Arena *arena, Function *function, size_t start_index)
 	mfunction->mblock_cnt = garena_cnt(&gmblocks, MBlock *),
 	mfunction->mblocks = move_to_arena(arena, &gmblocks, 0, MBlock *),
 	garena_destroy(&gmblocks);
-	function->mfunc= mfunction;
+	function->mfunc = mfunction;
 	return mfunction;
 }
 
