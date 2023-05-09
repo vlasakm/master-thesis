@@ -4398,6 +4398,33 @@ peephole(MFunction *mfunction, Arena *arena)
 			continue;
 		}
 
+
+		// mov t20, t19
+		// add t20, X
+		// =>
+		// coalesce if possible
+		// HOW? Integrate with register coalescing?
+
+		//     jge .BB3
+		//     jmp .BB4
+		// .BB3:
+		// =>
+		//     jl .BB4
+		// .BB3:
+		if (IK(pprev) == IK_JCC && IK(prev) == IK_JUMP && IK(inst) == IK_BLOCK && container_of(inst, MBlock, insts)->index == IIMM(pprev)) {
+			IK(prev) = IK_JCC;
+			IS(prev) = cc_invert(IS(pprev));
+			pprev->prev->next = prev;
+			prev->prev = pprev->prev;
+			inst = prev;
+			continue;
+		}
+
+		// mov rax, [rbp-16]
+		// cmp rax, 10
+		// =>
+		// cmp [rbp-16], 10
+
 		// mov rax, [rbp-24]
 		// add rax, 1
 		// mov [rbp-24], rax
