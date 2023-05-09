@@ -26,16 +26,6 @@ typedef int16_t i16;
 typedef int32_t i32;
 typedef int64_t i64;
 
-#define garena_array(arena, type) \
-	((type *) garena_mem((arena)))
-
-#define garena_array_from(arena, start, type) \
-	((type *) garena_from((arena), (start), alignof(type)))
-
-#define garena_for_each(arena, type, name) \
-	for (type *name = garena_array((arena), (type)), *end_ = garena_array((arena), (type)) + garena_cnt((arena), (type)); name != end_; name++)
-
-
 #define UNREACHABLE() unreachable(__FILE__, __LINE__)
 _Noreturn void
 unreachable(char *file, size_t line)

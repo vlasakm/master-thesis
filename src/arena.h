@@ -107,6 +107,12 @@ void *garena_restore(GArena *arena, size_t pos);
 void *move_to_arena_(Arena *arena, GArena *garena, size_t start, size_t alignment);
 
 
+#define garena_array(arena, type) \
+	((type *) garena_mem((arena)))
+
+#define garena_array_from(arena, start, type) \
+	((type *) garena_from((arena), (start), alignof(type)))
+
 void *garena_mem(GArena *arena);
 void *garena_from(GArena *arena, size_t start, size_t alignment);
 
