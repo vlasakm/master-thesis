@@ -35,8 +35,10 @@ arena_alloc(Arena *arena, size_t size)
 		new->prev = arena->current;
 		arena->current = new;
 		pos = align(sizeof(ArenaChunk), 8);
+		ASAN_POISON_MEMORY_REGION(((unsigned char *) new) + pos, new_size - pos);
 	}
 	arena->current->pos = pos + size;
+	ASAN_UNPOISON_MEMORY_REGION(((unsigned char *) arena->current) + pos, size);
 	return ((unsigned char *) arena->current) + pos;
 }
 
@@ -57,6 +59,7 @@ arena_restore(Arena *arena, size_t pos)
 		arena->prev_size_sum -= chunk->size;
 	}
 	chunk->pos = pos - arena->prev_size_sum;
+	ASAN_POISON_MEMORY_REGION(((unsigned char *) chunk) + chunk->pos, chunk->size - chunk->pos);
 	arena->current = chunk;
 }
 

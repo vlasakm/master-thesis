@@ -128,6 +128,28 @@ size_t garena_cnt_from_(GArena *arena, size_t start, size_t elem_size);
 	} while (0)
 
 
+// ASAN integeration
+
+#ifndef __has_feature
+#define __has_feature(x) 0
+#endif
+
+#if defined(__SANITIZE_ADDRESS__) || __has_feature(address_sanitizer)
+// https://github.com/google/sanitizers/wiki/AddressSanitizerManualPoisoning
+void __asan_poison_memory_region(void const volatile *addr, size_t size);
+void __asan_unpoison_memory_region(void const volatile *addr, size_t size);
+#define ASAN_POISON_MEMORY_REGION(addr, size) \
+	__asan_poison_memory_region((addr), (size))
+#define ASAN_UNPOISON_MEMORY_REGION(addr, size) \
+	__asan_unpoison_memory_region((addr), (size))
+#else
+#define ASAN_POISON_MEMORY_REGION(addr, size) \
+	((void) (addr), (void) (size))
+#define ASAN_UNPOISON_MEMORY_REGION(addr, size) \
+	((void) (addr), (void) (size))
+#endif
+
+
 
 // PRIVATE IMPLEMENTATION DETAILS
 
