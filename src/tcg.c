@@ -12,7 +12,9 @@
 #include <assert.h>
 #include <errno.h>
 
+#include "utils.h"
 #include "arena.h"
+#include "worklist.h"
 
 typedef uint8_t  u8;
 typedef uint16_t u16;
@@ -32,35 +34,6 @@ typedef int64_t i64;
 
 #define garena_for_each(arena, type, name) \
 	for (type *name = garena_array((arena), (type)), *end_ = garena_array((arena), (type)) + garena_cnt((arena), (type)); name != end_; name++)
-
-#define container_of(member_ptr, type, member) \
-	((type *) ((u8 *)(1 ? (member_ptr) : &((type *) 0)->member) - offsetof(type, member)))
-
-#define GROW_ARRAY(array, new_count) \
-	do { \
-		(array) = realloc((array), (new_count) * sizeof((array)[0])); \
-	} while(0)
-
-#define ZERO_ARRAY(array, count) \
-	do { \
-		memset((array), 0, (count) * sizeof((array)[0])); \
-	} while(0)
-
-#define FREE_ARRAY(array, count) \
-	do { \
-		(void) (count); \
-		free((array)); \
-	} while(0)
-
-#define ARRAY_LEN(arr) (sizeof((arr)) / sizeof((arr)[0]))
-
-#ifdef __GNUC__
-#define printf_attr(n) __attribute__((format(printf, n, n + 1)))
-#else
-#define printf_attr(n)
-#endif
-
-#define USE_VALGRIND
 
 
 #define UNREACHABLE() unreachable(__FILE__, __LINE__)
@@ -115,7 +88,7 @@ arena_vaprintf(Arena *arena, const char *fmt, va_list ap)
 	return (Str) { .str = mem, .len = len - 1 };
 }
 
-Str printf_attr(2)
+Str PRINTF_LIKE(2)
 arena_aprintf(Arena *arena, const char *fmt, ...)
 {
 	va_list ap;
@@ -574,7 +547,7 @@ typedef struct {
 	Str name;
 } TypedName;
 
-static void printf_attr(4)
+static void PRINTF_LIKE(4)
 parser_error(Parser *parser, Token errtok, bool panic, const char *msg, ...)
 {
 	va_list ap;
@@ -2777,177 +2750,6 @@ ig_interfere(InterferenceGraph *ig, Oper op1, Oper op2)
 	return one;
 }
 
-typedef struct {
-	size_t head;
-	size_t tail;
-	size_t mask;
-	Oper *sparse;
-	Oper *dense;
-} WorkList;
-
-void
-wl_grow(WorkList *wl, size_t new_capacity)
-{
-	// Worklist can't be entirely full (2^new_capacity elements), because
-	// then we wouldn't be able to distinguish between "full" and "empty",
-	// so we overallocate to make sure we don't hit this edge case.
-	new_capacity *= 2;
-	wl->mask = new_capacity - 1;
-	GROW_ARRAY(wl->dense, new_capacity);
-	GROW_ARRAY(wl->sparse, new_capacity);
-#ifdef USE_VALGRIND
-	ZERO_ARRAY(wl->sparse, new_capacity);
-#endif
-}
-
-void
-wl_init_all(WorkList *wl, Oper op)
-{
-	assert(op < wl->mask);
-	wl->tail = op;
-	for (size_t i = 0; i < op; i++) {
-		wl->dense[i] = i;
-		wl->sparse[i] = i;
-	}
-	for (size_t i = wl->head; i < wl->tail; i++) {
-		assert(wl->sparse[wl->dense[i]] == (Oper) i);
-	}
-}
-
-#define FOR_EACH_WL_INDEX(wl, i) \
-	for (size_t i = (wl)->head; i != (wl)->tail; i = (i + 1) & (wl)->mask)
-
-void
-wl_init_all_reverse(WorkList *wl, Oper op)
-{
-	assert(op < wl->mask);
-	wl->head = 0;
-	wl->tail = op;
-	for (size_t i = 0; i < op; i++) {
-		wl->dense[i] = op - i - 1;
-		wl->sparse[op - i - 1] = i;
-	}
-	for (size_t i = 0; i < op; i++) {
-		assert(wl->sparse[wl->dense[i]] == (Oper) i);
-	}
-}
-
-bool
-wl_has(WorkList *wl, Oper op)
-{
-	return wl->sparse[op] >= wl->head && wl->sparse[op] < wl->tail && wl->dense[wl->sparse[op]] == op;
-}
-
-bool
-wl_add(WorkList *wl, Oper op)
-{
-	assert(op < wl->mask);
-	if (!wl_has(wl, op)) {
-		wl->sparse[op] = wl->tail;
-		wl->dense[wl->tail] = op;
-		wl->tail = (wl->tail + 1) & wl->mask;
-		FOR_EACH_WL_INDEX(wl, i) {
-			assert(wl->sparse[wl->dense[i]] == (Oper) i);
-		}
-		return true;
-	}
-	return false;
-}
-
-void
-wl_union(WorkList *wl, WorkList *other)
-{
-	FOR_EACH_WL_INDEX(other, i) {
-		wl_add(wl, other->dense[i]);
-	}
-}
-
-bool
-wl_remove(WorkList *wl, Oper op)
-{
-	assert(op < wl->mask);
-	if (wl_has(wl, op)) {
-		wl->tail = (wl->tail - 1) & wl->mask;
-		Oper last = wl->dense[wl->tail];
-		wl->dense[wl->sparse[op]] = last;
-		wl->sparse[last] = wl->sparse[op];
-		wl->dense[wl->tail] = op;
-		FOR_EACH_WL_INDEX(wl, i) {
-			assert(wl->sparse[wl->dense[i]] == (Oper) i);
-		}
-		return true;
-	}
-	return false;
-}
-
-bool
-wl_take(WorkList *wl, Oper *taken)
-{
-	if (wl->head == wl->tail) {
-		return false;
-	}
-	*taken = wl->dense[wl->head];
-	wl->head = (wl->head + 1) & wl->mask;
-	return true;
-}
-
-bool
-wl_take_back(WorkList *wl, Oper *taken)
-{
-	if (wl->head == wl->tail) {
-		return false;
-	}
-	wl->tail = (wl->tail - 1) & wl->mask;
-	*taken = wl->dense[wl->tail];
-	return true;
-}
-
-Oper
-wl_cnt(WorkList *wl)
-{
-	if (wl->head <= wl->tail) {
-		return wl->tail - wl->head;
-	} else {
-		return wl->tail + wl->mask + 1 - wl->head;
-	}
-}
-
-Oper
-wl_empty(WorkList *wl)
-{
-	return wl->tail == wl->head;
-}
-
-void
-wl_reset(WorkList *wl)
-{
-	wl->head = wl->tail = 0;
-}
-
-bool
-wl_eq(WorkList *wl, WorkList *other)
-{
-	assert(wl->mask == other->mask);
-	if (wl_cnt(wl) != wl_cnt(other)) {
-		return false;
-	}
-	for (size_t i = wl->head; i < wl->tail; i++) {
-		if (!wl_has(other, wl->dense[i])) {
-			return false;
-		}
-	}
-	return true;
-}
-
-void
-wl_destroy(WorkList *wl)
-{
-	free(wl->sparse);
-	free(wl->dense);
-	*wl = (WorkList) {0};
-}
-
-
 void
 print_mfunction(FILE *f, MFunction *mfunction)
 {
@@ -4614,7 +4416,7 @@ parse_source(ErrorContext *ec, Arena *arena, Str source)
 	return module;
 }
 
-static void printf_attr(2)
+static void PRINTF_LIKE(2)
 argument_error(ErrorContext *ec, const char *msg, ...)
 {
 	va_list ap;

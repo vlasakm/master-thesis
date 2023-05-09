@@ -163,8 +163,6 @@ INST_KINDS(REPR)
 };
 */
 
-typedef i32 Oper;
-
 typedef enum {
 	G1_ADD,
 	G1_OR,
