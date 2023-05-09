@@ -177,6 +177,20 @@ typedef enum {
 	G1_TEST,
 } X86Group1;
 
+static const char *g1_repr[] = {
+	"add",
+	"or",
+	"adc",
+	"sbb",
+	"and",
+	"sub",
+	"xor",
+	"cmp",
+
+	"imul",
+	"test",
+};
+
 typedef enum {
 	G2_ROL,
 	G2_ROR,
@@ -188,6 +202,17 @@ typedef enum {
 	G2_SAR,
 } X86Group2;
 
+static const char *g2_repr[] = {
+	"rol",
+	"ror",
+	"rcl",
+	"rcr",
+	"shl",
+	"shr",
+	"sal",
+	"sar",
+};
+
 typedef enum {
 	G3_TEST,
 	G3_TEST2,
@@ -198,6 +223,17 @@ typedef enum {
 	G3_DIV,
 	G3_IDIV,
 } X86Group3;
+
+static const char *g3_repr[] = {
+	"test",
+	"test",
+	"not",
+	"neg",
+	"mul",
+	"imul",
+	"div",
+	"idiv",
+};
 
 #define INSTRUCTIONS(_) \
 	_(BIN_RR, "G1:0 S0, S1", 1, 2, 1, 0) \
@@ -286,14 +322,67 @@ typedef enum {
 	IK_LEAVE,
 	IK_PUSH, // 0 : 1-3
 	IK_POP, // 0-1 : 1-3
-	IK_INCDEC, // INC, DEC
+	//IK_INCDEC, // INC, DEC
 	IK__MAX,
 } InstKind;
+
+static const char *ik_repr[] = {
+	"",
+	"",
+	"",
+	"",
+	"",
+	"imul",
+	"",
+	"jmp",
+	"call",
+	"j",
+	"set",
+	"cmov",
+	"",
+	"ret",
+	"nop",
+	"leave",
+	"push",
+	"pop",
+	"",
+};
+
+static const char *no_repr[] = {
+	"",
+};
 
 enum {
 	MOV,
 	LEA,
 };
+
+static const char *mov_repr[] = {
+	"mov",
+	"lea",
+};
+
+static const char **is_repr[] = {
+	no_repr,
+	no_repr,
+	mov_repr,
+	g1_repr,
+	g3_repr,
+	no_repr,
+	g2_repr,
+	no_repr,
+	no_repr,
+	cc_repr,
+	cc_repr,
+	cc_repr,
+	g3_repr,
+	no_repr,
+	no_repr,
+	no_repr,
+	no_repr,
+	no_repr,
+};
+
 
 // R = RW register
 // r = R register

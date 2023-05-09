@@ -232,8 +232,6 @@ typedef enum {
 	R__MAX,
 } Reg;
 
-#include "defs.c"
-
 static const char *reg_repr[] = {
 	"NONE",
 	"rax",
@@ -292,6 +290,27 @@ typedef enum {
 	CC_NLE = 0x0F,
 	CC_G = 0x0F,
 } CondCode;
+
+static const char *cc_repr[] = {
+	"o",
+	"no",
+	"b",
+	"ae",
+	"z",
+	"nz",
+	"be",
+	"a",
+	"s",
+	"ns",
+	"p",
+	"np",
+	"l",
+	"ge",
+	"le",
+	"g",
+};
+
+#include "defs.c"
 
 CondCode
 cc_invert(CondCode cc)
@@ -1846,8 +1865,128 @@ print_inst_d(FILE *f, Inst *inst)
 }
 
 void
+print_mem(FILE *f, Inst *inst)
+{
+	fprintf(f, "[");
+	if (IBASE(inst) == R_NONE) {
+		fprintf(f, "global%"PRIi32, IDISP(inst));
+	} else {
+		print_reg(f, IBASE(inst));
+		if (IINDEX(inst)) {
+			fprintf(f, "+");
+			if (ISCALE(inst) != 0) {
+				fprintf(f, "%d*", 1 << ISCALE(inst));
+			}
+			print_reg(f, IINDEX(inst));
+		}
+		if (IDISP(inst)) {
+			fprintf(f, "%+"PRIi32, IDISP(inst));
+		}
+	}
+	fprintf(f, "]");
+}
+
+void
 print_inst(FILE *f, Inst *inst)
 {
+	fprintf(f, "%s%s", ik_repr[IK(inst)], is_repr[IK(inst)][IS(inst)]);
+	switch (inst->mode) {
+	case M_Rr:
+	case M_rr:
+	case M_Cr:
+		fprintf(f, " ");
+		print_reg(f, IREG1(inst));
+		fprintf(f, ", ");
+		print_reg(f, IREG2(inst));
+		break;
+	case M_RM:
+	case M_rM:
+	case M_CM:
+		fprintf(f, " ");
+		print_reg(f, IREG(inst));
+		fprintf(f, ", ");
+		print_mem(f, inst);
+		break;
+	case M_Mr:
+		fprintf(f, " ");
+		print_mem(f, inst);
+		fprintf(f, ", ");
+		print_reg(f, IREG(inst));
+		break;
+	case M_RI:
+	case M_rI:
+	case M_CI:
+		fprintf(f, " ");
+		print_reg(f, IREG(inst));
+		fprintf(f, ", ");
+		fprintf(f, "%"PRIi32, IIMM(inst));
+		break;
+	case M_MI:
+		fprintf(f, " ");
+		fprintf(f, "qword ");
+		print_mem(f, inst);
+		fprintf(f, ", ");
+		fprintf(f, "%"PRIi32, IIMM(inst));
+		break;
+	case M_CrI:
+		fprintf(f, " ");
+		print_reg(f, IREG1(inst));
+		fprintf(f, ", ");
+		print_reg(f, IREG2(inst));
+		fprintf(f, "%"PRIi32, IIMM(inst));
+		break;
+	case M_CMI:
+		fprintf(f, " ");
+		print_reg(f, IREG(inst));
+		fprintf(f, ", ");
+		print_mem(f, inst);
+		fprintf(f, "%"PRIi32, IIMM(inst));
+		break;
+	case M_R:
+	case M_r:
+	case M_C:
+	case M_ADr:
+		fprintf(f, " ");
+		if (IK(inst) == IK_SETCC) {
+			print_reg8(f, IREG(inst));
+		} else {
+			print_reg(f, IREG(inst));
+		}
+		break;
+	case M_ADM:
+	case M_M:
+		fprintf(f, " ");
+		print_mem(f, inst);
+		break;
+	case M_I:
+		fprintf(f, " ");
+		fprintf(f, "%"PRIi32, IIMM(inst));
+		break;
+	case M_L:
+		fprintf(f, " ");
+		fprintf(f, ".BB%"PRIi32, IIMM(inst));
+		break;
+	case M_NONE:
+	case M_RET:
+		switch (inst->kind) {
+		case IK_FUNCTION: {
+			fprintf(f, "function:");
+			break;
+		}
+		case IK_BLOCK: {
+			MBlock *block = container_of(inst, MBlock, insts);
+			fprintf(f, ".BB%zu:", block->index);
+			break;
+		}
+		default: break;
+		}
+		break;
+	case M_CALL:
+		fprintf(f, " ");
+		fprintf(f, "function%"PRIi32, IIMM(inst));
+		break;
+	}
+	/*
 	char *m;
 	switch (inst->kind) {
 	case IK_FUNCTION: {
@@ -2032,6 +2171,7 @@ print_inst(FILE *f, Inst *inst)
 	if (inst->has_imm) {
 		fprintf(f, ", %"PRIi32, IIMM(inst));
 	}
+	*/
 
 	/*
 	InstDesc *desc = &inst_desc[inst->op];
@@ -4482,10 +4622,10 @@ main(int argc, char **argv)
 		print_function(stderr, functions[i]);
 		translate_function(arena, functions[i], index);
 		print_mfunction(stderr, functions[i]->mfunc);
-		peephole(functions[i]->mfunc, arena);
+		//peephole(functions[i]->mfunc, arena);
 		print_mfunction(stderr, functions[i]->mfunc);
 		reg_alloc_function(&ras, functions[i]->mfunc);
-		peephole(functions[i]->mfunc, arena);
+		//peephole(functions[i]->mfunc, arena);
 		//peephole(functions[i]->mfunc, arena);
 	}
 
