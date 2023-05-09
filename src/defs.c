@@ -712,6 +712,7 @@ typedef struct {
 	Block *block;
 	size_t index;
 	Inst insts;
+	Inst *last;
 } MBlock;
 
 struct MFunction {

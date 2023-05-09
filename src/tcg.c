@@ -3442,6 +3442,7 @@ translate_function(Arena *arena, Function *function, size_t start_index)
 		for (Value *v = block->head; v; v = v->next) {
 			translate_value(ts, v);
 		}
+		mblock->last = mfunction->insts.prev;
 	}
 
 	mfunction->vreg_cnt = ts->index;
@@ -3468,7 +3469,7 @@ build_interference_graph(RegAllocState *ras)
 		get_live_out(ras, block, live_set);
 		// process the block back to front, updating live_set in the
 		// process
-		for (Inst *inst = mblock->insts.prev; IK(inst) != IK_BLOCK; inst = inst->prev) {
+		for (Inst *inst = mblock->last; inst != &mblock->insts; inst = inst->prev) {
 			live_step(live_set, inst);
 		}
 		if (!wl_eq(live_set, &ras->live_in[b])) {
@@ -3487,7 +3488,7 @@ build_interference_graph(RegAllocState *ras)
 		MBlock *mblock = mfunction->mblocks[b];
 		Block *block = mblock->block;
 		get_live_out(ras, block, live_set);
-		for (Inst *inst = mblock->insts.prev; IK(inst) != IK_BLOCK; inst = inst->prev) {
+		for (Inst *inst = mblock->last; inst != &mblock->insts; inst = inst->prev) {
 			interference_step(ras, live_set, inst);
 			live_step(live_set, inst);
 		}
