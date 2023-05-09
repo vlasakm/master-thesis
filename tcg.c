@@ -4223,6 +4223,17 @@ peephole(MFunction *mfunction, Arena *arena)
 			goto next;
 		}
 
+		//     jmp .BB5
+		// .BB5:
+		// =>
+		// .BB5:
+		if (IK(inst) == IK_BLOCK && IK(prev) == IK_JUMP && IIMM(prev) == container_of(inst, MBlock, insts)->index) {
+			prev->prev->next = inst;
+			inst->prev = prev->prev;
+			inst = inst;
+			continue;
+		}
+
 		// mov rcx, 8
 		// add rax, rcx
 		// =>
