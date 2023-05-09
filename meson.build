@@ -15,6 +15,12 @@ cflags = [
 	'-Wno-sign-compare',
 ]
 
+if get_option('buildtype') == 'debug'
+	cflags += [
+		'-g3',
+	]
+endif
+
 cc = meson.get_compiler('c')
 
 add_project_arguments(
