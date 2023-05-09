@@ -3020,9 +3020,9 @@ add_to_live(void *user_data, Oper *oper)
 void
 live_step(WorkList *live_set, Inst *inst)
 {
-	fprintf(stderr, "Live step at\t");
-	print_inst(stderr, inst);
-	fprintf(stderr, "\n");
+	//fprintf(stderr, "Live step at\t");
+	//print_inst(stderr, inst);
+	//fprintf(stderr, "\n");
 	// Remove definitions from live.
 	for_each_def(inst, remove_from_live, live_set);
 	// Add uses to live.
