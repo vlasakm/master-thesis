@@ -4065,9 +4065,15 @@ coalesce(RegAllocState *ras)
 		}
 		if (u == v) {
 			// already coalesced
+			fprintf(stderr, "Already coalesced: \t");
+			print_inst(stderr, move);
+			fprintf(stderr, "\n");
 			add_to_worklist(ras, u);
 		} else if (v < R__MAX || ig_interfere(&ras->ig, u, v)) {
 			// constrained
+			fprintf(stderr, "Constrained: \t");
+			print_inst(stderr, move);
+			fprintf(stderr, "\n");
 			add_to_worklist(ras, u);
 			add_to_worklist(ras, v);
 		} else if (are_coalesceble(ras, u, v)) {
@@ -4075,6 +4081,9 @@ coalesce(RegAllocState *ras)
 			combine(ras, u, v);
 			add_to_worklist(ras, u);
 		} else {
+			fprintf(stderr, "Moving to active: \t");
+			print_inst(stderr, move);
+			fprintf(stderr, "\n");
 			wl_add(&ras->active_moves_wl, m);
 		}
 	}
@@ -4234,6 +4243,29 @@ peephole(MFunction *mfunction, Arena *arena)
 			continue;
 		}
 
+		// mov rax, 1
+		// add rax, 2
+		// =>
+		// mov rax, 3
+		if (IK(inst) == IK_BINALU && inst->direction && !inst->is_memory && inst->has_imm && IK(prev) == IK_MOV && IS(prev) == MOV && prev->direction && !prev->is_memory && prev->has_imm && IREG(inst) == IREG(prev)) {
+			Oper left = IIMM(prev);
+			Oper right = IIMM(inst);
+			Oper result;
+			switch (IS(inst)) {
+			case G1_ADD:  result = left + right; break;
+			case G1_OR:   result = left | right; break;
+			case G1_AND:  result = left & right; break;
+			case G1_SUB:  result = left - right; break;
+			case G1_XOR:  result = left ^ right; break;
+			case G1_IMUL: result = left * right; break;
+			default: goto skip;
+			}
+			IIMM(prev) = result;
+			prev->next = inst->next;
+			inst->next->prev = prev;
+		skip:;
+		}
+
 		// mov rcx, 8
 		// add rax, rcx
 		// =>
@@ -4334,6 +4366,22 @@ peephole(MFunction *mfunction, Arena *arena)
 			continue;
 		}
 
+		// mov rax, [rbp-16]
+		// cmp rax, 10
+		// =>
+		// cmp [rbp-16], 10
+		if (IK(prev) == IK_MOV && IS(prev) == MOV && prev->direction && prev->is_memory && IK(inst) == IK_BINALU && (IS(inst) == G1_TEST || IS(inst) == G1_CMP) && inst->direction && !inst->is_memory && (inst->has_imm || IREG2(inst) != IREG(inst))) {
+			inst->is_memory = true;
+			inst->direction = false;
+			IREG(inst) = R_NONE;
+			ISCALE(inst) = ISCALE(prev);
+			IINDEX(inst) = IINDEX(prev);
+			IBASE(inst) = IBASE(prev);
+			IDISP(inst) = IDISP(prev);
+			inst->prev = prev->prev;
+			prev->prev->next = inst;
+			inst = inst;
+		}
 
 		// NOTE: Actually we likely transform `cmp REG, 0` to
 		// `test REG, REG` before this, but this pattern is more
@@ -4419,11 +4467,6 @@ peephole(MFunction *mfunction, Arena *arena)
 			inst = prev;
 			continue;
 		}
-
-		// mov rax, [rbp-16]
-		// cmp rax, 10
-		// =>
-		// cmp [rbp-16], 10
 
 		// mov rax, [rbp-24]
 		// add rax, 1
