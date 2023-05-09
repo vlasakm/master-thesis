@@ -276,7 +276,7 @@ typedef enum {
 	CC_BE = 0x06,
 	CC_NA = 0x06,
 	CC_NBE = 0x07,
-	CC_JA = 0x07,
+	CC_A = 0x07,
 	CC_S = 0x08,
 	CC_NS = 0x09,
 	CC_P = 0x0A,
@@ -2354,7 +2354,7 @@ static void
 add_setcc(TranslationState *ts, CondCode cc, Oper oper)
 {
 	Inst *inst = add_inst(ts, IK_SETCC, cc);
-	inst->mode = M_C;
+	inst->mode = M_R; // partial register read
 	inst->direction = true;
 	inst->is_first_def = true;
 	inst->is_memory = false;
@@ -2404,7 +2404,7 @@ static void
 add_call(TranslationState *ts, Oper function_index, Oper arg_cnt)
 {
 	Inst *inst = add_inst(ts, IK_CALL, 0);
-	inst->mode = M_L;
+	inst->mode = M_CALL;
 	inst->direction = true;
 	inst->is_first_def = false;
 	inst->is_memory = false;
@@ -3379,7 +3379,7 @@ translate_function(Arena *arena, Function *function, size_t start_index)
 	memset(mfunction, 0, sizeof(*mfunction));
 	mfunction->insts.kind = IK_FUNCTION;
 	mfunction->insts.subkind = 0;
-	mfunction->insts.mode = M_N;
+	mfunction->insts.mode = M_NONE;
 	IIMM(&mfunction->insts) = function->base.index;
 	mfunction->insts.next = &mfunction->insts;
 	mfunction->insts.prev = &mfunction->insts;
@@ -3404,7 +3404,7 @@ translate_function(Arena *arena, Function *function, size_t start_index)
 		garena_push_value(&gmblocks, MBlock *, mblock);
 		mblock->insts.kind = IK_BLOCK;
 		mblock->insts.subkind = 0;
-		mblock->insts.mode = M_N;
+		mblock->insts.mode = M_NONE;
 		add_inst_(ts, &mblock->insts);
 		mblock->block = block;
 		mblock->index = block->base.index;

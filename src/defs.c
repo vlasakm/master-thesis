@@ -323,7 +323,7 @@ typedef enum {
 	M_M,
 	M_I,
 	M_L,    // direction = true,  is_first_def = false, is_memory = false, has_imm = false
-	M_N,    // direction = true,  is_first_def = false, is_memory = false, has_imm = false
+	M_NONE, // direction = true,  is_first_def = false, is_memory = false, has_imm = false
 	M_CALL, // direction = true,  is_first_def = false, is_memory = false, has_imm = false
 	M_RET,  // direction = true,  is_first_def = false, is_memory = false, has_imm = false
 	M_ADr,  // direction = true,  is_first_def = false, is_memory = false, has_imm = false
@@ -371,7 +371,7 @@ InsFormat formats[] = {
 	[M_M]    = { 0, 0, 1, 3,  0, none, none },
 	[M_I]    = { 0, 0, 0, 0,  0, none, none },
 	[M_L]    = { 0, 0, 0, 0,  0, none, none },
-	[M_N]    = { 0, 0, 0, 0,  0, none, none },
+	[M_NONE] = { 0, 0, 0, 0,  0, none, none },
 	[M_CALL] = { 0, 0, 0, 0,  1, caller_saved, argument_regs },
 	[M_RET]  = { 0, 0, 0, 1,  0, none, callee_saved }, // hack for use of R_RAX (and potentially R_RDX)
 	[M_ADr]  = { 0, 0, 0, 1,  0, rax_rdx, rax_rdx },
