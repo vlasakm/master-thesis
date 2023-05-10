@@ -1986,300 +1986,6 @@ print_inst(FILE *f, Inst *inst)
 		fprintf(f, "function%"PRIi32, IIMM(inst));
 		break;
 	}
-	/*
-	char *m;
-	switch (inst->kind) {
-	case IK_FUNCTION: {
-		fprintf(f, "function:");
-		return;
-	}
-	case IK_BLOCK: {
-		MBlock *block = container_of(inst, MBlock, insts);
-		fprintf(f, ".BB%zu:", block->index);
-		return;
-	}
-	case IK_MOV: // MOV, LEA, ZX8, SX16, ...
-		switch (inst->subkind) {
-		case MOV: m = "mov"; break;
-		case LEA: m = "lea"; break;
-		default: UNREACHABLE();
-		}
-		break;
-	case IK_BINALU: // ADD, SUB, ...
-		switch (inst->subkind) {
-		case G1_ADD:  m =  "add"; break;
-		case G1_OR:   m =   "or"; break;
-		case G1_ADC:  m =  "adc"; break;
-		case G1_SBB:  m =  "sbb"; break;
-		case G1_AND:  m =  "and"; break;
-		case G1_SUB:  m =  "sub"; break;
-		case G1_XOR:  m =  "xor"; break;
-		case G1_CMP:  m =  "cmp"; break;
-		case G1_IMUL: m = "imul"; break;
-		case G1_TEST: m = "test"; break;
-		default: UNREACHABLE();
-		}
-		break;
-	case IK_UNALU: // NEG, NOT
-		switch (inst->subkind) {
-		case G3_NOT: m = "not"; break;
-		case G3_NEG: m = "neg"; break;
-		default: UNREACHABLE();
-		}
-		break;
-	case IK_IMUL3:
-		m = "imul";
-		break;
-	case IK_SHIFT: // SHR, ROL, ...
-		switch (inst->subkind) {
-		case G2_ROL: m = "rol"; break;
-		case G2_ROR: m = "ror"; break;
-		case G2_RCL: m = "rcl"; break;
-		case G2_RCR: m = "rcr"; break;
-		case G2_SHL: m = "shl"; break;
-		case G2_SHR: m = "shr"; break;
-		case G2_SAL: m = "sal"; break;
-		case G2_SAR: m = "sar"; break;
-		default: UNREACHABLE();
-		}
-		break;
-	case IK_JUMP: // JMP
-		m = "jmp";
-		break;
-	case IK_CALL: // CALL
-		m = "call";
-		break;
-	case IK_JCC: // JZ, JG, ...
-		switch (inst->subkind) {
-		case CC_Z:  m = "jz"; break;
-		case CC_NZ: m = "jnz"; break;
-		case CC_L:  m = "jl"; break;
-		case CC_GE: m = "jge"; break;
-		case CC_LE: m = "jle"; break;
-		case CC_G:  m = "jg"; break;
-		default: UNREACHABLE();
-		}
-		break;
-	case IK_SETCC: // SETZ, SETG, ...
-		switch (inst->subkind) {
-		case CC_Z:  m = "setz"; break;
-		case CC_NZ: m = "setnz"; break;
-		case CC_L:  m = "setl"; break;
-		case CC_GE: m = "setge"; break;
-		case CC_LE: m = "setle"; break;
-		case CC_G:  m = "setg"; break;
-		default: UNREACHABLE();
-		}
-		break;
-	case IK_CMOVCC: // CMOVZ, CMOVG, ...
-		switch (inst->subkind) {
-		case CC_Z:  m = "cmovz"; break;
-		case CC_NZ: m = "cmovnz"; break;
-		case CC_L:  m = "cmovl"; break;
-		case CC_GE: m = "cmovge"; break;
-		case CC_LE: m = "cmovle"; break;
-		case CC_G:  m = "cmovg"; break;
-		default: UNREACHABLE();
-		}
-		break;
-	case IK_MULDIV: // MUL, DIV, IMUL, IDIV
-		switch (inst->subkind) {
-		case G3_MUL:  m = "mul"; break;
-		case G3_IMUL: m = "imul"; break;
-		case G3_DIV:  m = "div"; break;
-		case G3_IDIV: m = "idiv"; break;
-		}
-		break;
-	case IK_RET:
-		m = "ret";
-		break;
-	case IK_NOP:
-		m = "nop";
-		break;
-	case IK_LEAVE:
-		m = "leave";
-		break;
-	case IK_PUSH:
-		m = "push";
-		break;
-	case IK_POP:
-		m = "pop";
-		break;
-	default:
-		UNREACHABLE();
-	}
-
-	fprintf(f, "%s ", m);
-
-	if (inst->kind == IK_CALL) {
-		fprintf(f, "function%"PRIi32, IIMM(inst));
-		return;
-	}
-	if (inst->kind == IK_RET) {
-		return;
-	}
-	if (inst->kind == IK_JUMP || inst->kind == IK_JCC) {
-		fprintf(f, ".BB%"PRIi32, IIMM(inst));
-		return;
-	}
-	if (inst->kind == IK_SETCC || inst->kind == IK_JCC) {
-		print_reg8(f, IREG(inst));
-		return;
-	}
-
-	if (inst->direction) {
-		print_reg(f, IREG(inst));
-	}
-
-
-	if (inst->is_memory) {
-		if (inst->direction) {
-			fprintf(f, ", ");
-		}
-		if (inst->has_imm) {
-			fprintf(f, "qword ");
-		}
-		fprintf(f, "[");
-		if (IBASE(inst) == R_NONE) {
-			fprintf(f, "global%"PRIi32, IDISP(inst));
-		} else {
-			print_reg(f, IBASE(inst));
-			if (IINDEX(inst)) {
-				fprintf(f, "+");
-				if (ISCALE(inst) != 0) {
-					fprintf(f, "%d*", 1 << ISCALE(inst));
-				}
-				print_reg(f, IINDEX(inst));
-			}
-			if (IDISP(inst)) {
-				fprintf(f, "%+"PRIi32, IDISP(inst));
-			}
-		}
-		fprintf(f, "]");
-	} else if (IREG2(inst) != R_NONE) {
-		if (inst->direction) {
-			fprintf(f, ", ");
-		}
-		print_reg(f, IREG2(inst));
-	}
-
-	if (!inst->direction && IREG(inst) != R_NONE) {
-		fprintf(f, ", ");
-		print_reg(f, IREG(inst));
-	}
-
-	if (inst->has_imm) {
-		fprintf(f, ", %"PRIi32, IIMM(inst));
-	}
-	*/
-
-	/*
-	InstDesc *desc = &inst_desc[inst->op];
-	const char *in = desc->format;
-	while (*in) {
-		char c = *in++;
-		size_t i = (*in) - '0';
-		switch (c) {
-		case 'D':
-			print_reg(f, inst->ops[i]);
-			in++;
-			break;
-		case 'E':
-			print_reg8(f, inst->ops[i]);
-			in++;
-			break;
-		case 'S':
-			print_reg(f, inst->ops[desc->dest_cnt + i]);
-			in++;
-			break;
-		case 'I':
-			fprintf(f, "%"PRIi32, inst->ops[desc->src_cnt + i]);
-			in++;
-			break;
-		case 'C': {
-			const char *cc;
-			switch (inst->ops[desc->src_cnt + i]) {
-			case CC_Z: cc = "z"; break;
-			case CC_NZ: cc = "nz"; break;
-			case CC_L: cc = "l"; break;
-			case CC_GE: cc = "ge"; break;
-			case CC_LE: cc = "le"; break;
-			case CC_G: cc = "g"; break;
-			default: UNREACHABLE();
-			}
-			fprintf(f, "%s", cc);
-			in++;
-			break;
-		}
-		case 'G': {
-			const char *s;
-			size_t g = i;
-			in += 2;
-			size_t i = *in - '0';
-			switch (g) {
-			case 1:
-				switch (inst->ops[desc->src_cnt + i]) {
-				case G1_ADD:  s =  "add"; break;
-				case G1_OR:   s =   "or"; break;
-				case G1_ADC:  s =  "adc"; break;
-				case G1_SBB:  s =  "sbb"; break;
-				case G1_AND:  s =  "and"; break;
-				case G1_SUB:  s =  "sub"; break;
-				case G1_XOR:  s =  "xor"; break;
-				case G1_CMP:  s =  "cmp"; break;
-				case G1_IMUL: s = "imul"; break;
-				default: UNREACHABLE();
-				}
-				break;
-			case 2:
-				switch (inst->ops[desc->src_cnt + i]) {
-				case G2_ROL: s = "rol"; break;
-				case G2_ROR: s = "ror"; break;
-				case G2_RCL: s = "rcl"; break;
-				case G2_RCR: s = "rcr"; break;
-				case G2_SHL: s = "shl"; break;
-				case G2_SHR: s = "shr"; break;
-				case G2_SAL: s = "sal"; break;
-				case G2_SAR: s = "sar"; break;
-				default: UNREACHABLE();
-				}
-				break;
-			case 3:
-				switch (inst->ops[desc->src_cnt + i]) {
-				case G3_TEST:  s = "test"; break;
-				case G3_TEST2: s = "test"; break;
-				case G3_NOT:   s = "not"; break;
-				case G3_NEG:   s = "neg"; break;
-				case G3_MUL:   s = "mul"; break;
-				case G3_IMUL:  s = "imul"; break;
-				case G3_DIV:   s = "div"; break;
-				case G3_IDIV:  s = "idiv"; break;
-				default: UNREACHABLE();
-				}
-				break;
-			default: UNREACHABLE();
-			}
-			fprintf(f, "%s", s);
-			in++;
-			break;
-		}
-		case 'B':
-			fprintf(f, ".BB%"PRIi32, inst->ops[desc->imm_cnt + i]);
-			in++;
-			break;
-		case 'F':
-			fprintf(f, "function%"PRIi32, inst->ops[desc->imm_cnt + i]);
-			in++;
-			break;
-		case 'g':
-			fprintf(f, "global%"PRIi32, inst->ops[desc->imm_cnt + i]);
-			in++;
-			break;
-		default:
-			fputc(c, f);
-		}
-	}
-	*/
 }
 
 
@@ -2335,10 +2041,6 @@ add_copy(TranslationState *ts, Oper dest, Oper src)
 {
 	Inst *inst = add_inst(ts, IK_MOV, MOV);
 	inst->mode = M_Cr;
-	inst->direction = true;
-	inst->is_first_def = true;
-	inst->is_memory = false;
-	inst->has_imm = false;
 	IREG1(inst) = dest;
 	IREG2(inst) = src;
 }
@@ -2348,10 +2050,6 @@ add_load(TranslationState *ts, Oper dest, Oper addr)
 {
 	Inst *inst = add_inst(ts, IK_MOV, MOV);
 	inst->mode = M_CM;
-	inst->direction = true;
-	inst->is_first_def = true;
-	inst->is_memory = true;
-	inst->has_imm = false;
 	IREG(inst) = dest;
 	IBASE(inst) = addr;
 }
@@ -2361,10 +2059,6 @@ add_store(TranslationState *ts, Oper addr, Oper value)
 {
 	Inst *inst = add_inst(ts, IK_MOV, MOV);
 	inst->mode = M_Mr;
-	inst->direction = false;
-	inst->is_first_def = false;
-	inst->is_memory = true;
-	inst->has_imm = false;
 	IREG(inst) = value;
 	IBASE(inst) = addr;
 }
@@ -2374,10 +2068,6 @@ add_lea(TranslationState *ts, Oper dest, Oper base, Oper disp)
 {
 	Inst *inst = add_inst(ts, IK_MOV, LEA);
 	inst->mode = M_CM;
-	inst->direction = true;
-	inst->is_first_def = true;
-	inst->is_memory = true;
-	inst->has_imm = false;
 	IREG(inst) = dest;
 	IBASE(inst) = base;
 	IDISP(inst) = disp;
@@ -2389,10 +2079,6 @@ add_mov_imm(TranslationState *ts, Oper dest, u64 imm)
 	// TODO: 64 bit immediates
 	Inst *inst = add_inst(ts, IK_MOV, MOV);
 	inst->mode = M_CI;
-	inst->direction = true;
-	inst->is_first_def = true;
-	inst->is_memory = false;
-	inst->has_imm = true;
 	IREG(inst) = dest;
 	// truncated to bottom 32 bits
 	IIMM(inst) = imm;
@@ -2406,10 +2092,6 @@ add_set_zero(TranslationState *ts, Oper oper)
 	// TODO: xor oper, oper
 	Inst *inst = add_inst(ts, IK_MOV, MOV);
 	inst->mode = M_CI;
-	inst->direction = true;
-	inst->is_first_def = true;
-	inst->is_memory = false;
-	inst->has_imm = true;
 	IREG(inst) = oper;
 	IIMM(inst) = 0;
 }
@@ -2419,10 +2101,6 @@ add_unop(TranslationState *ts, X86Group3 op, Oper op1)
 {
 	Inst *inst = add_inst(ts, IK_UNALU, op);
 	inst->mode = M_R;
-	inst->direction = true;
-	inst->is_first_def = true;
-	inst->is_memory = false;
-	inst->has_imm = false;
 	IREG(inst) = op1;
 }
 
@@ -2431,10 +2109,6 @@ add_binop(TranslationState *ts, X86Group1 op, Oper op1, Oper op2)
 {
 	Inst *inst = add_inst(ts, IK_BINALU, op);
 	inst->mode = M_Rr;
-	inst->direction = true;
-	inst->is_first_def = true;
-	inst->is_memory = false;
-	inst->has_imm = false;
 	IREG1(inst) = op1;
 	IREG2(inst) = op2;
 }
@@ -2444,10 +2118,6 @@ add_cmp(TranslationState *ts, X86Group1 op, Oper op1, Oper op2)
 {
 	Inst *inst = add_inst(ts, IK_BINALU, op);
 	inst->mode = M_rr;
-	inst->direction = true;
-	inst->is_first_def = false;
-	inst->is_memory = false;
-	inst->has_imm = false;
 	IREG1(inst) = op1;
 	IREG2(inst) = op2;
 }
@@ -2457,10 +2127,6 @@ add_shift(TranslationState *ts, X86Group2 op, Oper op1, Oper op2)
 {
 	Inst *inst = add_inst(ts, IK_SHIFT, op);
 	inst->mode = M_Rr;
-	inst->direction = true;
-	inst->is_first_def = true;
-	inst->is_memory = false;
-	inst->has_imm = false;
 	IREG1(inst) = op1;
 	IREG2(inst) = op2;
 	assert(op2 == R_RCX);
@@ -2471,10 +2137,6 @@ add_push(TranslationState *ts, Oper oper)
 {
 	Inst *inst = add_inst(ts, IK_PUSH, 0);
 	inst->mode = M_r;
-	inst->direction = true;
-	inst->is_first_def = false;
-	inst->is_memory = false;
-	inst->has_imm = false;
 	IREG(inst) = oper;
 }
 
@@ -2483,10 +2145,6 @@ add_pop(TranslationState *ts, Oper oper)
 {
 	Inst *inst = add_inst(ts, IK_POP, 0);
 	inst->mode = M_C;
-	inst->direction = true;
-	inst->is_first_def = true;
-	inst->is_memory = false;
-	inst->has_imm = false;
 	IREG(inst) = oper;
 }
 
@@ -2495,10 +2153,6 @@ add_setcc(TranslationState *ts, CondCode cc, Oper oper)
 {
 	Inst *inst = add_inst(ts, IK_SETCC, cc);
 	inst->mode = M_R; // partial register read
-	inst->direction = true;
-	inst->is_first_def = true;
-	inst->is_memory = false;
-	inst->has_imm = false;
 	IREG(inst) = oper;
 }
 
@@ -2507,10 +2161,6 @@ add_imul3(TranslationState *ts, Oper dest, Oper arg, Oper imm)
 {
 	Inst *inst = add_inst(ts, IK_IMUL3, 0);
 	inst->mode = M_CrI;
-	inst->direction = true;
-	inst->is_first_def = true;
-	inst->is_memory = false;
-	inst->has_imm = true;
 	IREG(inst) = dest;
 	IREG2(inst) = dest;
 	IIMM(inst) = imm;
@@ -2521,10 +2171,6 @@ add_jmp(TranslationState *ts, Oper block_index)
 {
 	Inst *inst = add_inst(ts, IK_JUMP, 0);
 	inst->mode = M_L;
-	inst->direction = true;
-	inst->is_first_def = false;
-	inst->is_memory = false;
-	inst->has_imm = true;
 	IIMM(inst) = block_index;
 }
 
@@ -2533,10 +2179,6 @@ add_jcc(TranslationState *ts, CondCode cc, Oper block_index)
 {
 	Inst *inst = add_inst(ts, IK_JCC, cc);
 	inst->mode = M_L;
-	inst->direction = true;
-	inst->is_first_def = false;
-	inst->is_memory = false;
-	inst->has_imm = true;
 	IIMM(inst) = block_index;
 }
 
@@ -2545,10 +2187,6 @@ add_call(TranslationState *ts, Oper function_index, Oper arg_cnt)
 {
 	Inst *inst = add_inst(ts, IK_CALL, 0);
 	inst->mode = M_CALL;
-	inst->direction = true;
-	inst->is_first_def = false;
-	inst->is_memory = false;
-	inst->has_imm = true;
 	IIMM(inst) = function_index;
 	IARG_CNT(inst) = arg_cnt;
 }
@@ -2580,10 +2218,6 @@ translate_return(TranslationState *ts, Oper *ret_val)
 	// TODO: ret "reads" return value callee saved registers
 	Inst *ret = add_inst(ts, IK_RET, 0); // TODO: subkind = calling convention?
 	ret->mode = M_RET;
-	ret->direction = true;
-	ret->is_first_def = false;
-	ret->is_memory = false;
-	ret->has_imm = false;
 	if (ret_val) {
 		// Make return instruction read the returned value.
 		// NOTE: This has to be updated when multiple return registers
@@ -2624,10 +2258,6 @@ translate_div(TranslationState *ts, Oper res, Oper arg1, Oper arg2, bool modulo)
 
 	Inst *inst = add_inst(ts, IK_MULDIV, G3_IDIV);
 	inst->mode = M_ADr;
-	inst->direction = true;
-	inst->is_first_def = false;
-	inst->is_memory = false;
-	inst->has_imm = false;
 	IREG(inst) = arg2;
 
 	Oper result = modulo ? R_RDX : R_RAX;
@@ -3191,7 +2821,7 @@ interference_step(RegAllocState *ras, WorkList *live_set, Inst *inst)
 	//    destination.
 	// 2) We want to note all moves and for all nodes the moves they are
 	//    contained in, because we want to try to coalesce the moves later.
-	if (inst->kind == IK_MOV && inst->is_first_def && !inst->is_memory && !inst->has_imm) {
+	if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_Cr) {
 		// Remove uses from live to prevent interference between move
 		// destination and source.
 		for_each_use(inst, remove_from_live, live_set);
@@ -3245,10 +2875,6 @@ insert_loads_of_spilled(void *user_data, Oper *src)
 	load->mode = M_CM;
 	load->prev = inst->prev;
 	load->next = inst;
-	load->direction = true;
-	load->is_first_def = true;
-	load->is_memory = true;
-	load->has_imm = false;
 	IREG(load) = temp;
 	IBASE(load) = R_RBP;
 	IDISP(load) = - 8 - ras->to_spill[*src];
@@ -3290,10 +2916,6 @@ insert_stores_of_spilled(void *user_data, Oper *dest)
 	store->mode = M_Mr;
 	store->prev = inst;
 	store->next = inst->next;
-	store->direction = false;
-	store->is_first_def = false;
-	store->is_memory = true;
-	store->has_imm = false;
 	IREG(store) = temp;
 	IBASE(store) = R_RBP;
 	IDISP(store) = - 8 - ras->to_spill[*dest];
@@ -3559,10 +3181,6 @@ translate_function(Arena *arena, Function *function, size_t start_index)
 			ts->make_stack_space = add_inst(ts, IK_BINALU, G1_SUB);
 			Inst *inst = ts->make_stack_space;
 			inst->mode = M_RI;
-			inst->direction = true;
-			inst->is_first_def = true;
-			inst->is_memory = false;
-			inst->has_imm = true;
 			IREG(inst) = R_RSP;
 			IIMM(inst) = 0;
 

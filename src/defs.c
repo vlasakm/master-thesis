@@ -272,10 +272,6 @@ struct Inst {
 	u8 kind;
 	u8 subkind;
 	u8 mode;
-	bool direction; // true => reg, reg/mem | false => reg/mem, reg
-	bool is_first_def; // is reg defined?
-	bool is_memory; // is the second reg/mem arg reg or mem?
-	bool has_imm; // does the instruction have an immediate operand?
 	Oper ops[];
 	//Oper reg;
 	//union {
