@@ -237,22 +237,22 @@ typedef enum {
 	//IK_HEAD, // Machine Function or Machine Basic Block (head of the doubly linked list)
 	IK_FUNCTION, // Machine Function (head of the doubly linked list)
 	IK_BLOCK, // Machine Basic Block (head of the doubly linked list)
-	IK_MOV, // MOV, LEA, ZX8, SX16, ... // 0-1 : 1-3
-	IK_BINALU, // ADD, SUB, ... // 0-1 : 1-3
-	IK_UNALU, // NEG, NOT // 0-1 : 1-3
+	IK_MOV, // MOV, LEA, ZX8, SX16, ...
+	IK_BINALU, // ADD, SUB, ...
+	IK_UNALU, // NEG, NOT
 	IK_IMUL3,
-	IK_SHIFT, // SHR, ROL, ... // 0-1 : 1-3
+	IK_SHIFT, // SHR, ROL, ...
 	IK_JUMP, // JMP
 	IK_CALL, // CALL
 	IK_JCC, // JZ, JG, ...
-	IK_SETCC, // SETZ, SETG, ... // 1 : 0
-	IK_CMOVCC, // CMOVZ, CMOVG, ... // 1 : 1-3
-	IK_MULDIV, // MUL, DIV, IMUL, IDIV // 0 : 1-3
+	IK_SETCC, // SETZ, SETG, ...
+	IK_CMOVCC, // CMOVZ, CMOVG, ...
+	IK_MULDIV, // MUL, DIV, IMUL, IDIV
 	IK_RET,
 	IK_NOP,
 	IK_LEAVE,
-	IK_PUSH, // 0 : 1-3
-	IK_POP, // 0-1 : 1-3
+	IK_PUSH,
+	IK_POP,
 	//IK_INCDEC, // INC, DEC
 	IK__MAX,
 } InstKind;
