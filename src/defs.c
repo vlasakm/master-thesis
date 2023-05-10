@@ -290,6 +290,7 @@ struct Inst {
 
 #define IK(inst) ((inst)->kind)
 #define IS(inst) ((inst)->subkind)
+#define IM(inst) ((inst)->mode)
 
 #define IREG(inst) ((inst)->ops[0])
 #define IREG1(inst) ((inst)->ops[0])
