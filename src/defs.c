@@ -127,42 +127,6 @@ struct Function {
 	MFunction *mfunc;
 };
 
-/*
-#define INST_KINDS(_) \
-	_(ADD) \
-	_(OR) \
-	_(AND) \
-	_(SUB) \
-	_(XOR) \
-	_(CMP) \
-	_(TEST) \
-	_(NOT) \
-	_(NEG) \
-	_(IMUL) \
-	_(IDIV) \
-	_(SHL) \
-	_(SHR) \
-	_(CALL) \
-	_(JMP) \
-	_(RET) \
-	_(NOP) \
-	_(JZ) \
-	_(MOV) \
-	_(LABEL)
-
-typedef enum {
-#define ENUM(kind, ...) IK_##kind,
-INST_KINDS(ENUM)
-#undef ENUM
-} InstKind;
-
-char *inst_kind_repr[] = {
-#define REPR(kind, ...) #kind,
-INST_KINDS(REPR)
-#undef REPR
-};
-*/
-
 typedef enum {
 	G1_ADD,
 	G1_OR,
@@ -234,36 +198,6 @@ static const char *g3_repr[] = {
 	"div",
 	"idiv",
 };
-
-#define INSTRUCTIONS(_) \
-	_(BIN_RR, "G1:0 S0, S1", 1, 2, 1, 0) \
-	_(BIN_RI, "G1:0 S0, I1", 1, 1, 2, 0) \
-	_(SHIFT_RR, "G2:0 D0, S1", 1, 2, 1, 0) \
-	_(UNARY_RR, "G3:0 D0, S1", 1, 1, 1, 0) \
-	_(TEST, "test S0, S1", 0, 2, 0, 0) \
-	_(IMUL, "imul D0, S1", 1, 2, 0, 0) \
-	_(IMUL_IMM, "imul D0, S0, I0", 1, 1, 1, 0) \
-	_(IDIV, "idiv S2", 2, 3, 0, 0) \
-	_(CALL, "call F0", 5, 4, 0, 1) \
-	_(JMP, "jmp B0", 0, 0, 0, 1) \
-	_(RET, "ret", 0, 2, 0, 0) \
-	_(SYSCALL, "syscall", 0, 0, 0, 0) \
-	_(NOP, "nop", 0, 0, 0, 0) \
-	_(JCC, "jC0 B0", 0, 0, 1, 1) \
-	_(MOV, "mov D0, S0", 1, 1, 0, 0) \
-	_(MOV_MR, "mov [S0], S1", 0, 2, 0, 0) \
-	_(MOV_MI, "mov qword [S0], I0", 0, 1, 1, 0) \
-	_(MOV_RM, "mov D0, [S0]", 1, 1, 0, 0) \
-	_(LEA_RMC, "lea D0, [S0-I0]", 1, 1, 1, 0) \
-	_(LEA_RG, "lea D0, [g0]", 1, 0, 0, 1) \
-	_(MOV_RG, "mov D0, [g0]", 1, 0, 0, 1) \
-	_(MOV_RMC, "mov D0, [S0-I0]", 1, 1, 1, 0) \
-	_(MOV_MCR, "mov [S0-I0], S1", 0, 2, 1, 0) \
-	_(MOVIMM, "mov D0, I0", 1, 0, 1, 0) \
-	_(SETCC, "setC0 E0", 1, 0, 1, 0) \
-	_(PUSH, "push S0", 0, 1, 0, 0) \
-	_(POP, "pop D0", 1, 0, 0, 0) \
-	_(SUB_IMM, "sub D0, I0", 1, 1, 1, 0) \
 
 typedef struct Inst Inst;
 struct Inst {
@@ -390,30 +324,30 @@ static const char **is_repr[] = {
 // A = RW rax
 // D = RW rdx
 typedef enum {
-	M_Rr,   // direction = true,  is_first_def = true,  is_memory = false, has_imm = false
-	M_rr,   // direction = true,  is_frist_def = false, is_memory = false, has_imm = false
-	M_Cr,   // direction = true,  is_first_def = true,  is_memory = false, has_imm = false
-	M_RM,   // direction = true,  is_first_def = true,  is_memory = true,  has_imm = false
+	M_Rr,
+	M_rr,
+	M_Cr,
+	M_RM,
 	M_rM,
-	M_CM,   // direction = true,  is_first_def = true,  is_memory = true,  has_imm = false
-	M_Mr,   // direction = false, is_first_def = false, is_memory = true,  has_imm = false
-	M_RI,   // direction = true,  is_frist_def = true,  is_memory = false, has_imm = false
+	M_CM,
+	M_Mr,
+	M_RI,
 	M_rI,
-	M_CI,   // direction = true,  is_first_def = true,  is_memory = false, has_imm = true
+	M_CI,
 	M_MI,
-	M_CrI,  // direction = true,  is_first_def = true,  is_memory = false, has_imm = true
+	M_CrI,
 	M_CMI,
-	M_R,    // direction = true,  is_first_def = true,  is_memory = false, has_imm = false
-	M_r,    // direction = true,  is_first_def = false, is_memory = false, has_imm = false
-	M_C,    // direction = true,  is_first_def = true,  is_memory = false, has_imm = false
+	M_R,
+	M_r,
+	M_C,
 	M_M,
 	M_I,
-	M_L,    // direction = true,  is_first_def = false, is_memory = false, has_imm = false
-	M_NONE, // direction = true,  is_first_def = false, is_memory = false, has_imm = false
-	M_CALL, // direction = true,  is_first_def = false, is_memory = false, has_imm = false
-	M_RET,  // direction = true,  is_first_def = false, is_memory = false, has_imm = false
-	M_ADr,  // direction = true,  is_first_def = false, is_memory = false, has_imm = false
-	M_ADM,  // direction = true,  is_first_def = false, is_memory = true, has_imm = false
+	M_L,
+	M_NONE,
+	M_CALL,
+	M_RET,
+	M_ADr,
+	M_ADM,
 } X86Mode;
 
 typedef struct {
@@ -463,336 +397,6 @@ InsFormat formats[] = {
 	[M_ADr]  = { 0, 0, 0, 1,  0, rax_rdx, rax_rdx },
 	[M_ADM]  = { 0, 0, 1, 3,  0, rax_rdx, rax_rdx },
 };
-
-typedef struct {
-	char *fmt;
-	u8 *extra_defs;
-	u8 *extra_uses;
-	u8 *maybe_uses;
-} InsDesc;
-
-//u32 bitmap of defs / saves ?
-//u32 bitmap of def / save indices ?
-//extra handling of calls?
-
-// Reuse reg for imm? What about 3 operand imul?
-
-// sets_flags
-// reads_flags
-// reads_regs [RAX, RDX, ...]
-// writes_regs [...]
-
-// OP mem64, reg64
-// kind = BINARITH
-// subkind = ADD / OR / SUB / ...
-// first_is_destination = false
-// is_memory = true
-// is_immediate = false
-// reg = reg64
-// scale/base/index/disp = mem64
-// imm = 0
-
-// OP reg64, mem64
-// kind = BINARITH
-// subkind = ADD / OR / SUB / ...
-// first_is_destination = true
-// is_memory = true
-// is_immediate = false
-// reg = reg64
-// scale/base/index/disp = mem64
-// imm = 0
-
-// OP reg64A, reg64B
-// kind = BINARITH
-// subkind = ADD / OR / SUB / ...
-// first_is_destination = true
-// is_memory = false
-// is_immediate = false
-// reg = reg64A
-// base = reg64B
-// imm = 0
-
-// OP reg64, imm
-// kind = BINARITH
-// subkind = ADD / OR / SUB / ...
-// first_is_destination = true
-// is_memory = false
-// is_immediate = true
-// reg = reg64
-// imm = imm
-
-// OP mem64, imm
-// kind = BINARITH
-// subkind = ADD / OR / SUB / ...
-// first_is_destination = false
-// is_memory = true
-// is_immediate = true
-// reg = 0
-// scale/base/index/disp = mem64
-// imm = imm
-
-// CMP mem64, reg64
-// kind = BINARITH
-// subkind = CMP
-// first_is_destination = false
-// is_memory = true
-// is_immediate = false
-// reg = reg64
-// scale/base/index/disp = mem64
-// imm = 0
-
-// CMP reg64, mem64
-// kind = BINARITH
-// subkind = CMP
-// first_is_destination = false
-// is_memory = true
-// is_immediate = false
-// reg = reg64
-// scale/base/index/disp = mem64
-// imm = 0
-
-// CMP reg64A, reg64B
-// kind = BINARITH
-// subkind = CMP
-// first_is_destination = false
-// is_memory = false
-// is_immediate = false
-// reg = reg64A
-// base = reg64B
-// imm = 0
-
-// CMP reg64, imm
-// kind = BINARITH
-// subkind = CMP
-// first_is_destination = false
-// is_memory = false
-// is_immediate = true
-// reg = reg64
-// imm = imm
-
-// CMP mem64, imm
-// kind = BINARITH
-// subkind = CMP
-// first_is_destination = false
-// is_memory = true
-// is_immediate = true
-// reg = 0
-// scale/base/index/disp = mem64
-// imm = imm
-
-// TEST mem64, reg64
-// kind = BINARITH
-// subkind = TEST
-// first_is_destination = false
-// is_memory = true
-// is_immediate = false
-// reg = reg64
-// scale/base/index/disp = mem64
-// imm = 0
-
-// TEST reg64A, reg64B
-// kind = BINARITH
-// subkind = TEST
-// first_is_destination = false
-// is_memory = false
-// is_immediate = false
-// reg = reg64A
-// base = reg64B
-// imm = 0
-
-// TEST reg64, imm
-// kind = BINARITH
-// subkind = TEST
-// first_is_destination = false
-// is_memory = false
-// is_immediate = true
-// reg = reg64
-// imm = imm
-
-// TEST mem64, imm
-// kind = BINARITH
-// subkind = TEST
-// first_is_destination = false
-// is_memory = true
-// is_immediate = true
-// reg = 0
-// scale/base/index/disp = mem64
-// imm = imm
-
-// OP mem64
-// kind = UNARITH
-// subkind = NOT / NEG
-// first_is_destination = false
-// is_memory = true
-// is_immediate = false
-// reg = 0
-// scale/base/index/disp = mem64
-// imm = 0
-
-// OP reg64
-// kind = UNARITH
-// subkind = NOT / NEG
-// first_is_destination = true
-// is_memory = false
-// is_immediate = false
-// reg = reg64
-// scale/base/index/disp = 0
-// imm = 0
-
-// SHIFT mem64, imm8
-// kind = SHL / SHR
-// subkind = SHL / SHR / ...
-// first_is_destination = false
-// is_memory = true
-// is_immediate = true
-// reg = 0
-// scale/base/index/disp = mem64
-// imm = imm8
-
-// SHIFT reg64, imm8
-// kind = SHL / SHR
-// subkind = SHL / SHR / ...
-// first_is_destination = true
-// is_memory = false
-// is_immediate = true
-// reg = reg64
-// scale/base/index/disp = 0
-// imm = imm8
-
-// SHIFT mem64, cl
-// kind = SHL / SHR
-// subkind = SHL / SHR / ...
-// first_is_destination = false
-// is_memory = true
-// is_immediate = false
-// reg = cl
-// scale/base/index/disp = mem64
-// imm = 0
-
-// SHIFT reg64, cl
-// kind = SHL / SHR
-// subkind = SHL / SHR / ...
-// first_is_destination = true
-// is_memory = false
-// is_immediate = true
-// reg = reg64
-// scale/base/index/disp = cl
-// imm = 0
-
-// JUMP/CALL label
-// kind = ControlFlow
-// subkind = JUMP / CALL
-// first_is_destination = false
-// is_memory = false
-// is_immediate = true
-// reg = 0
-// scale/base/index/disp = 0
-// imm = label
-
-// JUMP/CALL reg64
-// kind = ControlFlow
-// subkind = JUMP / CALL
-// first_is_destination = false
-// is_memory = false
-// is_immediate = false
-// reg = reg64
-// scale/base/index/disp = 0
-// imm = 0
-
-// JUMP/CALL mem64
-// kind = ControlFlow
-// subkind = JUMP / CALL
-// first_is_destination = false
-// is_memory = true
-// is_immediate = false
-// reg = 0
-// scale/base/index/disp = mem64
-// imm = 0
-
-// JCC label
-// kind = ControlFlow
-// subkind = O / E / Z / NZE
-// first_is_destination = false
-// is_memory = false
-// is_immediate = true
-// reg = 0
-// scale/base/index/disp = 0
-// imm = label
-
-// RET/LEAVE
-// kind = ARGUMENTLESS
-// subkind = RET / LEAVE
-// first_is_destination = false
-// is_memory = false
-// is_immediate = false
-// reg = 0
-// scale/base/index/disp = 0
-// imm = 0
-
-// RET/LEAVE
-// kind = ARGUMENTLESS
-// subkind = RET / LEAVE
-// first_is_destination = false
-// is_memory = false
-// is_immediate = false
-// reg = 0
-// scale/base/index/disp = 0
-// imm = 0
-
-// OP mem8
-// kind = SETCC
-// subkind = O / E / Z / NE
-// first_is_destination = false
-// is_memory = true
-// is_immediate = false
-// reg = 0
-// scale/base/index/disp = mem64
-// imm = 0
-
-// OP reg8
-// kind = SETCC
-// subkind = O / E / Z / NE
-// first_is_destination = true
-// is_memory = false
-// is_immediate = false
-// reg = reg64
-// scale/base/index/disp = 0
-// imm = 0
-
-// IMUL reg64A, reg64B, imm
-// kind = IMUL3
-// subkind = IMUL3
-// first_is_destination = true
-// is_memory = false
-// is_immediate = true
-// reg = reg64A
-// scale/base/index/disp = reg64B
-// imm = imm
-
-// IMUL reg64, mem64, imm
-// kind = IMUL3
-// subkind = IMUL3
-// first_is_destination = true
-// is_memory = true
-// is_immediate = true
-// reg = reg64
-// scale/base/index/disp = mem64
-// imm = imm
-
-// PUSH imm
-// kind = STACK
-// subkind = PUSH
-// first_is_destination = false
-// is_memory = false
-// is_immediate = true
-// reg = 0
-// scale/base/index/disp = 0
-// imm = imm
-
-// "%s%s" str[kind], str[subkind]
-
-// Mapping from mnemonic to some kind of flag or whatever, so we can only have
-// kind, instead of kind + subkind?
 
 typedef struct {
 	Block *block;

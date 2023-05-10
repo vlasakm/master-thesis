@@ -334,18 +334,6 @@ g1_is_commutative(X86Group1 g1)
 	}
 }
 
-InsDesc ins_descs[IK__MAX] = {
-	[IK_MULDIV] = {
-		.extra_defs = (u8[]) { R_RAX, R_RDX },
-		.extra_uses = (u8[]) { R_RAX, R_RDX },
-	},
-	[IK_JUMP] = {
-		.extra_defs = (u8[]) { R_RAX, R_RCX, R_RDX, R_RSI, R_RDI, },
-		.maybe_uses = (u8[]) { R_RDI, R_RSI, R_RDX, R_RCX }, // TODO?
-	},
-};
-
-
 // A simple hash table.
 // Inspired by: http://www.craftinginterpreters.com/hash-tables.html
 
