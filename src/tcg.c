@@ -755,7 +755,7 @@ as_lvalue(Parser *parser, CValue cvalue, char *msg)
 	if (cvalue.lvalue) {
 		return cvalue.value;
 	} else {
-		parser_error(parser, parser->lookahead, false, msg);
+		parser_error(parser, parser->lookahead, false, "%s", msg);
 		return &NOP;
 	}
 }
