@@ -147,7 +147,7 @@ wl_eq(WorkList *wl, WorkList *other)
 	if (wl_cnt(wl) != wl_cnt(other)) {
 		return false;
 	}
-	for (size_t i = wl->head; i < wl->tail; i++) {
+	FOR_EACH_WL_INDEX(wl, i) {
 		if (!wl_has(other, wl->dense[i])) {
 			return false;
 		}
