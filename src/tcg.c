@@ -374,7 +374,7 @@ table_init(Table *table)
 void
 table_destroy(Table *table)
 {
-	free(table->entries);
+	FREE_ARRAY(table->entries, table->capacity);
 }
 
 Entry *
@@ -406,7 +406,7 @@ table_grow(Table *table)
 		Entry *new = table_find_entry(entries, capacity, old->key);
 		*new = *old;
 	}
-	free(table->entries);
+	FREE_ARRAY(table->entries, table->capacity);
 	table->entries = entries;
 	table->capacity = capacity;
 }
@@ -2490,11 +2490,11 @@ ig_reset(InterferenceGraph *ig, size_t size)
 void
 ig_destroy(InterferenceGraph *ig, size_t capacity)
 {
-	free(ig->matrix);
+	FREE_ARRAY(ig->matrix, capacity * capacity);
 	for (size_t i = 0; i < capacity; i++) {
 		garena_destroy(&ig->adj_list[i]);
 	}
-	free(ig->adj_list);
+	FREE_ARRAY(ig->adj_list, capacity);
 }
 
 bool
@@ -2653,19 +2653,19 @@ reg_alloc_state_reset(RegAllocState *ras)
 void
 reg_alloc_state_destroy(RegAllocState *ras)
 {
-	free(ras->reg_assignment);
-	free(ras->to_spill);
-	free(ras->alias);
-	free(ras->def_counts);
-	free(ras->use_counts);
-	free(ras->degree);
+	FREE_ARRAY(ras->reg_assignment, ras->vreg_capacity);
+	FREE_ARRAY(ras->to_spill, ras->vreg_capacity);
+	FREE_ARRAY(ras->alias, ras->vreg_capacity);
+	FREE_ARRAY(ras->def_counts, ras->vreg_capacity);
+	FREE_ARRAY(ras->use_counts, ras->vreg_capacity);
+	FREE_ARRAY(ras->degree, ras->vreg_capacity);
 	ig_destroy(&ras->ig, ras->vreg_capacity);
 	wl_destroy(&ras->live_set);
 	wl_destroy(&ras->block_work_list);
 	for (size_t i = 0; i < ras->block_capacity; i++) {
 		wl_destroy(&ras->live_in[i]);
 	}
-	free(ras->live_in);
+	FREE_ARRAY(ras->live_in, ras->block_capacity);
 	wl_destroy(&ras->spill_wl);
 	wl_destroy(&ras->freeze_wl);
 	wl_destroy(&ras->simplify_wl);
@@ -2676,7 +2676,7 @@ reg_alloc_state_destroy(RegAllocState *ras)
 	for (size_t i = 0; i < ras->vreg_capacity; i++) {
 		garena_destroy(&ras->move_list[i]);
 	}
-	free(ras->move_list);
+	FREE_ARRAY(ras->move_list, ras->vreg_capacity);
 }
 
 void
