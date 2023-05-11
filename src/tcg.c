@@ -2686,6 +2686,20 @@ reg_alloc_state_init_for_function(RegAllocState *ras, MFunction *mfunction)
 	//reg_alloc_state_reset(ras);
 }
 
+bool
+is_alias(RegAllocState *ras, Oper u)
+{
+	return ras->alias[u] != u;
+}
+
+Oper
+get_alias(RegAllocState *ras, Oper u)
+{
+	while (u != ras->alias[u]) {
+		u = ras->alias[u];
+	}
+	return u;
+}
 
 void
 ig_add(InterferenceGraph *ig, Oper op1, Oper op2)
@@ -2951,7 +2965,7 @@ apply_reg_assignment(RegAllocState *ras)
 		size_t end = mode->use_end > mode->def_end ? mode->use_end : mode->def_end;
 		for (size_t i = 0; i < end; i++) {
 			assert(inst->ops[i] >= 0);
-			inst->ops[i] = ras->reg_assignment[ras->alias[inst->ops[i]]];
+			inst->ops[i] = ras->reg_assignment[get_alias(ras, inst->ops[i])];
 		}
 	}
 }
@@ -3281,7 +3295,7 @@ for_each_adjacent(RegAllocState *ras, Oper op, void (*fun)(RegAllocState *ras, O
 	size_t adj_cnt = garena_cnt(gadj_list, Oper);
 	for (size_t i = 0; i < adj_cnt; i++) {
 		Oper neighbour = adj_list[i];
-		if (wl_has(&ras->stack, neighbour) || ras->alias[neighbour] != neighbour) {
+		if (wl_has(&ras->stack, neighbour) || is_alias(ras, neighbour)) {
 			continue;
 		}
 		fun(ras, neighbour);
@@ -3497,7 +3511,7 @@ significant_neighbour_cnt(RegAllocState *ras, Oper op)
 	size_t adj_cnt = garena_cnt(gadj_list, Oper);
 	for (size_t j = 0; j < adj_cnt; j++) {
 		Oper t = adj_list[j];
-		if (wl_has(&ras->stack, t) || ras->alias[t] != t) {
+		if (wl_has(&ras->stack, t) || is_alias(ras, t)) {
 			continue;
 		}
 		n += ras->degree[t] >= ras->reg_avail;
@@ -3519,7 +3533,7 @@ precolored_coalesce_heuristic(RegAllocState *ras, Oper u, Oper v)
 	size_t adj_cnt = garena_cnt(gadj_list, Oper);
 	for (size_t j = 0; j < adj_cnt; j++) {
 		Oper t = adj_list[j];
-		if (wl_has(&ras->stack, t) || ras->alias[t] != t) {
+		if (wl_has(&ras->stack, t) || is_alias(ras, t)) {
 			continue;
 		}
 		if (!ok(ras, t, u)) {
@@ -3572,7 +3586,7 @@ combine(RegAllocState *ras, Oper u, Oper v)
 	size_t adj_cnt = garena_cnt(gadj_list, Oper);
 	for (size_t i = 0; i < adj_cnt; i++) {
 		Oper t = adj_list[i];
-		if (wl_has(&ras->stack, t) || ras->alias[t] != t) {
+		if (wl_has(&ras->stack, t) || is_alias(ras, t)) {
 			continue;
 		}
 		ig_add(&ras->ig, u, t);
@@ -3597,8 +3611,8 @@ coalesce(RegAllocState *ras)
 		fprintf(stderr, "Coalescing: \t");
 		print_inst(stderr, move);
 		fprintf(stderr, "\n");
-		Oper u = ras->alias[move->ops[0]];
-		Oper v = ras->alias[move->ops[1]];
+		Oper u = get_alias(ras, move->ops[0]);
+		Oper v = get_alias(ras, move->ops[1]);
 		if (v < R__MAX) {
 			Oper tmp = u;
 			u = v;
@@ -3655,7 +3669,7 @@ assign_registers(RegAllocState *ras)
 		Oper *adj_list = garena_array(gadj_list, Oper);
 		size_t adj_cnt = garena_cnt(gadj_list, Oper);
 		for (size_t j = 0; j < adj_cnt; j++) {
-			size_t neighbour = ras->alias[adj_list[j]];
+			size_t neighbour = get_alias(ras, adj_list[j]);
 			if (!wl_has(&ras->stack, neighbour) && ras->reg_assignment[neighbour] != R_NONE) {
 				used |= 1 << (ras->reg_assignment[neighbour] - 1);
 			}
@@ -3685,11 +3699,11 @@ assign_registers(RegAllocState *ras)
 		fprintf(stderr, "\n");
 	}
 	for (size_t i = 0; i < mfunction->vreg_cnt; i++) {
-		if (ras->alias[i] != i) {
+		if (is_alias(ras, i)) {
 			fprintf(stderr, "Coalesced ");
 			print_reg(stderr, i);
 			fprintf(stderr, " to ");
-			print_reg(stderr, ras->alias[i]);
+			print_reg(stderr, get_alias(ras, i));
 			fprintf(stderr, "\n");
 		}
 	}
