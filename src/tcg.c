@@ -525,7 +525,6 @@ typedef struct {
 	bool panic_mode;
 	Environment env;
 	Table type_env;
-	Value **prev_pos;
 	Function *current_function;
 	GArena functions; // array of Function *
 	GArena globals; // array of Global *
@@ -610,42 +609,60 @@ eat_identifier(Parser *parser)
 }
 
 static Block *
-add_block(Parser *parser)
+create_block(Arena *arena, Function *function)
 {
-	Block *block = arena_alloc(parser->arena, sizeof(*block));
-	value_init(&block->base, VK_BLOCK, type_pointer(parser->arena, &TYPE_VOID), &parser->current_function->base);
+	Block *block = arena_alloc(arena, sizeof(*block));
+	*block = (Block) {0};
+	value_init(&block->base, VK_BLOCK, type_pointer(arena, &TYPE_VOID), &function->base);
+	block->base.next = &block->base;
+	block->base.prev = &block->base;
 	block->preds = NULL;
 	block->pred_cnt = 0;
 	block->succ_cnt = 0;
-	parser->current_function->block_cnt += 1;
+	block->base.index = function->block_cap++;
 	return block;
 }
 
+static Block *
+add_block(Parser *parser)
+{
+	return create_block(parser->arena, parser->current_function);
+}
+
+void prepend_value(Value *pos, Value *new);
+
 static void
-add_to_block(Parser *parser, Value *value)
+add_to_block(Parser *parser, Value *new)
 {
 	if (!parser->current_block) {
 		return;
 	}
-	if (parser->prev_pos != &parser->current_block->head) {
-		value->prev = container_of(parser->prev_pos, Value, next);
-	} else {
-		value->prev = NULL;
-	}
-	*parser->prev_pos = value;
-	value->next = NULL;
-	parser->prev_pos = &value->next;
-	parser->current_block->tail = value;
+	prepend_value(&parser->current_block->base, new);
+}
+
+static Operation *
+create_operation(Arena *arena, Block *block, ValueKind kind, Type *type, size_t operand_cnt)
+{
+	Operation *op = arena_alloc(arena, sizeof(*op) + sizeof(op->operands[0]) * operand_cnt);
+	value_init(&op->base, kind, &TYPE_INT, &block->base);
+	op->base.kind = kind;
+	op->base.type = type;
+	return op;
+}
+
+static Value *
+create_unary(Arena *arena, Block *block, ValueKind kind, Type *type, Value *arg)
+{
+	Operation *op = create_operation(arena, block, kind, type, 1);
+	op->operands[0] = arg;
+	return &op->base;
 }
 
 static Operation *
 add_operation(Parser *parser, ValueKind kind, Type *type, size_t operand_cnt)
 {
-	Operation *op = arena_alloc(parser->arena, sizeof(*op) + sizeof(op->operands[0]) * operand_cnt);
-	value_init(&op->base, kind, &TYPE_INT, &parser->current_block->base);
+	Operation *op = create_operation(parser->arena, parser->current_block, kind, type, operand_cnt);
 	add_to_block(parser, &op->base);
-	op->base.kind = kind;
-	op->base.type = type;
 	return op;
 }
 
@@ -670,7 +687,6 @@ static void
 switch_to_block(Parser *parser, Block *new_block)
 {
 	parser->current_block = new_block;
-	parser->prev_pos = &new_block->head;
 }
 
 static void
@@ -697,6 +713,7 @@ add_alloca(Parser *parser, Type *type)
 	value_init(&alloca->base, VK_ALLOCA, type_pointer(parser->arena, type), &parser->current_block->base);
 	add_to_block(parser, &alloca->base);
 	alloca->size = type_size(type);
+	alloca->optimizable = true;
 	return &alloca->base;
 }
 
@@ -1447,7 +1464,7 @@ statement(Parser *parser)
 			add_unary(parser, VK_RET, return_type, value);
 			// Following code is unreachable. Let's not even compile
 			// it.
-			parser->current_block = NULL;
+			//parser->current_block = NULL;
 		} else if (return_type == &TYPE_VOID) {
 			add_operation(parser, VK_RETVOID, &TYPE_VOID, 0);
 		} else {
@@ -1470,22 +1487,27 @@ statement(Parser *parser)
 static void dfs(Block *block, size_t *index, Block **post_order);
 
 void
-function_finalize(Arena *arena, Function *function)
+compute_cfg(Function *function)
 {
-	function->post_order = arena_alloc(arena, sizeof(*function->post_order) * function->block_cnt);
+	for (size_t b = 0; b < function->block_cnt; b++) {
+		function->post_order[b]->pred_cnt = 0;
+		function->post_order[b]->succ_cnt = 0;
+	}
+	GROW_ARRAY(function->post_order, function->block_cap);
 	function->block_cnt = 0;
 	dfs(function->entry, &function->block_cnt, function->post_order);
 	for (size_t b = function->block_cnt, i = 0; b--; i++) {
-		// Number the blocks in RPO
-		function->post_order[b]->base.index = i;
 		// Allocate storage for predecessors
-		function->post_order[b]->preds = arena_alloc(arena, function->post_order[b]->pred_cnt * sizeof(function->post_order[b]->preds[0]));
+		GROW_ARRAY(function->post_order[b]->preds, function->post_order[b]->pred_cnt);
 		function->post_order[b]->base.visited = 0;
 		function->post_order[b]->pred_cnt = 0;
 		function->post_order[b]->succ_cnt = 0;
 	}
 	function->block_cnt = 0;
 	dfs(function->entry, &function->block_cnt, function->post_order);
+	for (size_t b = function->block_cnt, i = 0; b--; i++) {
+		function->post_order[b]->base.visited = 0;
+	}
 }
 
 static void
@@ -1495,6 +1517,7 @@ function_declaration(Parser *parser, Str fun_name, FunctionType *fun_type)
 	size_t param_cnt = fun_type->param_cnt;
 
 	Function *function = arena_alloc(parser->arena, sizeof(*function));
+	*function = (Function) {0};
 	function->name = fun_name;
 	value_init(&function->base, VK_FUNCTION, (Type *) fun_type, NULL);
 	env_define(&parser->env, fun_name, &function->base);
@@ -1516,7 +1539,7 @@ function_declaration(Parser *parser, Str fun_name, FunctionType *fun_type)
 	}
 	free(args);
 	statements(parser);
-	function_finalize(parser->arena, function);
+	compute_cfg(function);
 	function->base.index = garena_cnt(&parser->functions, Function *);
 	garena_push_value(&parser->functions, Function *, function);
 	env_pop(&parser->env);
@@ -1703,6 +1726,9 @@ instruction_arg_cnt(Value *value)
 		Operation *op = (void *) value;
 		return 1 + ((FunctionType *) op->operands[0]->type)->param_cnt;
 	}
+	case VK_PHI: {
+		return ((Block *) value->parent)->pred_cnt;
+	}
 	default:
 		return value_kind_param_cnt[value->kind];
 	}
@@ -1710,7 +1736,7 @@ instruction_arg_cnt(Value *value)
 }
 
 void
-for_each_operand(Value *value, void (*fun)(void *user_data, size_t i, Value *operand), void *user_data)
+for_each_operand(Value *value, void (*fun)(void *user_data, size_t i, Value **operand), void *user_data)
 {
 	size_t operand_cnt = instruction_arg_cnt(value);
 	if (operand_cnt == 0) {
@@ -1718,14 +1744,15 @@ for_each_operand(Value *value, void (*fun)(void *user_data, size_t i, Value *ope
 	}
 	Operation *op = (void *) value;
 	for (size_t i = 0; i < operand_cnt; i++) {
-		fun(user_data, i, op->operands[i]);
+		fun(user_data, i, &op->operands[i]);
 	}
 }
 
 void
-print_index(void *user_data, size_t i, Value *operand)
+print_index(void *user_data, size_t i, Value **operand_)
 {
 	FILE *f = user_data;
+	Value *operand = *operand_;
 	if (i != 0) {
 		fprintf(f, ", ");
 	}
@@ -1770,38 +1797,51 @@ block_add_edge(Block *pred, Block *succ)
 	}
 }
 
+void print_function(FILE *f, Function *function);
+static void print_value(FILE *f, Value *v);
+
 static void
 dfs(Block *block, size_t *index, Block **post_order)
 {
+	//fprintf(stderr, "DFS at\n");
+	////print_function(stderr, (Function *) block->base.parent);
+	//for (Value *v = block->base.next; v != &block->base; v = v->next) {
+	//	fprintf(stderr, "\tv%zu = ", v->index);
+	//	print_value(stderr, v);
+	//}
 	if (block->base.visited > 0) {
 		return;
 	}
 	block->base.visited = 1;
-	switch (block->tail->kind) {
+	switch (block->base.prev->kind) {
 	case VK_JUMP: {
-		Operation *op = (void *) block->tail;
+		Operation *op = (void *) block->base.prev;
 		assert(op->operands[0]->kind == VK_BLOCK);
 		block_add_edge(block, (Block *) op->operands[0]);
 		dfs((Block *) op->operands[0], index, post_order);
 		break;
 	}
 	case VK_BRANCH: {
-		Operation *op = (void *) block->tail;
+		Operation *op = (void *) block->base.prev;
 		assert(op->operands[1]->kind == VK_BLOCK);
 		assert(op->operands[2]->kind == VK_BLOCK);
-		block_add_edge(block, (Block *) op->operands[1]);
 		block_add_edge(block, (Block *) op->operands[2]);
-		dfs((Block *) op->operands[1], index, post_order);
+		block_add_edge(block, (Block *) op->operands[1]);
 		dfs((Block *) op->operands[2], index, post_order);
+		dfs((Block *) op->operands[1], index, post_order);
 		break;
 	}
 	case VK_RET:
 	case VK_RETVOID:
 		block->succ_cnt = 0;
 		break;
+	case VK_BLOCK:
+		// Empty block?
+		//UNREACHABLE();
+		break;
 	default:
-	     UNREACHABLE();
-	     break;
+		UNREACHABLE();
+		break;
 	}
 	block->base.visited = 2;
 	post_order[(*index)++] = block;
@@ -1966,7 +2006,7 @@ print_inst(FILE *f, Inst *inst)
 		}
 		case IK_BLOCK: {
 			MBlock *block = container_of(inst, MBlock, insts);
-			fprintf(f, ".BB%zu:", block->index);
+			fprintf(f, ".BB%zu:", block->block->base.index);
 			break;
 		}
 		default: break;
@@ -2270,10 +2310,11 @@ typedef struct {
 } TranslateOperandState;
 
 void
-translate_operand(void *user_data, size_t i, Value *operand)
+translate_operand(void *user_data, size_t i, Value **operand_)
 {
 	TranslateOperandState *tos = user_data;
 	Oper res;
+	Value *operand = *operand_;
 	switch (operand->kind) {
 	case VK_BLOCK:
 		//printf(".L%zu:", operand->index);
@@ -2314,16 +2355,25 @@ translate_operand(void *user_data, size_t i, Value *operand)
 	tos->opers[i] = res;
 }
 
+static void print_value(FILE *f, Value *v);
+
 void
 translate_value(TranslationState *ts, Value *v)
 {
 	TranslateOperandState tos_;
 	TranslateOperandState *tos = &tos_;
 	tos->ts = ts;
+	if (v->kind == VK_PHI) {
+		// Don't translate phi nor its operands -- they are handled in
+		// the predecessors.
+		return;
+	}
 	for_each_operand(v, translate_operand, tos);
 	Oper *ops = &tos->opers[0];
 	//Oper res = ts->index++;
 	Oper res = v->index;
+	fprintf(stderr, "Translating: ");
+	print_value(stderr, v);
 	switch (v->kind) {
 	case VK_CONSTANT:
 		break;
@@ -2427,9 +2477,39 @@ translate_value(TranslationState *ts, Value *v)
 		translate_call(ts, res, ops[0], &ops[1], fun_type->param_cnt);
 		break;
 	}
-	case VK_JUMP:
-		add_jmp(ts, ops[0]);
+	case VK_JUMP: {
+		Block *current = ts->block->block;
+		Block *succ = (Block *) ((Operation *) v)->operands[0];
+		size_t pred_index;
+		for (size_t i = 0; i < succ->pred_cnt; i++) {
+			Block *pred = succ->preds[i];
+			if (pred == current) {
+				pred_index = i;
+				goto found;
+			}
+		}
+		UNREACHABLE();
+	found:;
+		Oper temp_start = ts->index;
+		for (Value *v = succ->base.next; v != &succ->base; v = v->next) {
+			if (VK(v) != VK_PHI) {
+				break;
+			}
+			Operation *phi = (void *) v;
+			translate_operand(tos, pred_index, &phi->operands[pred_index]);
+			add_copy(ts, ts->index++, ops[pred_index]);
+		}
+		for (Value *v = succ->base.next; v != &succ->base; v = v->next) {
+			if (VK(v) != VK_PHI) {
+				break;
+			}
+			Operation *phi = (void *) v;
+			add_copy(ts, VINDEX(phi), temp_start++);
+		}
+
+		add_jmp(ts, succ->base.index);
 		break;
+	}
 	case VK_BRANCH:
 		add_cmp(ts, G1_TEST, ops[0], ops[0]);
 		add_jcc(ts, CC_Z, ops[2]);
@@ -2441,6 +2521,10 @@ translate_value(TranslationState *ts, Value *v)
 	case VK_RETVOID:
 		translate_return(ts, NULL);
 		break;
+	case VK_PHI: {
+		// Nothing to do. We translate phis in jumps from predecessors.
+		break;
+	}
 	default: UNREACHABLE();
 	}
 }
@@ -2979,11 +3063,12 @@ number_values(Function *function, size_t start_index)
 	size_t i = start_index;
 	for (size_t b = function->block_cnt; b--;) {
 		Block *block = function->post_order[b];
-		for (Value *v = block->head; v; v = v->next) {
+		for (Value *v = block->base.next; v != &block->base; v = v->next) {
 			//for_each_operand(v, number_operand, &i);
 			v->index = i++;
 		}
 	}
+	function->value_cnt = i;
 	return i;
 }
 
@@ -3009,7 +3094,7 @@ print_value(FILE *f, Value *v)
 	case VK_GET_MEMBER_PTR: {
 		Operation *operation = (void*) v;
 		fprintf(f, "get_member_ptr ");
-		print_index(f, 0, operation->operands[0]);
+		print_index(f, 0, &operation->operands[0]);
 		Field *field = get_member(v);
 		fprintf(f, " %.*s\n", (int) field->name.len, field->name.str);
 		break;
@@ -3043,7 +3128,7 @@ print_function(FILE *f, Function *function)
 		}
 		fprintf(f, "\n");
 
-		for (Value *v = block->head; v; v = v->next) {
+		for (Value *v = block->base.next; v != &block->base; v = v->next) {
 			fprintf(f, "\tv%zu = ", v->index);
 			print_value(f, v);
 		}
@@ -3119,6 +3204,437 @@ parse(Arena *arena, GArena *scratch, Str source, void (*error_callback)(void *us
 	return module;
 }
 
+typedef struct {
+	GArena *uses;
+	Value *current;
+} GetUsesState;
+
+void
+add_uses(void *user_data, size_t i, Value **operand_)
+{
+	GetUsesState *gus = user_data;
+	Value *operand = *operand_;
+	if (operand->index == 0) {
+		return;
+	}
+	garena_push_value(&gus->uses[operand->index], Value *, gus->current);
+}
+
+void
+get_uses(Function *function)
+{
+	GROW_ARRAY(function->uses, function->value_cnt);
+	ZERO_ARRAY(function->uses, function->value_cnt);
+	GetUsesState gus = {
+		.uses = function->uses,
+	};
+	for (size_t b = 0; b < function->block_cnt; b++) {
+		Block *block = function->post_order[b];
+		for (Value *v = block->base.next; v != &block->base; v = v->next) {
+			gus.current = v;
+			for_each_operand(v, add_uses, &gus);
+		}
+	}
+}
+
+void
+free_uses(Function *function)
+{
+	for (size_t i = 0; i < function->value_cnt; i++) {
+		garena_destroy(&function->uses[i]);
+	}
+}
+
+void
+mem2reg(Function *function)
+{
+	Block *entry = function->entry;
+	for (Value *v = entry->base.next; v != &entry->base; v = v->next) {
+		if (v->kind != VK_ALLOCA) {
+			continue;
+		}
+		Alloca *alloca = (void *) v;
+		Value **uses = garena_array(&function->uses[v->index], Value *);
+		size_t use_cnt = garena_cnt(&function->uses[v->index], Value *);
+		print_value(stderr, v);
+		for (size_t i = 0; i < use_cnt; i++) {
+			Value *use = uses[i];
+			if (VK(use) == VK_STORE && STORE_ADDR(use) == v) {
+				continue;
+			}
+			if (VK(use) == VK_LOAD && LOAD_ADDR(use) == v) {
+				continue;
+			}
+			alloca->optimizable = false;
+		}
+	}
+}
+
+bool
+is_optimizable_alloca(Value *v)
+{
+	return VK(v) == VK_ALLOCA && ((Alloca *) v)->optimizable;
+}
+
+typedef struct {
+	Arena *arena;
+	Function *function;
+	Value ***var_map;
+	Value **canonical;
+} ValueNumberingState;
+
+void
+insert_before(Value *pos, Value *new)
+{
+	Value *prev = pos->prev;
+	new->prev = prev;
+	new->next = pos;
+	prev->next = new;
+	pos->prev= new;
+}
+
+Operation *
+insert_phi(Arena *arena, Block *block, Type *type)
+{
+	Value *non_phi;
+	for (non_phi = block->base.next; non_phi != &block->base; non_phi = non_phi->next) {
+		if (VK(non_phi) != VK_PHI) {
+			break;
+		}
+	}
+	Operation *phi = arena_alloc(arena, sizeof(*phi) + sizeof(phi->operands[0]) * block->pred_cnt);
+	value_init(&phi->base, VK_PHI, type, &block->base);
+	phi->base.index = ((Function *) block->base.parent)->value_cnt++;
+	insert_before(non_phi, &phi->base);
+	return phi;
+}
+
+Value *read_variable(ValueNumberingState *vns, Block *block, Value *variable);
+
+void
+add_phi_operands(ValueNumberingState *vns, Operation *phi, Block *block, Value *variable)
+{
+	for (size_t i = 0; i < block->pred_cnt; i++) {
+		Block *pred = block->preds[i];
+		phi->operands[i] = read_variable(vns, pred, variable);
+	}
+}
+
+typedef struct {
+	Operation *phi;
+	Value *variable;
+} IncompletePhi;
+
+void
+write_variable(ValueNumberingState *vns, Block *block, Value *variable, Value *value)
+{
+	fprintf(stderr, "Writing var %zu from block %zu with value %zu\n", VINDEX(variable), VINDEX(block), VINDEX(value));
+	vns->var_map[VINDEX(block)][VINDEX(variable)] = value;
+}
+
+Value *
+read_variable(ValueNumberingState *vns, Block *block, Value *variable)
+{
+	fprintf(stderr, "Reading var %zu from block %zu\n", VINDEX(variable), VINDEX(block));
+	assert(!block->pending);
+	Value *value = vns->var_map[VINDEX(block)][VINDEX(variable)];
+	if (value) {
+		fprintf(stderr, "Have locally %zu\n", VINDEX(value));
+	} else if (block->filled_pred_cnt != block->pred_cnt) {
+		fprintf(stderr, "Not sealed\n");
+		assert(block->pred_cnt > 1);
+                // Not all predecessors are filled yet. We only insert a phi,
+                // but initialize it later, when sealing, because only then we
+                // actually can read from all predecessors.
+		IncompletePhi phi = {
+			.phi = insert_phi(vns->arena, block, pointer_child(variable->type)),
+			.variable = variable,
+		};
+		garena_push_value(&block->incomplete_phis, IncompletePhi, phi);
+		value = &phi.phi->base;
+	} else if (block->pred_cnt == 1) {
+		fprintf(stderr, "Single pred\n");
+		Block *pred = block->preds[0];
+		value = read_variable(vns, pred, variable);
+	} else {
+		fprintf(stderr, "Merge\n");
+		// We already filled all predecessors.
+		block->pending = true;
+		Operation *phi = insert_phi(vns->arena, block, pointer_child(variable->type));
+		add_phi_operands(vns, phi, block, variable);
+		block->pending = false;
+		value = &phi->base;
+	}
+	// Memoize
+	write_variable(vns, block, variable, value);
+	return value;
+}
+
+void
+prepend_value(Value *pos, Value *new)
+{
+	Value *prev = pos->prev;
+	new->prev = prev;
+	new->next = pos;
+	prev->next = new;
+	pos->prev = new;
+}
+
+void
+remove_value(Value *v)
+{
+	v->prev->next = v->next;
+	v->next->prev = v->prev;
+}
+
+void
+canonicalize(void *user_data, size_t i, Value **operand)
+{
+	ValueNumberingState *vns = user_data;
+	Value *canonical = vns->canonical[VINDEX(*operand)];
+	if (canonical) {
+		*operand = canonical;
+	}
+}
+
+void
+seal_block(ValueNumberingState *vns, Block *block)
+{
+	size_t incomplete_phi_cnt = garena_cnt(&block->incomplete_phis, IncompletePhi);
+	IncompletePhi *incomplete_phis = garena_array(&block->incomplete_phis, IncompletePhi);
+	for (size_t i = 0; i < incomplete_phi_cnt; i++) {
+		IncompletePhi *inc = &incomplete_phis[i];
+		add_phi_operands(vns, inc->phi, block, inc->variable);
+	}
+}
+
+void
+value_numbering(Arena *arena, Function *function)
+{
+	size_t block_cnt = function->block_cnt;
+	size_t value_cnt = function->value_cnt;
+
+	ValueNumberingState vns_ = {
+		.arena = arena,
+		.function = function,
+	}, *vns = &vns_;
+
+	GROW_ARRAY(vns->canonical, value_cnt);
+	ZERO_ARRAY(vns->canonical, value_cnt);
+
+	GROW_ARRAY(vns->var_map, function->block_cap);
+	ZERO_ARRAY(vns->var_map, function->block_cap);
+	for (size_t b = 0; b < block_cnt; b++) {
+		Block *block = function->post_order[b];
+		GROW_ARRAY(vns->var_map[VINDEX(block)], value_cnt);
+		ZERO_ARRAY(vns->var_map[VINDEX(block)], value_cnt);
+	}
+
+	seal_block(vns, function->entry);
+
+	for (size_t b = block_cnt; b--;) {
+		Block *block = function->post_order[b];
+		for (Value *v = block->base.next; v != &block->base; v = v->next) {
+			switch (VK(v)) {
+			case VK_ALLOCA:
+				if (is_optimizable_alloca(v)) {
+					remove_value(v);
+				}
+				continue;
+			case VK_LOAD:
+				if (is_optimizable_alloca(LOAD_ADDR(v))) {
+					Value *val = read_variable(vns, block, LOAD_ADDR(v));
+					vns->canonical[VINDEX(v)] = val;
+					remove_value(v);
+				}
+				continue;
+			case VK_STORE:
+				if (is_optimizable_alloca(STORE_ADDR(v))) {
+					write_variable(vns, block, STORE_ADDR(v), STORE_VALUE(v));
+					remove_value(v);
+				}
+				continue;
+			default:
+				break;
+			}
+			for_each_operand(v, canonicalize, vns);
+		}
+
+		for (size_t i = 0; i < block->succ_cnt; i++) {
+			Block *succ = block->succs[i];
+			if (++succ->filled_pred_cnt == succ->pred_cnt) {
+				seal_block(vns, succ);
+			}
+		}
+	}
+	FREE_ARRAY(vns->canonical, value_cnt);
+	for (size_t b = 0; b < block_cnt; b++) {
+		FREE_ARRAY(vns->var_map[b], value_cnt);
+	}
+	FREE_ARRAY(vns->var_map, block_cnt);
+}
+
+void
+merge_simple_blocks(Arena *arena, Function *function)
+{
+	WorkList worklist = {0};
+	size_t block_cap = 1;
+	while (block_cap < function->block_cap) {
+		block_cap *= 2;
+	}
+	wl_grow(&worklist, block_cap);
+	for (size_t b = function->block_cnt; b--;) {
+		Block *block = function->post_order[b];
+		wl_add(&worklist, block->base.index);
+	}
+	Oper b;
+	while (wl_take(&worklist, &b)) {
+		Block *block = function->post_order[b];
+		if (block->succ_cnt != 1) {
+			continue;
+		}
+		Block *succ = block->succs[0];
+		if (succ->pred_cnt != 1) {
+			continue;
+		}
+		// Block has one successor, and the successor has only one
+		// predecessor. We can just merge the blocks together
+		// and get rid of the jump.
+		fprintf(stderr, "Merging block%zu with block%zu\n", block->base.index, succ->base.index);
+
+		// Replace all references to `succ` in its successors, to point
+		// to `block` instead.
+		for (size_t i = 0; i < succ->succ_cnt; i++) {
+			Block *ssucc = succ->succs[i];
+			for (size_t j = 0; j < ssucc->pred_cnt; j++) {
+				Block **pred = &ssucc->preds[j];
+				if (*pred == succ) {
+					*pred = block;
+					break;
+				}
+			}
+		}
+		block->succ_cnt = succ->succ_cnt;
+		for (size_t i = 0; i < succ->succ_cnt; i++) {
+			block->succs[i] = succ->succs[i];
+		}
+
+		// Remove the jump instruction from `block`.
+		remove_value(block->base.prev);
+		// Append `succ` to the `block`.
+		block->base.prev->next = succ->base.next;
+		succ->base.next->prev = block->base.prev;
+		succ->base.prev->next = &block->base;
+		block->base.prev = succ->base.prev;
+		//prepend_value(&block->base, succ->base.next);
+		// Remove the redundant and unwanted `succ` block header.
+		//remove_value(&succ->base);
+
+		wl_add(&worklist, b);
+	}
+	wl_destroy(&worklist);
+
+	// Recompute function->post_order, since we invalidated it.
+	compute_cfg(function);
+}
+
+void
+thread_jumps(Arena *arena, Function *function)
+{
+	WorkList worklist = {0};
+	size_t block_cap = 1;
+	while (block_cap < function->block_cap) {
+		block_cap *= 2;
+	}
+	wl_grow(&worklist, block_cap);
+	for (size_t b = function->block_cnt; b--;) {
+		Block *block = function->post_order[b];
+		wl_add(&worklist, block->base.index);
+	}
+	Oper b;
+	while (wl_take(&worklist, &b)) {
+		Block *block = function->post_order[b];
+		if (VK(block->base.next) != VK_JUMP) {
+			continue;
+		}
+		Block *succ = block->succs[0];
+                // Block is empty and has only one successor. We can just
+		// forward the jumps from predecessors to the successor.
+                fprintf(stderr, "Threading block%zu to block%zu\n", block->base.index, succ->base.index);
+
+                // Replace all references to `block` in its predecessors, to
+                // point to `succ` instead.
+                for (size_t i = 0; i < block->pred_cnt; i++) {
+			Block *pred = block->preds[i];
+			for (size_t j = 0; j < pred->succ_cnt; j++) {
+				Block **s = &pred->succs[j];
+				if (*s == block) {
+					*s = succ;
+					((Operation *) pred->base.prev)->operands[j] = &succ->base;
+					break;
+				}
+			}
+			wl_add(&worklist, pred->base.index);
+		}
+	}
+	wl_destroy(&worklist);
+
+	// Recompute function->post_order, since we invalidated it.
+	compute_cfg(function);
+}
+
+void
+split_critical_edges(Arena *arena, Function *function)
+{
+	for (size_t b = function->block_cnt; b--;) {
+		Block *succ = function->post_order[b];
+		if (succ->pred_cnt <= 1) {
+			// OK.
+			continue;
+		}
+		for (size_t i = 0; i < succ->pred_cnt; i++) {
+			Block *pred = succ->preds[i];
+			if (pred->succ_cnt <= 1) {
+				// OK.
+				continue;
+			}
+			// Otherwise we have a critical edge (from block to with
+			// multiple successors to block with multiple
+			// predecessors). We split it by introducing a new
+			// block.
+			fprintf(stderr, "Splitting critical edge from block%zu to block%zu\n", VINDEX(pred), VINDEX(succ));
+			Block *new = create_block(arena, function);
+			Value *jump = create_unary(arena, new, VK_JUMP, &TYPE_VOID, &succ->base);
+			jump->index = function->value_cnt++;
+			prepend_value(&new->base, jump);
+			for (size_t j = 0; j < pred->succ_cnt; j++) {
+				if (pred->succs[j] == succ) {
+					pred->succs[j] = new;
+					((Operation *) pred->base.prev)->operands[j] = &new->base;
+					break;
+				}
+			}
+		}
+	}
+
+	// Recompute function->post_order, since we invalidated it.
+	compute_cfg(function);
+}
+
+typedef struct {
+	Block *block;
+	Value *value;
+} PendingPhi;
+
+void
+single_exit(Function *function)
+{
+	for (size_t b = function->block_cnt; b--;) {
+		Block *block = function->post_order[b];
+		// TODO?
+	}
+}
+
 void
 add_to_use_or_def_count(void *user_data, Oper *oper)
 {
@@ -3136,11 +3652,9 @@ calculate_spill_cost(MFunction *mfunction, u8 *def_counts, u8 *use_counts)
 }
 
 MFunction *
-translate_function(Arena *arena, Function *function, size_t start_index)
+translate_function(Arena *arena, Function *function)
 {
 	Block **post_order = function->post_order;
-
-	GArena gmblocks = {0};
 
 	MFunction *mfunction = arena_alloc(arena, sizeof(*mfunction));
 	memset(mfunction, 0, sizeof(*mfunction));
@@ -3151,10 +3665,12 @@ translate_function(Arena *arena, Function *function, size_t start_index)
 	mfunction->insts.next = &mfunction->insts;
 	mfunction->insts.prev = &mfunction->insts;
 	mfunction->func = function;
+	mfunction->mblocks = arena_alloc(arena, function->block_cnt * sizeof(mfunction->mblocks[0]));
+	mfunction->mblock_cnt = 0; // incremented when each block is inserted
 
 	TranslationState ts_ = {
 		.arena = arena,
-		.index = start_index,
+		.index = function->value_cnt,
 		.stack_space = 8,
 		.block = NULL,
 		.function = mfunction,
@@ -3162,21 +3678,24 @@ translate_function(Arena *arena, Function *function, size_t start_index)
 	};
 	TranslationState *ts = &ts_;
 
+
 	for (size_t b = function->block_cnt; b--;) {
 	//for (size_t j = 0; j < function->block_cnt; j++) {
 		Block *block = post_order[b];
 		//printf(".L%zu:\n", function->block_cnt - b - 1);
 		MBlock *mblock = arena_alloc(arena, sizeof(*mblock));
 		memset(mblock, 0, sizeof(*mblock));
-		garena_push_value(&gmblocks, MBlock *, mblock);
+		mfunction->mblocks[mfunction->mblock_cnt++] = mblock;
 		mblock->insts.kind = IK_BLOCK;
 		mblock->insts.subkind = 0;
 		mblock->insts.mode = M_NONE;
 		add_inst_(ts, &mblock->insts);
 		mblock->block = block;
-		mblock->index = block->base.index;
+		//mblock->index = block->base.index;
+		mblock->index = mfunction->mblock_cnt - 1;
+		block->mblock = mblock;
 		ts->block = mblock;
-		if (b == function->block_cnt - 1) {
+		if (block == function->entry) {
 			add_push(ts, R_RBP);
 			add_copy(ts, R_RBP, R_RSP);
 			// Add instruction to make stack space, since we may
@@ -3202,7 +3721,7 @@ translate_function(Arena *arena, Function *function, size_t start_index)
 				add_copy(ts, ts->index++, saved[i]);
 			}
 		}
-		for (Value *v = block->head; v; v = v->next) {
+		for (Value *v = block->base.next; v != &block->base; v = v->next) {
 			translate_value(ts, v);
 		}
 		mblock->last = mfunction->insts.prev;
@@ -3211,9 +3730,6 @@ translate_function(Arena *arena, Function *function, size_t start_index)
 	mfunction->vreg_cnt = ts->index;
 	mfunction->stack_space = ts->stack_space;
 	mfunction->make_stack_space = ts->make_stack_space;
-	mfunction->mblock_cnt = garena_cnt(&gmblocks, MBlock *),
-	mfunction->mblocks = move_to_arena(arena, &gmblocks, 0, MBlock *),
-	garena_destroy(&gmblocks);
 	function->mfunc = mfunction;
 	return mfunction;
 }
@@ -3240,8 +3756,8 @@ build_interference_graph(RegAllocState *ras)
 			ras->live_in[b] = *live_set;
 			*live_set = tmp;
 			for (size_t i = 0; i < block->pred_cnt; i++) {
-				size_t pred = block->preds[i]->base.index;
-				wl_add(&ras->block_work_list, pred);
+				Block *pred = block->preds[i];
+				wl_add(&ras->block_work_list, pred->mblock->index);
 			}
 		}
 	}
@@ -3794,7 +4310,7 @@ peephole(MFunction *mfunction, Arena *arena)
 		// .BB5:
 		// =>
 		// .BB5:
-		if (IK(inst) == IK_BLOCK && IK(prev) == IK_JUMP && IIMM(prev) == container_of(inst, MBlock, insts)->index) {
+		if (IK(inst) == IK_BLOCK && IK(prev) == IK_JUMP && IIMM(prev) == container_of(inst, MBlock, insts)->block->base.index) {
 			prev->prev->next = inst;
 			inst->prev = prev->prev;
 			inst = inst;
@@ -4010,7 +4526,7 @@ peephole(MFunction *mfunction, Arena *arena)
 		// =>
 		//     jl .BB4
 		// .BB3:
-		if (IK(pprev) == IK_JCC && IK(prev) == IK_JUMP && IK(inst) == IK_BLOCK && container_of(inst, MBlock, insts)->index == IIMM(pprev)) {
+		if (IK(pprev) == IK_JCC && IK(prev) == IK_JUMP && IK(inst) == IK_BLOCK && container_of(inst, MBlock, insts)->block->base.index == IIMM(pprev)) {
 			IK(prev) = IK_JCC;
 			IS(prev) = cc_invert(IS(pprev));
 			pprev->prev->next = prev;
@@ -4079,7 +4595,7 @@ peephole(MFunction *mfunction, Arena *arena)
 		// =>
 		// cmp rax, rdx
 		// jng .BB2
-		if (IK(inst) == IK_JCC && IS(inst) == CC_Z && IK(prev) == IK_BINALU && IS(prev) == G1_TEST && IM(prev) == M_rr && IK(pprev) == IK_SETCC && IREG(prev) == IREG(pprev) && IREG(prev) == IREG2(prev) && IK(ppprev) == IK_BINALU && IS(ppprev) == G1_CMP && IK(pppprev) == IK_MOV && IS(pppprev) == MOV && IM(pppprev) == M_CI && IIMM(pppprev) == 0) {
+		if (IK(inst) == IK_JCC && IS(inst) == CC_Z && IK(prev) == IK_BINALU && IS(prev) == G1_TEST && IM(prev) == M_rr && IREG(prev) == IREG2(prev) && IK(pprev) == IK_SETCC && IREG(prev) == IREG(pprev) && IK(ppprev) == IK_BINALU && IS(ppprev) == G1_CMP && IK(pppprev) == IK_MOV && IS(pppprev) == MOV && IM(pppprev) == M_CI && IIMM(pppprev) == 0) {
 			IS(inst) = cc_invert(IS(pprev));
 			pppprev->prev->next = ppprev;
 			ppprev->prev = pppprev->prev;
@@ -4231,17 +4747,33 @@ main(int argc, char **argv)
 	print_globals(stderr, module);
 	fprintf(stderr, "\n");
 	for (size_t i = 0; i < function_cnt; i++) {
-		size_t index = number_values(functions[i], R__MAX);
+		number_values(functions[i], R__MAX);
 		print_function(stderr, functions[i]);
-		translate_function(arena, functions[i], index);
+		merge_simple_blocks(arena, functions[i]);
+		print_function(stderr, functions[i]);
+		get_uses(functions[i]);
+		mem2reg(functions[i]);
+		free_uses(functions[i]);
+		value_numbering(arena, functions[i]);
+		print_function(stderr, functions[i]);
+		thread_jumps(arena, functions[i]);
+		print_function(stderr, functions[i]);
+		split_critical_edges(arena, functions[i]);
+		print_function(stderr, functions[i]);
+		///*
+		translate_function(arena, functions[i]);
 		print_mfunction(stderr, functions[i]->mfunc);
 		peephole(functions[i]->mfunc, arena);
 		print_mfunction(stderr, functions[i]->mfunc);
 		reg_alloc_function(&ras, functions[i]->mfunc);
+		print_mfunction(stderr, functions[i]->mfunc);
 		peephole(functions[i]->mfunc, arena);
+		print_mfunction(stderr, functions[i]->mfunc);
+		//*/
 		//peephole(functions[i]->mfunc, arena);
 	}
 
+	///*
 	reg_alloc_state_destroy(&ras);
 
 	printf("\tdefault rel\n\n");
@@ -4289,6 +4821,7 @@ main(int argc, char **argv)
 		printf("\n");
 		print_mfunction(stdout, functions[i]->mfunc);
 	}
+	//*/
 
 end:
 	for (Error *err = ec.error_head; err; err = err->next) {

@@ -1,7 +1,6 @@
 #define VALUE_KINDS(OT, OP, TERM) \
 	OT(UNDEFINED, "undefined") \
 	OT(NOP, "nop") \
-	OT(IDENTITY, "identity") \
 	OT(CONSTANT, "constant") \
 	OT(ALLOCA, "alloca") \
 	OT(GLOBAL, "global") \
@@ -29,11 +28,13 @@
 	OP(GT,  "gt",  2) \
 	OP(GEQ, "geq", 2) \
 	\
+	OP(IDENTITY, "identity", 1) \
 	OP(LOAD, "load", 1) \
 	OP(STORE, "store", 2) \
 	OP(GET_INDEX_PTR, "get_index_ptr", 2) \
 	OP(GET_MEMBER_PTR, "get_member_ptr", 2) \
 	OP(CALL, "call", 0) \
+	OP(PHI, "phi", 0) \
 	TERM(JUMP, "jump", 1) \
 	TERM(BRANCH, "branch", 3) \
 	TERM(RET, "ret", 1) \
@@ -85,6 +86,7 @@ typedef struct {
 typedef struct {
 	Value base;
 	size_t size;
+	bool optimizable;
 } Alloca;
 
 typedef struct {
@@ -104,15 +106,19 @@ typedef struct {
 } Operation;
 
 typedef struct Block Block;
+typedef struct MBlock MBlock;
 
 struct Block {
 	Value base;
-	Value *head;
-	Value *tail;
+	MBlock *mblock;
 	Block **preds;
 	size_t pred_cnt;
 	Block *succs[2];
 	size_t succ_cnt;
+	size_t filled_pred_cnt;
+	bool pending;
+	
+	GArena incomplete_phis;
 };
 
 typedef struct Function Function;
@@ -123,9 +129,20 @@ struct Function {
 	Str name;
 	Block *entry;
 	Block **post_order;
+	size_t block_cap;
 	size_t block_cnt;
+	size_t value_cnt;
 	MFunction *mfunc;
+
+	GArena *uses; // array of Value * for each Value * (by its index)
 };
+
+#define VK(v) (((Value *) (v))->kind)
+#define VINDEX(v) (((Value *) (v))->index)
+#define STORE_ADDR(v) (((Operation *) (v))->operands[0])
+#define STORE_VALUE(v) (((Operation *) (v))->operands[1])
+#define LOAD_ADDR(v) (((Operation *) (v))->operands[0])
+
 
 typedef enum {
 	G1_ADD,
@@ -398,12 +415,12 @@ InsFormat formats[] = {
 	[M_ADM]  = { 0, 0, 1, 3,  0, rax_rdx, rax_rdx },
 };
 
-typedef struct {
+struct MBlock {
 	Block *block;
 	size_t index;
 	Inst insts;
 	Inst *last;
-} MBlock;
+};
 
 struct MFunction {
 	Function *func;
