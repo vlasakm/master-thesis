@@ -2375,7 +2375,11 @@ translate_value(TranslationState *ts, Value *v)
 	fprintf(stderr, "Translating: ");
 	print_value(stderr, v);
 	switch (v->kind) {
-	case VK_CONSTANT:
+	case VK_NOP:
+	case VK_UNDEFINED:
+		break;
+	case VK_IDENTITY:
+		add_copy(ts, res, ops[0]);
 		break;
 	case VK_ALLOCA: {
 		Alloca *alloca = (Alloca *) v;
@@ -2390,6 +2394,7 @@ translate_value(TranslationState *ts, Value *v)
 		add_copy(ts, res, argument_regs[argument->index]);
 		break;
 	}
+	case VK_CONSTANT:
 	case VK_BLOCK:
 	case VK_FUNCTION:
 	case VK_GLOBAL:
@@ -2525,7 +2530,6 @@ translate_value(TranslationState *ts, Value *v)
 		// Nothing to do. We translate phis in jumps from predecessors.
 		break;
 	}
-	default: UNREACHABLE();
 	}
 }
 
