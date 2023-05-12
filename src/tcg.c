@@ -2857,7 +2857,7 @@ for_each_use(Inst *inst, void (*fun)(void *user_data, Oper *use), void *user_dat
 }
 
 void
-remove_from_live(void *user_data, Oper *oper)
+remove_from_set(void *user_data, Oper *oper)
 {
 	WorkList *live_set = user_data;
 	//fprintf(stderr, "Removing from live ");
@@ -2867,7 +2867,7 @@ remove_from_live(void *user_data, Oper *oper)
 }
 
 void
-add_to_live(void *user_data, Oper *oper)
+add_to_set(void *user_data, Oper *oper)
 {
 	WorkList *live_set = user_data;
 	//fprintf(stderr, "Adding to live ");
@@ -2883,21 +2883,21 @@ live_step(WorkList *live_set, Inst *inst)
 	//print_inst(stderr, inst);
 	//fprintf(stderr, "\n");
 	// Remove definitions from live.
-	for_each_def(inst, remove_from_live, live_set);
+	for_each_def(inst, remove_from_set, live_set);
 	// Add uses to live.
-	for_each_use(inst, add_to_live, live_set);
+	for_each_use(inst, add_to_set, live_set);
 }
 
 typedef struct {
 	InterferenceGraph *ig;
 	Oper live;
-} Tmp;
+} InterferenceState;
 
 void
 add_interference_with(void *user_data, Oper *oper)
 {
-	Tmp *tmp = user_data;
-	ig_add(tmp->ig, *oper, tmp->live);
+	InterferenceState *is = user_data;
+	ig_add(is->ig, *oper, is->live);
 }
 
 void
@@ -2913,7 +2913,7 @@ interference_step(RegAllocState *ras, WorkList *live_set, Inst *inst)
 	if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_Cr) {
 		// Remove uses from live to prevent interference between move
 		// destination and source.
-		for_each_use(inst, remove_from_live, live_set);
+		for_each_use(inst, remove_from_set, live_set);
 
 		// Accumulate moves.
 		size_t index = garena_cnt(&ras->gmoves, Inst *);
@@ -2928,13 +2928,13 @@ interference_step(RegAllocState *ras, WorkList *live_set, Inst *inst)
         // make all the definitions interfere with each other. Since the
 	// liveness step (run after us) removes all definitions, this is OK and
 	// local to the current instruction.
-	for_each_def(inst, add_to_live, live_set);
+	for_each_def(inst, add_to_set, live_set);
 
 	// Add interferences of all definitions with all live.
-	Tmp tmp = { .ig = ig };
+	InterferenceState is = { .ig = ig };
 	FOR_EACH_WL_INDEX(live_set, j) {
-		tmp.live = live_set->dense[j];
-		for_each_def(inst, add_interference_with, &tmp);
+		is.live = live_set->dense[j];
+		for_each_def(inst, add_interference_with, &is);
 	}
 }
 
@@ -2944,12 +2944,22 @@ typedef struct {
 	Oper spill_start;
 } SpillState;
 
+bool
+is_to_be_spilled(SpillState *ss, Oper t)
+{
+	// Newly introduced temporaries (>= `ss->spill_start`) are:
+	// 1) Not spilled.
+	// 2) Out of bounds for `to_spill`.
+	// So it is important the we check that first.
+	return t < ss->spill_start && ss->ras->to_spill[t];
+}
+
 void
 insert_loads_of_spilled(void *user_data, Oper *src)
 {
 	SpillState *ss = user_data;
 	RegAllocState *ras = ss->ras;
-	if (*src >= ss->spill_start || !ras->to_spill[*src]) {
+	if (!is_to_be_spilled(ss, *src)) {
 		return;
 	}
 	Inst *inst = ss->inst;
@@ -2987,7 +2997,7 @@ insert_stores_of_spilled(void *user_data, Oper *dest)
 {
 	SpillState *ss = user_data;
 	RegAllocState *ras = ss->ras;
-	if (*dest >= ss->spill_start || !ras->to_spill[*dest]) {
+	if (!is_to_be_spilled(ss, *dest)) {
 		return;
 	}
 	Inst *inst = ss->inst;
@@ -3643,11 +3653,12 @@ add_to_use_or_def_count(void *user_data, Oper *oper)
 }
 
 void
-calculate_spill_cost(MFunction *mfunction, u8 *def_counts, u8 *use_counts)
+calculate_spill_cost(RegAllocState *ras)
 {
+	MFunction *mfunction = ras->mfunction;
 	for (Inst *inst = mfunction->insts.next; inst != &mfunction->insts; inst = inst->next) {
-		for_each_def(inst, add_to_use_or_def_count, def_counts);
-		for_each_use(inst, add_to_use_or_def_count, use_counts);
+		for_each_def(inst, add_to_use_or_def_count, ras->def_counts);
+		for_each_use(inst, add_to_use_or_def_count, ras->use_counts);
 	}
 }
 
@@ -4245,8 +4256,8 @@ reg_alloc_function(RegAllocState *ras, MFunction *mfunction)
 
 	for (;;) {
 		reg_alloc_state_reset(ras);
-		calculate_spill_cost(mfunction, ras->def_counts, ras->use_counts);
 		build_interference_graph(ras);
+		calculate_spill_cost(ras);
 		initialize_worklists(ras);
 		for (;;) {
 			simplify(ras);
