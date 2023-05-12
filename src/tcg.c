@@ -3036,21 +3036,49 @@ spill(RegAllocState *ras)
 	// TODO: Infinite spill costs for uses immediately following
 	// definitions.
 	MFunction *mfunction = ras->mfunction;
-	SpillState ss = {
+	SpillState ss_ = {
 		.ras = ras,
 		.spill_start = mfunction->vreg_cnt,
-	};
+	}, *ss = &ss_;
 	print_mfunction(stderr, mfunction);
-	for (ss.inst = mfunction->insts.next; ss.inst != &mfunction->insts; ss.inst = ss.inst->next) {
+	for (Inst *inst = mfunction->insts.next; inst != &mfunction->insts; inst = inst->next) {
+		ss->inst = inst;
 		fprintf(stderr, "\n");
-		print_inst(stderr, ss.inst);
+		print_inst(stderr, inst);
 		fprintf(stderr, "\n");
+		if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_Cr) {
+			Oper dest = inst->ops[0];
+			Oper src = inst->ops[1];
+			bool spill_dest = is_to_be_spilled(ss, dest);
+			bool spill_src = is_to_be_spilled(ss, src);
+			if (spill_dest && spill_src) {
+                                // If this would be essentially:
+				//    mov [rbp+X], [rbp+X]
+				// we can just get rid of the copy.
+				assert(false);
+                                if (ras->to_spill[dest] == ras->to_spill[src]) {
+					inst->prev->next = inst->next;
+					inst->next->prev = inst->prev;
+				}
+			} else if (spill_dest) {
+				inst->mode = M_Mr;
+				IREG(inst) = src;
+				IBASE(inst) = R_RBP;
+				IDISP(inst) = - 8 - ras->to_spill[dest];
+			} else if (spill_src) {
+				inst->mode = M_CM;
+				IREG(inst) = dest;
+				IBASE(inst) = R_RBP;
+				IDISP(inst) = - 8 - ras->to_spill[src];
+			}
+			continue;
+		}
 		//print_inst_d(stderr, inst);
 		//fprintf(stderr, "\n");
 		// Add loads for all spilled uses.
-		for_each_use(ss.inst, insert_loads_of_spilled, &ss);
+		for_each_use(inst, insert_loads_of_spilled, ss);
 		// Add stores for all spilled defs.
-		for_each_def(ss.inst, insert_stores_of_spilled, &ss);
+		for_each_def(inst, insert_stores_of_spilled, ss);
 	}
 	print_mfunction(stderr, mfunction);
 }
