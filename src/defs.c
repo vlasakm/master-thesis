@@ -59,9 +59,9 @@ struct Value {
 };
 
 void
-value_init(Value *value, ValueKind kind, Type *type, Value *parent)
+value_init(Value *value, ValueKind kind, Type *type)
 {
-	*value = (Value) { .kind = kind, .type = type, .parent = parent };
+	*value = (Value) { .kind = kind, .type = type };
 }
 
 char *value_kind_repr[] = {
@@ -111,10 +111,9 @@ typedef struct MBlock MBlock;
 struct Block {
 	Value base;
 	MBlock *mblock;
-	Block **preds;
-	size_t pred_cnt;
-	Block *succs[2];
-	size_t succ_cnt;
+	Block **preds_;
+	size_t pred_cnt_;
+	size_t pred_cap_;
 	size_t filled_pred_cnt;
 	bool pending;
 	
