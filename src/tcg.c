@@ -4180,10 +4180,10 @@ select_potential_spill_if_needed(RegAllocState *ras)
 	if (!wl_empty(&ras->spill_wl)) {
 		fprintf(stderr, "Potential spill\n");
 		Oper candidate = ras->spill_wl.dense[ras->spill_wl.head];
-		size_t max = spill_metric(ras, candidate);
+		double max = spill_metric(ras, candidate);
 		for (size_t j = ras->spill_wl.head; j < ras->spill_wl.tail; j++) {
 			Oper i = ras->spill_wl.dense[j];
-			size_t curr = spill_metric(ras, i);
+			double curr = spill_metric(ras, i);
 			if (curr > max) {
 				max = curr;
 				candidate = i;
