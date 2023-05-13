@@ -4157,6 +4157,8 @@ simplify(RegAllocState *ras)
 void
 select_potential_spill_if_needed(RegAllocState *ras)
 {
+	assert(wl_empty(&ras->simplify_wl));
+	assert(wl_empty(&ras->moves_wl));
 	if (!wl_empty(&ras->spill_wl)) {
 		fprintf(stderr, "Potential spill\n");
 		Oper candidate = ras->spill_wl.dense[ras->spill_wl.head];
