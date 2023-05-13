@@ -1,0 +1,21 @@
+// vim: ft=c et sw=4
+
+int f(int a) {
+    int b = 3;
+    if (a) {
+        b = 4;
+    }
+    return b;
+}
+
+int g(int a) {
+    if (a) {
+        return 4;
+    } else {
+        return 3;
+    }
+}
+
+int main() {
+    return f(1) + g(0);
+}

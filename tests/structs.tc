@@ -1,0 +1,26 @@
+// vim: ft=c et sw=4
+
+typedef int main_type(int a);
+
+int G = 5;
+int H;
+
+typedef struct {
+    int a;
+    int b;
+} S;
+
+int f() {
+    return 1;
+}
+
+int main() {
+    S s;
+    S arr_;
+    S *arr = &arr_;
+    s.b = 3;
+    arr->b = 5;
+    G = G + f() + H + arr->b;
+    return G;
+    //return G - s.b == arr->b;
+}
