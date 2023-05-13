@@ -2799,6 +2799,8 @@ get_alias(RegAllocState *ras, Oper u)
 void
 ig_add(InterferenceGraph *ig, Oper op1, Oper op2)
 {
+	assert(op1 < ig->n);
+	assert(op2 < ig->n);
 	if (op1 == op2 || ig_interfere(ig, op1, op2)) {
 		return;
 	}
