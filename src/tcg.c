@@ -450,13 +450,13 @@ block_succs(Block *block)
 u64
 str_hash(Str id)
 {
-    u64 h = UINT64_C(14695981039346656037);
-    for (size_t i = 0; i < id.len; i++) {
-	// beware of unwanted sign extension!
-        h ^= id.str[i];
-        h *= UINT64_C(1099511628211);
-    }
-    return h;
+	u64 h = UINT64_C(14695981039346656037);
+	for (size_t i = 0; i < id.len; i++) {
+		// beware of unwanted sign extension!
+		h ^= id.str[i];
+		h *= UINT64_C(1099511628211);
+	}
+	return h;
 }
 
 typedef struct {
@@ -1129,7 +1129,7 @@ ident(Parser *parser)
 	}
 	assert(value);
 	if (value->kind == VK_FUNCTION) {
-	     return rvalue(value);
+		return rvalue(value);
 	}
 	return lvalue(value);
 }
@@ -2991,9 +2991,9 @@ interference_step(RegAllocState *ras, WorkList *live_set, Inst *inst)
 	}
 
 
-        // Add all definitions to live. Because the next step adds
-        // interferences between all definitions and all live, we will thus also
-        // make all the definitions interfere with each other. Since the
+	// Add all definitions to live. Because the next step adds
+	// interferences between all definitions and all live, we will thus also
+	// make all the definitions interfere with each other. Since the
 	// liveness step (run after us) removes all definitions, this is OK and
 	// local to the current instruction.
 	for_each_def(inst, add_to_set, live_set);
@@ -3486,9 +3486,9 @@ read_variable(ValueNumberingState *vns, Block *block, Value *variable)
 	} else if (block->filled_pred_cnt != block_pred_cnt(block)) {
 		fprintf(stderr, "Not sealed\n");
 		assert(block_pred_cnt(block) > 1);
-                // Not all predecessors are filled yet. We only insert a phi,
-                // but initialize it later, when sealing, because only then we
-                // actually can read from all predecessors.
+		// Not all predecessors are filled yet. We only insert a phi,
+		// but initialize it later, when sealing, because only then we
+		// actually can read from all predecessors.
 		IncompletePhi phi = {
 			.phi = insert_phi(vns->arena, block, pointer_child(variable->type)),
 			.variable = variable,
@@ -3701,12 +3701,12 @@ thread_jumps(Arena *arena, Function *function)
 			continue;
 		}
 		Block *succ = block_succs(block)[0];
-                // Block is empty and has only one successor. We can just
+		// Block is empty and has only one successor. We can just
 		// forward the jumps from predecessors to the successor.
-                fprintf(stderr, "Threading block%zu to block%zu\n", block->base.index, succ->base.index);
+		fprintf(stderr, "Threading block%zu to block%zu\n", block->base.index, succ->base.index);
 
-                // Replace all references to `block` in its predecessors, to
-                // point to `succ` instead.
+		// Replace all references to `block` in its predecessors, to
+		// point to `succ` instead.
 		FOR_EACH_BLOCK_PRED(block, pred) {
 			FOR_EACH_BLOCK_PRED(*pred, s) {
 				if (*s == block) {
