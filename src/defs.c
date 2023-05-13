@@ -419,12 +419,10 @@ struct MBlock {
 	Block *block;
 	size_t index;
 	Inst insts;
-	Inst *last;
 };
 
 struct MFunction {
 	Function *func;
-	Inst insts;
 	MBlock **mblocks;
 	size_t mblock_cnt;
 	size_t stack_space;
