@@ -2495,21 +2495,23 @@ translate_value(TranslationState *ts, Value *v)
 		}
 		UNREACHABLE();
 	found:;
-		Oper temp_start = ts->index;
+		size_t i = 0;
 		for (Value *v = succ->base.next; v != &succ->base; v = v->next) {
 			if (VK(v) != VK_PHI) {
 				break;
 			}
 			Operation *phi = (void *) v;
-			translate_operand(tos, pred_index, &phi->operands[pred_index]);
-			add_copy(ts, ts->index++, ops[pred_index]);
+			// TODO: save the phi operands somewhere else
+			translate_operand(tos, 9, &phi->operands[pred_index]);
+			add_copy(ts, ops[i++] = ts->index++, ops[9]);
 		}
+		i = 0;
 		for (Value *v = succ->base.next; v != &succ->base; v = v->next) {
 			if (VK(v) != VK_PHI) {
 				break;
 			}
 			Operation *phi = (void *) v;
-			add_copy(ts, VINDEX(phi), temp_start++);
+			add_copy(ts, VINDEX(phi), ops[i++]);
 		}
 
 		add_jmp(ts, succ->base.index);
