@@ -2654,7 +2654,7 @@ print_mfunction(FILE *f, MFunction *mfunction)
 	fprintf(f, ":\n");
 	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
 		MBlock *mblock = mfunction->mblocks[b];
-		fprintf(f, ".BB%zu:", mblock->block->base.index);
+		fprintf(f, ".BB%zu:\n", mblock->block->base.index);
 		for (Inst *inst = mblock->insts.next; inst != &mblock->insts; inst = inst->next) {
 			fprintf(f, "\t");
 			print_inst(f, inst);
