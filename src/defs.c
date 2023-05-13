@@ -240,14 +240,14 @@ struct Inst {
 
 #define IREG(inst) ((inst)->ops[0])
 #define IREG1(inst) ((inst)->ops[0])
+#define ILABEL(inst) ((inst)->ops[0])
 #define IBASE(inst) ((inst)->ops[1])
 #define IREG2(inst) ((inst)->ops[1])
 #define IINDEX(inst) ((inst)->ops[2])
 #define ISCALE(inst) ((inst)->ops[3])
 #define IDISP(inst) ((inst)->ops[4])
 #define IIMM(inst) ((inst)->ops[5])
-#define IARG_CNT(inst) ((inst)->ops[0])
-#define IRET_CNT(inst) ((inst)->ops[0])
+#define IARG_CNT(inst) ((inst)->ops[5])
 
 typedef enum {
 	//IK_HEAD, // Machine Function or Machine Basic Block (head of the doubly linked list)
@@ -360,7 +360,9 @@ typedef enum {
 	M_I,
 	M_L,
 	M_NONE,
-	M_CALL,
+	M_LCALL,
+	M_rCALL,
+	M_MCALL,
 	M_RET,
 	M_ADr,
 	M_ADM,
@@ -371,7 +373,7 @@ typedef struct {
 	u8 def_end;
 	u8 use_start;
 	u8 use_end;
-	bool use_cnt_given_by_first;
+	bool use_cnt_given_by_arg_cnt;
 	Oper *extra_defs;
 	Oper *extra_uses;
 } InsFormat;
@@ -384,34 +386,36 @@ static Oper callee_saved[] = { R_RBX, R_RBP, R_RSP, R_NONE };
 static Oper saved[] = { R_RBX };
 static Oper caller_saved[] = { R_RAX, R_RCX, R_RDX, R_RSI, R_RDI, R_NONE };
 static Oper argument_regs[] = { R_RDI, R_RSI, R_RDX, R_RCX, R_NONE };
-//static Oper return_regs[] = { R_RAX, R_RDX, R_NONE };
+//static Oper return_regs[] = { R_RAX, R_RDX };
 
 
 InsFormat formats[] = {
-	[M_Rr]   = { 0, 1, 0, 2,  0, none, none },
-	[M_rr]   = { 0, 0, 0, 2,  0, none, none },
-	[M_Cr]   = { 0, 1, 1, 2,  0, none, none },
-	[M_RM]   = { 0, 1, 0, 3,  0, none, none },
-	[M_rM]   = { 0, 0, 0, 3,  0, none, none },
-	[M_CM]   = { 0, 1, 1, 3,  0, none, none },
-	[M_Mr]   = { 0, 0, 0, 3,  0, none, none },
-	[M_RI]   = { 0, 1, 0, 1,  0, none, none },
-	[M_rI]   = { 0, 0, 0, 1,  0, none, none },
-	[M_CI]   = { 0, 1, 0, 0,  0, none, none },
-	[M_MI]   = { 0, 0, 1, 3,  0, none, none },
-	[M_CrI]  = { 0, 1, 1, 2,  0, none, none },
-	[M_CMI]  = { 0, 1, 1, 3,  0, none, none },
-	[M_R]    = { 0, 1, 0, 1,  0, none, none },
-	[M_r]    = { 0, 0, 0, 1,  0, none, none },
-	[M_C]    = { 0, 1, 0, 0,  0, none, none },
-	[M_M]    = { 0, 0, 1, 3,  0, none, none },
-	[M_I]    = { 0, 0, 0, 0,  0, none, none },
-	[M_L]    = { 0, 0, 0, 0,  0, none, none },
-	[M_NONE] = { 0, 0, 0, 0,  0, none, none },
-	[M_CALL] = { 0, 0, 0, 0,  1, caller_saved, argument_regs },
-	[M_RET]  = { 0, 0, 0, 1,  0, none, callee_saved }, // hack for use of R_RAX (and potentially R_RDX)
-	[M_ADr]  = { 0, 0, 0, 1,  0, rax_rdx, rax_rdx },
-	[M_ADM]  = { 0, 0, 1, 3,  0, rax_rdx, rax_rdx },
+	[M_Rr]    = { 0, 1, 0, 2,  0, none, none },
+	[M_rr]    = { 0, 0, 0, 2,  0, none, none },
+	[M_Cr]    = { 0, 1, 1, 2,  0, none, none },
+	[M_RM]    = { 0, 1, 0, 3,  0, none, none },
+	[M_rM]    = { 0, 0, 0, 3,  0, none, none },
+	[M_CM]    = { 0, 1, 1, 3,  0, none, none },
+	[M_Mr]    = { 0, 0, 0, 3,  0, none, none },
+	[M_RI]    = { 0, 1, 0, 1,  0, none, none },
+	[M_rI]    = { 0, 0, 0, 1,  0, none, none },
+	[M_CI]    = { 0, 1, 0, 0,  0, none, none },
+	[M_MI]    = { 0, 0, 1, 3,  0, none, none },
+	[M_CrI]   = { 0, 1, 1, 2,  0, none, none },
+	[M_CMI]   = { 0, 1, 1, 3,  0, none, none },
+	[M_R]     = { 0, 1, 0, 1,  0, none, none },
+	[M_r]     = { 0, 0, 0, 1,  0, none, none },
+	[M_C]     = { 0, 1, 0, 0,  0, none, none },
+	[M_M]     = { 0, 0, 1, 3,  0, none, none },
+	[M_I]     = { 0, 0, 0, 0,  0, none, none },
+	[M_L]     = { 0, 0, 0, 0,  0, none, none },
+	[M_NONE]  = { 0, 0, 0, 0,  0, none, none },
+	[M_LCALL] = { 0, 0, 0, 0,  1, caller_saved, argument_regs },
+	[M_rCALL] = { 0, 0, 0, 1,  1, caller_saved, argument_regs },
+	[M_MCALL] = { 0, 0, 1, 3,  1, caller_saved, argument_regs },
+	[M_RET]   = { 0, 0, 0, 1,  0, none, callee_saved }, // hack for use of R_RAX (and potentially R_RDX)
+	[M_ADr]   = { 0, 0, 0, 1,  0, rax_rdx, rax_rdx },
+	[M_ADM]   = { 0, 0, 1, 3,  0, rax_rdx, rax_rdx },
 };
 
 struct MBlock {
@@ -422,6 +426,7 @@ struct MBlock {
 
 struct MFunction {
 	Function *func;
+	GArena *labels;
 	MBlock **mblocks;
 	size_t mblock_cnt;
 	size_t stack_space;

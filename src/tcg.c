@@ -183,6 +183,45 @@ type_function(Arena *arena, Type *ret_type, Parameter *parameters, size_t param_
 	return &fun_type->base;
 }
 
+static bool
+type_is_function(Type *type)
+{
+	return type->kind == TY_FUNCTION;
+}
+
+static bool
+type_is_function_compatible(Type *type)
+{
+	if (type_is_function(type)) {
+		return true;
+	}
+	if (type_is_pointer(type) && type_is_function(pointer_child(type))) {
+		return true;
+	}
+	return false;
+}
+
+static FunctionType *
+type_as_function(Type *type)
+{
+	if (type_is_function(type)) {
+		return (FunctionType *) type;
+	}
+	if (type_is_pointer(type)) {
+		type = pointer_child(type);
+		assert(type_is_function(type));
+		return (FunctionType *) type;
+	}
+	assert(false);
+}
+
+static size_t
+type_function_param_cnt(Type *type)
+{
+	FunctionType *fun_type = type_as_function(type);
+	return fun_type->param_cnt;
+}
+
 static Type *
 type_struct(Arena *arena, Field *fields, size_t field_cnt)
 {
@@ -1273,10 +1312,10 @@ call(Parser *parser, CValue cleft, int rbp)
 	(void) rbp;
 	eat(parser, TK_LPAREN);
 	Value *left = as_rvalue(parser, cleft);
-	if (left->type->kind != TY_FUNCTION) {
+	if (!type_is_function_compatible(left->type)) {
 		parser_error(parser, parser->lookahead, false, "Expected function call target to have function type");
 	}
-	FunctionType *fun_type = (void*) left->type;
+	FunctionType *fun_type = type_as_function(left->type);
 	size_t argument_cnt = fun_type->param_cnt;
 	Operation *call = add_operation(parser, VK_CALL, fun_type->ret_type, 1 + argument_cnt);
 
@@ -1807,7 +1846,7 @@ instruction_arg_cnt(Value *value)
 	switch (value->kind) {
 	case VK_CALL: {
 		Operation *op = (void *) value;
-		return 1 + ((FunctionType *) op->operands[0]->type)->param_cnt;
+		return 1 + type_function_param_cnt(op->operands[0]->type);
 	}
 	case VK_PHI: {
 		return block_pred_cnt(((Block *) value->parent));
@@ -1916,33 +1955,12 @@ print_reg8(FILE *f, Oper reg)
 }
 
 void
-print_inst_d(FILE *f, Inst *inst)
-{
-	/*
-	InstDesc *desc = &inst_desc[inst->op];
-	fprintf(f, "%s", desc->format);
-	size_t i = 0;
-	for (; i < desc->src_cnt; i++) {
-		fprintf(f, " ");
-		print_reg(f, inst->ops[i]);
-	}
-	for (; i < desc->imm_cnt; i++) {
-		fprintf(f, " ");
-		fprintf(f, "%"PRIi32, inst->ops[i]);
-	}
-	for (; i < desc->label_cnt; i++) {
-		fprintf(f, " ");
-		fprintf(f, ".BB%"PRIi32, inst->ops[i]);
-	}
-	*/
-}
-
-void
-print_mem(FILE *f, Inst *inst)
+print_mem(FILE *f, MFunction *mfunction, Inst *inst)
 {
 	fprintf(f, "[");
 	if (IBASE(inst) == R_NONE) {
-		fprintf(f, "global%"PRIi32, IDISP(inst));
+		Str label = garena_array(mfunction->labels, Str)[IDISP(inst)];
+		print_str(f, label);
 	} else {
 		print_reg(f, IBASE(inst));
 		if (IINDEX(inst)) {
@@ -1960,7 +1978,7 @@ print_mem(FILE *f, Inst *inst)
 }
 
 void
-print_inst(FILE *f, Inst *inst)
+print_inst(FILE *f, MFunction *mfunction, Inst *inst)
 {
 	fprintf(f, "%s%s", ik_repr[IK(inst)], is_repr[IK(inst)][IS(inst)]);
 	switch (inst->mode) {
@@ -1978,11 +1996,11 @@ print_inst(FILE *f, Inst *inst)
 		fprintf(f, " ");
 		print_reg(f, IREG(inst));
 		fprintf(f, ", ");
-		print_mem(f, inst);
+		print_mem(f, mfunction, inst);
 		break;
 	case M_Mr:
 		fprintf(f, " ");
-		print_mem(f, inst);
+		print_mem(f, mfunction, inst);
 		fprintf(f, ", ");
 		print_reg(f, IREG(inst));
 		break;
@@ -1997,7 +2015,7 @@ print_inst(FILE *f, Inst *inst)
 	case M_MI:
 		fprintf(f, " ");
 		fprintf(f, "qword ");
-		print_mem(f, inst);
+		print_mem(f, mfunction, inst);
 		fprintf(f, ", ");
 		fprintf(f, "%"PRIi32, IIMM(inst));
 		break;
@@ -2012,13 +2030,14 @@ print_inst(FILE *f, Inst *inst)
 		fprintf(f, " ");
 		print_reg(f, IREG(inst));
 		fprintf(f, ", ");
-		print_mem(f, inst);
+		print_mem(f, mfunction, inst);
 		fprintf(f, "%"PRIi32, IIMM(inst));
 		break;
 	case M_R:
 	case M_r:
 	case M_C:
 	case M_ADr:
+	case M_rCALL:
 		fprintf(f, " ");
 		if (IK(inst) == IK_SETCC) {
 			print_reg8(f, IREG(inst));
@@ -2028,8 +2047,9 @@ print_inst(FILE *f, Inst *inst)
 		break;
 	case M_ADM:
 	case M_M:
+	case M_MCALL:
 		fprintf(f, " ");
-		print_mem(f, inst);
+		print_mem(f, mfunction, inst);
 		break;
 	case M_I:
 		fprintf(f, " ");
@@ -2037,26 +2057,18 @@ print_inst(FILE *f, Inst *inst)
 		break;
 	case M_L:
 		fprintf(f, " ");
-		fprintf(f, ".BB%"PRIi32, IIMM(inst));
+		fprintf(f, ".BB%"PRIi32, ILABEL(inst));
 		break;
-	case M_NONE:
-	case M_RET:
-		switch (inst->kind) {
-		case IK_FUNCTION: {
-			fprintf(f, "function:");
-			break;
-		}
-		case IK_BLOCK: {
-			MBlock *block = container_of(inst, MBlock, insts);
-			fprintf(f, ".BB%zu:", block->block->base.index);
-			break;
-		}
-		default: break;
-		}
-		break;
-	case M_CALL:
+	case M_LCALL: {
 		fprintf(f, " ");
-		fprintf(f, "function%"PRIi32, IIMM(inst));
+		Str label = garena_array(mfunction->labels, Str)[ILABEL(inst)];
+		print_str(f, label);
+		break;
+	}
+	case M_NONE:
+		UNREACHABLE();
+		break;
+	case M_RET:
 		break;
 	}
 }
@@ -2064,6 +2076,7 @@ print_inst(FILE *f, Inst *inst)
 
 typedef struct {
 	Arena *arena;
+	GArena *labels;
 	MFunction *function;
 	MBlock *block;
 	size_t stack_space;
@@ -2244,7 +2257,7 @@ add_jmp(TranslationState *ts, Oper block_index)
 {
 	Inst *inst = add_inst(ts, IK_JUMP, 0);
 	inst->mode = M_L;
-	IIMM(inst) = block_index;
+	ILABEL(inst) = block_index;
 }
 
 static void
@@ -2252,15 +2265,17 @@ add_jcc(TranslationState *ts, CondCode cc, Oper block_index)
 {
 	Inst *inst = add_inst(ts, IK_JCC, cc);
 	inst->mode = M_L;
-	IIMM(inst) = block_index;
+	ILABEL(inst) = block_index;
 }
 
 static void
-add_call(TranslationState *ts, Oper function_index, Oper arg_cnt)
+add_call(TranslationState *ts, Oper function_label, Oper arg_cnt)
 {
 	Inst *inst = add_inst(ts, IK_CALL, 0);
-	inst->mode = M_CALL;
-	IIMM(inst) = function_index;
+	//inst->mode = M_rCALL;
+	inst->mode = M_LCALL;
+	//IREG(inst) = function_reg;
+	ILABEL(inst) = function_label;
 	IARG_CNT(inst) = arg_cnt;
 }
 
@@ -2355,25 +2370,28 @@ void
 translate_operand(void *user_data, size_t i, Value **operand_)
 {
 	TranslateOperandState *tos = user_data;
-	Oper res;
+	TranslationState *ts = tos->ts;
 	Value *operand = *operand_;
+	Oper res;
 	switch (operand->kind) {
 	case VK_BLOCK:
-		//printf(".L%zu:", operand->index);
 		res = operand->index;
 		break;
 	case VK_FUNCTION: {
-		//Function *function = (void *) operand;
-		//printf("%.*s", (int) function->name.len, function->name.str);
-		// TODO: this is really ugly, we return the index of function as
-		// operand, even though it has nothing to do with operands
-		res = operand->index;
+		Function *function = (void*) operand;
+		size_t label_index = garena_cnt(ts->labels, Str);
+		garena_push_value(ts->labels, Str, function->name);
+		///res = tos->ts->index++;
+		//add_lea(tos->ts, res, R_NONE, label_index);
+		res = label_index;
 		break;
 	}
 	case VK_GLOBAL: {
 		Global *global = (void*) operand;
 		res = tos->ts->index++;
-		add_lea(tos->ts, res, R_NONE, global->base.index);
+		size_t label_index = garena_cnt(ts->labels, Str);
+		garena_push_value(ts->labels, Str, global->name);
+		add_lea(tos->ts, res, R_NONE, label_index);
 		break;
 	}
 	case VK_CONSTANT: {
@@ -2389,8 +2407,6 @@ translate_operand(void *user_data, size_t i, Value **operand_)
 		break;
 	}
 	default:
-		//printf("v");
-		//printf("%zu", operand->index);
 		res = operand->index;
 		break;
 	}
@@ -2519,9 +2535,9 @@ translate_value(TranslationState *ts, Value *v)
 	case VK_CALL: {
 		Operation *call = (void *) v;
 		// TODO: indirect calls
-		Function *function = (Function *) call->operands[0];
-		FunctionType *fun_type = (FunctionType *) function->base.type;
-		translate_call(ts, res, ops[0], &ops[1], fun_type->param_cnt);
+		size_t arg_cnt = type_function_param_cnt(call->operands[0]->type);
+		//Function *function = (Function *) call->operands[0];
+		translate_call(ts, res, ops[0], &ops[1], arg_cnt);
 		break;
 	}
 	case VK_JUMP: {
@@ -2649,7 +2665,6 @@ ig_interfere(InterferenceGraph *ig, Oper op1, Oper op2)
 void
 print_mfunction(FILE *f, MFunction *mfunction)
 {
-	fprintf(f, "function%zu:\n", mfunction->func->base.index);
 	print_str(f, mfunction->func->name);
 	fprintf(f, ":\n");
 	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
@@ -2657,7 +2672,7 @@ print_mfunction(FILE *f, MFunction *mfunction)
 		fprintf(f, ".BB%zu:\n", mblock->block->base.index);
 		for (Inst *inst = mblock->insts.next; inst != &mblock->insts; inst = inst->next) {
 			fprintf(f, "\t");
-			print_inst(f, inst);
+			print_inst(f, mfunction, inst);
 			fprintf(f, "\n");
 		}
 	}
@@ -2897,8 +2912,8 @@ for_each_use(Inst *inst, void (*fun)(void *user_data, Oper *use), void *user_dat
 	for (size_t i = mode->use_start; i < mode->use_end; i++) {
 		fun(user_data, &inst->ops[i]);
 	}
-	if (mode->use_cnt_given_by_first) {
-		size_t use_cnt = inst->ops[0];
+	if (mode->use_cnt_given_by_arg_cnt) {
+		size_t use_cnt = IARG_CNT(inst);
 		for (size_t i = 0; i < use_cnt; i++) {
 			fun(user_data, &mode->extra_uses[i]);
 		}
@@ -3095,7 +3110,7 @@ spill(RegAllocState *ras)
 		for (Inst *inst = mblock->insts.next; inst != &mblock->insts; inst = inst->next) {
 			ss->inst = inst;
 			fprintf(stderr, "\n");
-			print_inst(stderr, inst);
+			print_inst(stderr, mfunction, inst);
 			fprintf(stderr, "\n");
 			if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_Cr) {
 				Oper dest = inst->ops[0];
@@ -3831,25 +3846,26 @@ calculate_spill_cost(RegAllocState *ras)
 }
 
 MFunction *
-translate_function(Arena *arena, Function *function)
+translate_function(Arena *arena, GArena *labels, Function *function)
 {
 	Block **post_order = function->post_order;
 
 	MFunction *mfunction = arena_alloc(arena, sizeof(*mfunction));
 	memset(mfunction, 0, sizeof(*mfunction));
 	mfunction->func = function;
+	mfunction->labels = labels;
 	mfunction->mblocks = arena_alloc(arena, function->block_cnt * sizeof(mfunction->mblocks[0]));
 	mfunction->mblock_cnt = 0; // incremented when each block is inserted
 
 	TranslationState ts_ = {
 		.arena = arena,
+		.labels = labels,
 		.index = function->value_cnt,
 		.stack_space = 8,
 		.block = NULL,
 		.function = mfunction,
 	};
 	TranslationState *ts = &ts_;
-
 
 	for (size_t b = function->block_cnt; b--;) {
 	//for (size_t j = 0; j < function->block_cnt; j++) {
@@ -3966,7 +3982,7 @@ is_move_related(RegAllocState *ras, Oper i)
 		Oper move_index = move_list[i];
 		Inst *move = moves[move_index];
 		fprintf(stderr, "Moved in \t");
-		print_inst(stderr, move);
+		print_inst(stderr, ras->mfunction, move);
 		fprintf(stderr, "\n");
 		if (wl_has(&ras->active_moves_wl, move_index) || wl_has(&ras->moves_wl, move_index)) {
 			return true;
@@ -4065,7 +4081,7 @@ enable_move(RegAllocState *ras, Oper u, Oper m, Inst *move)
 	(void) u;
 	if (wl_remove(&ras->active_moves_wl, m)) {
 		fprintf(stderr, "Enabling move: \t");
-		print_inst(stderr, move);
+		print_inst(stderr, ras->mfunction, move);
 		fprintf(stderr, "\n");
 		wl_add(&ras->moves_wl, m);
 	}
@@ -4106,7 +4122,7 @@ void
 freeze_move(RegAllocState *ras, Oper u, Oper m, Inst *move)
 {
 	fprintf(stderr, "freezing in: \t");
-	print_inst(stderr, move);
+	print_inst(stderr, ras->mfunction, move);
 	fprintf(stderr, "\n");
 	if (!wl_remove(&ras->active_moves_wl, m)) {
 		wl_remove(&ras->moves_wl, m);
@@ -4295,13 +4311,14 @@ combine(RegAllocState *ras, Oper u, Oper v)
 void
 coalesce(RegAllocState *ras)
 {
+	MFunction *mfunction = ras->mfunction;
 	Inst **moves = garena_array(&ras->gmoves, Inst *);
 	Oper m;
 	// TODO: Implications of making this a while?
 	while (wl_take(&ras->moves_wl, &m)) {
 		Inst *move = moves[m];
 		fprintf(stderr, "Coalescing: \t");
-		print_inst(stderr, move);
+		print_inst(stderr, mfunction, move);
 		fprintf(stderr, "\n");
 		Oper u = get_alias(ras, move->ops[0]);
 		Oper v = get_alias(ras, move->ops[1]);
@@ -4313,13 +4330,13 @@ coalesce(RegAllocState *ras)
 		if (u == v) {
 			// already coalesced
 			fprintf(stderr, "Already coalesced: \t");
-			print_inst(stderr, move);
+			print_inst(stderr, mfunction, move);
 			fprintf(stderr, "\n");
 			add_to_worklist(ras, u);
 		} else if (v < R__MAX || ig_interfere(&ras->ig, u, v)) {
 			// constrained
 			fprintf(stderr, "Constrained: \t");
-			print_inst(stderr, move);
+			print_inst(stderr, mfunction, move);
 			fprintf(stderr, "\n");
 			add_to_worklist(ras, u);
 			add_to_worklist(ras, v);
@@ -4329,7 +4346,7 @@ coalesce(RegAllocState *ras)
 			add_to_worklist(ras, u);
 		} else {
 			fprintf(stderr, "Moving to active: \t");
-			print_inst(stderr, move);
+			print_inst(stderr, mfunction, move);
 			fprintf(stderr, "\n");
 			wl_add(&ras->active_moves_wl, m);
 		}
@@ -4454,7 +4471,7 @@ peephole(MFunction *mfunction, Arena *arena)
 		MBlock *mblock = mfunction->mblocks[b];
 		Inst *inst = mblock->insts.next;
 		while (inst != &mblock->insts) {
-			print_inst(stderr, inst);
+			print_inst(stderr, mfunction, inst);
 			fprintf(stderr, "\n");
 			fflush(stderr);
 			// mov rax, rax
@@ -4918,6 +4935,7 @@ main(int argc, char **argv)
 
 	RegAllocState ras;
 	reg_alloc_state_init(&ras, arena);
+	GArena labels = {0};
 
 	fprintf(stderr, "Globals:\n");
 	print_globals(stderr, module);
@@ -4939,7 +4957,7 @@ main(int argc, char **argv)
 		single_exit(arena, functions[i]);
 		print_function(stderr, functions[i]);
 		///*
-		translate_function(arena, functions[i]);
+		translate_function(arena, &labels, functions[i]);
 		print_mfunction(stderr, functions[i]->mfunc);
 		peephole(functions[i]->mfunc, arena);
 		print_mfunction(stderr, functions[i]->mfunc);
@@ -4963,7 +4981,6 @@ main(int argc, char **argv)
 			//printf("\talign 8\n");
 			print_str(stdout, global->name);
 			printf(":\n");
-			printf("global%zu:\n", global->base.index);
 			printf("\tdq\t");
 			print_value(stdout, global->init);
 			printf("\n");
@@ -4978,7 +4995,6 @@ main(int argc, char **argv)
 			//printf("\talign 8\n");
 			print_str(stdout, global->name);
 			printf(":\n");
-			printf("global%zu:\n", global->base.index);
 			printf("\tresq\t1\n");
 		}
 	}
