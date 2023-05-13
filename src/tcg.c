@@ -3208,6 +3208,7 @@ print_value(FILE *f, Value *v)
 void
 validate_function(Function *function)
 {
+#ifndef NDEBUG
 	for (size_t j = function->block_cnt; j--;) {
 		Block *block = function->post_order[j];
 		assert(block->base.parent == &function->base);
@@ -3240,6 +3241,7 @@ validate_function(Function *function)
 			assert(v->parent == &block->base);
 		}
 	}
+#endif // NDEBUG
 }
 
 void
