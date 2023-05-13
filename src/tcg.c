@@ -1462,14 +1462,14 @@ statement(Parser *parser)
 				parser_error(parser, tok, false, "Type of 'return'ed value does not match nominal type");
 			}
 			add_unary(parser, VK_RET, return_type, value);
-			// Following code is unreachable. Let's not even compile
-			// it.
-			//parser->current_block = NULL;
 		} else if (return_type == &TYPE_VOID) {
 			add_operation(parser, VK_RETVOID, &TYPE_VOID, 0);
 		} else {
 			parser_error(parser, tok, false, "Expected some value to be 'return'ed");
 		}
+		// Following code is unreachable. Let's add it by unsetting
+		// the current block.
+		switch_to_block(parser, NULL);
 		eat(parser, TK_SEMICOLON);
 		break;
 	}
