@@ -30,9 +30,6 @@ wl_init_all(WorkList *wl, Oper op)
 	}
 }
 
-#define FOR_EACH_WL_INDEX(wl, i) \
-	for (size_t i = (wl)->head; i != (wl)->tail; i = (i + 1) & (wl)->mask)
-
 void
 wl_init_all_reverse(WorkList *wl, Oper op)
 {
