@@ -127,6 +127,7 @@ struct Function {
 	Value base;
 	Str name;
 	Block *entry;
+	Block **blocks;
 	Block **post_order;
 	size_t block_cap;
 	size_t block_cnt;

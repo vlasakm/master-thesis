@@ -727,7 +727,12 @@ create_block(Arena *arena, Function *function)
 	block->preds_ = NULL;
 	block->pred_cnt_ = 0;
 	block->pred_cap_ = 0;
-	block->base.index = function->block_cap++;
+	block->base.index = function->block_cap;
+	// Functions grow in powers of two.
+	if (!(function->block_cap & (function->block_cap - 1))) {
+		GROW_ARRAY(function->blocks, function->block_cap ? function->block_cap * 2 : 4);
+	}
+	function->blocks[function->block_cap++] = block;
 	return block;
 }
 
@@ -3395,6 +3400,7 @@ free_uses(Function *function)
 	for (size_t i = 0; i < function->value_cnt; i++) {
 		garena_destroy(&function->uses[i]);
 	}
+	free(function->uses);
 }
 
 void
@@ -3611,7 +3617,8 @@ value_numbering(Arena *arena, Function *function)
 	}
 	FREE_ARRAY(vns->canonical, value_cnt);
 	for (size_t b = 0; b < block_cnt; b++) {
-		FREE_ARRAY(vns->var_map[b], value_cnt);
+		Block *block = function->post_order[b];
+		FREE_ARRAY(vns->var_map[VINDEX(block)], value_cnt);
 	}
 	FREE_ARRAY(vns->var_map, block_cnt);
 }
@@ -5040,6 +5047,18 @@ end:
 		fprintf(stderr, "  %.*s\n", (int) (line_end - line_start), line_start);
 		fprintf(stderr, "  %*s\n", (int) (pos - line_start + 1), "^");
 	}
+
+	for (size_t i = 0; i < function_cnt; i++) {
+		Function *function = functions[i];
+		for (size_t b = 0; b < function->block_cap; b++) {
+			Block *block = function->blocks[b];
+			free(block->preds_);
+		}
+		free(function->blocks);
+		free(function->post_order);
+	}
+	garena_destroy(&labels);
+
 	arena_destroy(&ec.arena);
 	arena_destroy(arena);
 	return ec.error_head ? EXIT_FAILURE : EXIT_SUCCESS;
