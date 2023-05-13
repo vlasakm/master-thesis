@@ -3681,12 +3681,63 @@ typedef struct {
 } PendingPhi;
 
 void
-single_exit(Function *function)
+single_exit(Arena *arena, Function *function)
 {
+	GArena gphis = {0};
 	for (size_t b = function->block_cnt; b--;) {
 		Block *block = function->post_order[b];
-		// TODO?
+		Value *value = NULL;
+		switch (VK(block->base.prev)) {
+		case VK_RET:
+			value = ((Operation *) block->base.prev)->operands[0];
+			break;
+		case VK_RETVOID:
+			break;
+		default:
+			continue;
+		}
+		garena_push_value(&gphis, PendingPhi, ((PendingPhi) { .block = block, value = value }));
 	}
+	PendingPhi *phis = garena_array(&gphis, PendingPhi);
+	size_t phi_cnt = garena_cnt(&gphis, PendingPhi);
+	if (phi_cnt == 1) {
+		garena_destroy(&gphis);
+		return;
+	}
+	Block *ret_block = create_block(arena, function);
+	ret_block->pred_cnt = phi_cnt;
+
+	Value *ret_inst;
+	if (VK(phis[0].block->base.prev) == VK_RETVOID) {
+		ret_inst = &create_operation(arena, ret_block, VK_RETVOID, &TYPE_VOID, 0)->base;
+	} else {
+		assert(VK(phis[0].block->base.prev) == VK_RET);
+		Type *type = phis[0].value->type;
+		Operation *phi = insert_phi(arena, ret_block, type);
+		phi->base.index = function->value_cnt++;
+		prepend_value(&ret_block->base, &phi->base);
+		for (size_t i = 0; i < phi_cnt; i++) {
+			Value *val = phis[i].value;
+			phi->operands[i] = val;
+		}
+		ret_inst = create_unary(arena, ret_block, VK_RET, &TYPE_VOID, &phi->base);
+	}
+	ret_inst->index = function->value_cnt++;
+	prepend_value(&ret_block->base, ret_inst);
+
+	for (size_t i = 0; i < phi_cnt; i++) {
+		PendingPhi *phi = &phis[i];
+		Block *pred = phi->block;
+		Value *jump = create_unary(arena, pred, VK_JUMP, &TYPE_VOID, &ret_block->base);
+		jump->index = function->value_cnt++;
+		remove_value(pred->base.prev);
+		prepend_value(&pred->base, jump);
+	}
+
+	garena_destroy(&gphis);
+
+	// Recompute function->post_order, since we invalidated it.
+	compute_cfg(function);
 }
 
 void
@@ -4813,6 +4864,8 @@ main(int argc, char **argv)
 		thread_jumps(arena, functions[i]);
 		print_function(stderr, functions[i]);
 		split_critical_edges(arena, functions[i]);
+		print_function(stderr, functions[i]);
+		single_exit(arena, functions[i]);
 		print_function(stderr, functions[i]);
 		///*
 		translate_function(arena, functions[i]);
