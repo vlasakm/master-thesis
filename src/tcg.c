@@ -3206,6 +3206,43 @@ print_value(FILE *f, Value *v)
 }
 
 void
+validate_function(Function *function)
+{
+	for (size_t j = function->block_cnt; j--;) {
+		Block *block = function->post_order[j];
+		assert(block->base.parent == &function->base);
+		value_is_terminator(block->base.prev);
+
+		FOR_EACH_BLOCK_PRED(block, pred) {
+			FOR_EACH_BLOCK_SUCC(*pred, s) {
+				if (*s == block) {
+					goto pred_ok;
+				}
+			}
+			assert(false);
+		}
+		pred_ok:;
+		FOR_EACH_BLOCK_SUCC(block, succ) {
+			FOR_EACH_BLOCK_PRED(*succ, p) {
+				if (*p == block) {
+					goto succ_ok;
+				}
+			}
+			assert(false);
+		}
+		succ_ok:;
+
+		for (Value *v = block->base.next; v != &block->base; v = v->next) {
+			assert(v->prev);
+			assert(v->next);
+			assert(v->prev->next == v);
+			assert(v->next->prev == v);
+			assert(v->parent == &block->base);
+		}
+	}
+}
+
+void
 print_function(FILE *f, Function *function)
 {
 	print_str(f, function->name);
@@ -3230,6 +3267,7 @@ print_function(FILE *f, Function *function)
 			print_value(f, v);
 		}
 	}
+	validate_function(function);
 }
 
 typedef struct {
@@ -3603,6 +3641,10 @@ merge_simple_blocks(Arena *arena, Function *function)
 		// Successors of block are fixed up automatically, because they
 		// are taken implicitly from the terminator instruction.
 
+		for (Value *v = succ->base.next; v != &succ->base; v = v->next) {
+			v->parent = &block->base;
+		}
+
 		// Remove the jump instruction from `block`.
 		remove_value(block->base.prev);
 		// Append `succ` to the `block`.
@@ -3738,6 +3780,7 @@ single_exit(Arena *arena, Function *function)
 		Block *pred = phi->block;
 		Value *jump = create_unary(arena, pred, VK_JUMP, &TYPE_VOID, &ret_block->base);
 		jump->index = function->value_cnt++;
+		jump->parent = &pred->base;
 		remove_value(pred->base.prev);
 		prepend_value(&pred->base, jump);
 		block_add_pred(ret_block, pred);
@@ -3750,14 +3793,13 @@ single_exit(Arena *arena, Function *function)
 		Type *type = phis[0].value->type;
 		Operation *phi = insert_phi(arena, ret_block, type);
 		phi->base.index = function->value_cnt++;
-		prepend_value(&ret_block->base, &phi->base);
 		for (size_t i = 0; i < phi_cnt; i++) {
-			Value *val = phis[i].value;
-			phi->operands[i] = val;
+			phi->operands[i] = phis[i].value;
 		}
 		ret_inst = create_unary(arena, ret_block, VK_RET, &TYPE_VOID, &phi->base);
 	}
 	ret_inst->index = function->value_cnt++;
+	ret_inst->parent = &ret_block->base;
 	prepend_value(&ret_block->base, ret_inst);
 
 	garena_destroy(&gphis);
