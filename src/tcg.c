@@ -2825,7 +2825,7 @@ get_live_out(RegAllocState *ras, Block *block, WorkList *live_set)
 	// successors
 	wl_reset(live_set);
 	for (size_t i = 0; i < block->succ_cnt; i++) {
-		size_t succ = block->succs[i]->base.index;
+		size_t succ = block->succs[i]->mblock->index;
 		wl_union(live_set, &ras->live_in[succ]);
 	}
 }
