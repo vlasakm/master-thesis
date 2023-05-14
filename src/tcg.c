@@ -3099,8 +3099,10 @@ insert_stores_of_spilled(void *user_data, Oper *dest)
 	*dest = temp;
 }
 
+// Add spill code, coalesce registers that were found to be coalescable before
+// the first potential spill.
 void
-spill(RegAllocState *ras)
+rewrite_program(RegAllocState *ras)
 {
 	// TODO: Infinite spill costs for uses immediately following
 	// definitions.
@@ -4145,6 +4147,8 @@ freeze_moves(RegAllocState *ras, Oper u)
 void
 freeze(RegAllocState *ras)
 {
+	assert(wl_empty(&ras->simplify_wl));
+	assert(wl_empty(&ras->moves_wl));
 	Oper i;
 	if (wl_take_back(&ras->freeze_wl, &i)) {
 		fprintf(stderr, "Freezing node ");
@@ -4293,6 +4297,7 @@ combine(RegAllocState *ras, Oper u, Oper v)
 		if (wl_has(&ras->stack, t) || is_alias(ras, t)) {
 			continue;
 		}
+		// TODO: Check this +1 -1
 		ig_add(&ras->ig, u, t);
 		decrement_degree(ras, t);
 	}
@@ -4310,8 +4315,10 @@ coalesce(RegAllocState *ras)
 	MFunction *mfunction = ras->mfunction;
 	Inst **moves = garena_array(&ras->gmoves, Inst *);
 	Oper m;
-	// TODO: Implications of making this a while?
+	assert(wl_empty(&ras->simplify_wl));
 	while (wl_take(&ras->moves_wl, &m)) {
+		simplify(ras);
+		assert(wl_empty(&ras->simplify_wl));
 		Inst *move = moves[m];
 		fprintf(stderr, "Coalescing: \t");
 		print_inst(stderr, mfunction, move);
@@ -4450,7 +4457,7 @@ reg_alloc_function(RegAllocState *ras, MFunction *mfunction)
 		if (assign_registers(ras)) {
 			break;
 		}
-		spill(ras);
+		rewrite_program(ras);
 	}
 
 	// Fixup stack space amount reserved at the start of the function
