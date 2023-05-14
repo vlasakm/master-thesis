@@ -1368,7 +1368,7 @@ member(Parser *parser, CValue cleft, int rbp)
 		parser_error(parser, parser->lookahead, false, "Member access on non-struct");
 	}
 	StructType *type = (void *) struct_type;
-	Type *field_type;
+	Type *field_type = &TYPE_VOID;
 	size_t i;
 	for (i = 0; i < type->field_cnt; i++) {
 		if (str_eq(name, type->fields[i].name)) {
