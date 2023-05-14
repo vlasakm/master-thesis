@@ -3543,6 +3543,7 @@ seal_block(ValueNumberingState *vns, Block *block)
 		IncompletePhi *inc = &incomplete_phis[i];
 		add_phi_operands(vns, inc->phi, block, inc->variable);
 	}
+	garena_destroy(&block->incomplete_phis);
 }
 
 void
