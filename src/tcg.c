@@ -3336,14 +3336,6 @@ parse(Arena *arena, GArena *scratch, Str source, void (*error_callback)(void *us
 	env_free(&parser.env);
 	table_destroy(&parser.type_env);
 
-	//Block ***post_orders = arena_alloc(parser.arena, sizeof(*post_orders) * function_cnt);
-
-	//	Block *block = function->entry;
-	//	Block **post_order = arena_alloc(parser.arena, sizeof(*post_order) * function->block_cnt);
-	//	post_orders[f] = post_order;
-	//	size_t i = 0;
-	//	dfs(block, &i, post_order);
-
 	if (parser.had_error) {
 		return NULL;
 	}
@@ -3352,10 +3344,6 @@ parse(Arena *arena, GArena *scratch, Str source, void (*error_callback)(void *us
 	module->functions = move_to_arena(arena, &parser.functions, 0, Function *);
 	module->global_cnt = garena_cnt(&parser.globals, Global *);
 	module->globals = move_to_arena(arena, &parser.globals, 0, Global *);
-	for (size_t f = 0; f < module->function_cnt; f++) {
-		//Function *function = module->functions[f];
-		//print_function(function);
-	}
 	garena_destroy(&parser.functions);
 	garena_destroy(&parser.globals);
 	return module;
