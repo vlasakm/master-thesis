@@ -4380,19 +4380,25 @@ combine(RegAllocState *ras, Oper u, Oper v)
 	fprintf(stderr, " and " );
 	print_reg(stderr, v);
 	fprintf(stderr, "\n");
+
 	if (!wl_remove(&ras->freeze_wl, v)) {
-		// TODO assert this?
+		// TODO: assert this? What about precolored?
 		wl_remove(&ras->spill_wl, v);
 	}
+
+	// Set `v` as alias of `u`. Caller should already pass canonical `u`
+	// and `v`, which are not aliases themselves.
 	ras->alias[v] = u;
-	// merge node moves
+
+	// Add moves of `v` to `u`.
 	Oper *other_moves = garena_array(&ras->move_list[v], Oper);
 	size_t other_move_cnt = garena_cnt(&ras->move_list[v], Oper);
 	for (size_t i = 0; i < other_move_cnt; i++) {
-		// TODO: deduplicate?
+		// NOTE: would deduplication be beneficial?
 		garena_push_value(&ras->move_list[u], Oper, other_moves[i]);
 	}
-	// add edges
+
+	// Add edges of `v` to `u`.
 	GArena *gadj_list = &ras->ig.adj_list[v];
 	Oper *adj_list = garena_array(gadj_list, Oper);
 	size_t adj_cnt = garena_cnt(gadj_list, Oper);
@@ -4401,10 +4407,19 @@ combine(RegAllocState *ras, Oper u, Oper v)
 		if (wl_has(&ras->stack, t) || is_alias(ras, t)) {
 			continue;
 		}
-		// TODO: Check this +1 -1
+		// Add `u` as a neighbour to `v`'s neighbour `t`.
 		ig_add(&ras->ig, u, t);
+		// Since we coalesce `u` and `v`, we should remove `v` as a
+		// neighbour. The important thing that we want to achieve is
+		// actually decrement of `t`'s degree, which might make it
+		// trivially colorable.
+		//
+		// We can get away with not removing `v` from adjacency list of
+		// `u`, because aliased registers are skipped or resolve by
+		// those iterating over them.
 		decrement_degree(ras, t);
 	}
+
 	if (is_significant(ras, u) && wl_remove(&ras->freeze_wl, u)) {
 		fprintf(stderr, "Move combined ");
 		print_reg(stderr, u);
@@ -4484,7 +4499,7 @@ assign_registers(RegAllocState *ras)
 		Oper *adj_list = garena_array(gadj_list, Oper);
 		size_t adj_cnt = garena_cnt(gadj_list, Oper);
 		for (size_t j = 0; j < adj_cnt; j++) {
-			size_t neighbour = get_alias(ras, adj_list[j]);
+			Oper neighbour = get_alias(ras, adj_list[j]);
 			if (!wl_has(&ras->stack, neighbour) && ras->reg_assignment[neighbour] != R_NONE) {
 				used |= 1 << (ras->reg_assignment[neighbour] - 1);
 			}
