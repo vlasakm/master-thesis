@@ -4049,24 +4049,24 @@ build_interference_graph(RegAllocState *ras)
 bool
 is_move_related(RegAllocState *ras, Oper i)
 {
-	fprintf(stderr, "Is move related ");
-	print_reg(stderr, i);
-	fprintf(stderr, "\n");
-	Inst **moves = garena_array(&ras->gmoves, Inst *);
+	//fprintf(stderr, "Is move related ");
+	//print_reg(stderr, i);
+	//fprintf(stderr, "\n");
+	//Inst **moves = garena_array(&ras->gmoves, Inst *);
 	GArena *gmove_list = &ras->move_list[i];
 	Oper *move_list = garena_array(gmove_list, Oper);
 	size_t move_cnt = garena_cnt(gmove_list, Oper);
 	for (size_t i = 0; i < move_cnt; i++) {
 		Oper move_index = move_list[i];
-		Inst *move = moves[move_index];
-		fprintf(stderr, "Moved in \t");
-		print_inst(stderr, ras->mfunction, move);
-		fprintf(stderr, "\n");
+		//Inst *move = moves[move_index];
+		//fprintf(stderr, "Moved in \t");
+		//print_inst(stderr, ras->mfunction, move);
+		//fprintf(stderr, "\n");
 		if (wl_has(&ras->active_moves_wl, move_index) || wl_has(&ras->moves_wl, move_index)) {
 			return true;
 		}
 	}
-	fprintf(stderr, "Not move related\n");
+	//fprintf(stderr, "Not move related\n");
 	return false;
 }
 
