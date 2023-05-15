@@ -4246,60 +4246,60 @@ freeze_moves(RegAllocState *ras, Oper u)
 }
 
 void
-freeze(RegAllocState *ras)
+freeze_one(RegAllocState *ras, Oper i)
 {
 	assert(wl_empty(&ras->simplify_wl));
 	assert(wl_empty(&ras->moves_wl));
-	Oper i;
-	if (wl_take_back(&ras->freeze_wl, &i)) {
-		fprintf(stderr, "Freezing node ");
-		print_reg(stderr, i);
-		fprintf(stderr, "\n");
-		wl_add(&ras->simplify_wl, i);
-		freeze_moves(ras, i);
-	}
+
+	fprintf(stderr, "Freezing node ");
+	print_reg(stderr, i);
+	fprintf(stderr, "\n");
+
+	wl_add(&ras->simplify_wl, i);
+	freeze_moves(ras, i);
 }
 
 void
-simplify(RegAllocState *ras)
+simplify_one(RegAllocState *ras, Oper i)
 {
-	Oper i;
-	while (wl_take_back(&ras->simplify_wl, &i)) {
-		wl_add(&ras->stack, i);
-		fprintf(stderr, "Pushing ");
-		print_reg(stderr, i);
-		fprintf(stderr, "\n");
-		for_each_adjacent(ras, i, decrement_degree);
-	}
+	fprintf(stderr, "Pushing ");
+	print_reg(stderr, i);
+	fprintf(stderr, "\n");
+
+	wl_add(&ras->stack, i);
+	for_each_adjacent(ras, i, decrement_degree);
 }
 
 void
-select_potential_spill_if_needed(RegAllocState *ras)
+choose_and_spill_one(RegAllocState *ras)
 {
 	assert(wl_empty(&ras->simplify_wl));
 	assert(wl_empty(&ras->moves_wl));
-	if (!wl_empty(&ras->spill_wl)) {
-		fprintf(stderr, "Potential spill\n");
-		Oper candidate = OPER_MAX;
-		double max = 0.0;
-		WorkList *spill_wl = &ras->spill_wl;
-		FOR_EACH_WL_INDEX(spill_wl, j) {
-			Oper i = spill_wl->dense[j];
-			double curr = spill_metric(ras, i);
-			if (curr > max) {
-				max = curr;
-				candidate = i;
-			}
+	assert(!wl_empty(&ras->spill_wl));
+
+	fprintf(stderr, "Potential spill\n");
+
+	Oper candidate = OPER_MAX;
+	double max = 0.0;
+	WorkList *spill_wl = &ras->spill_wl;
+	FOR_EACH_WL_INDEX(spill_wl, j) {
+		Oper i = spill_wl->dense[j];
+		double curr = spill_metric(ras, i);
+		if (curr > max) {
+			max = curr;
+			candidate = i;
 		}
-		fprintf(stderr, "Choosing for spill ");
-		print_reg(stderr, candidate);
-		fprintf(stderr, "\n");
-		assert(candidate != OPER_MAX);
-		assert(max > 0.0);
-		wl_remove(&ras->spill_wl, candidate);
-		wl_add(&ras->simplify_wl, candidate);
-		freeze_moves(ras, candidate);
 	}
+
+	fprintf(stderr, "Choosing for spill ");
+	print_reg(stderr, candidate);
+	fprintf(stderr, "\n");
+	assert(candidate != OPER_MAX);
+	assert(max > 0.0);
+
+	wl_remove(&ras->spill_wl, candidate);
+	wl_add(&ras->simplify_wl, candidate);
+	freeze_moves(ras, candidate);
 }
 
 void
@@ -4414,49 +4414,48 @@ combine(RegAllocState *ras, Oper u, Oper v)
 }
 
 void
-coalesce(RegAllocState *ras)
+coalesce_move(RegAllocState *ras, Oper m)
 {
-	MFunction *mfunction = ras->mfunction;
-	Inst **moves = garena_array(&ras->gmoves, Inst *);
-	Oper m;
 	assert(wl_empty(&ras->simplify_wl));
-	while (wl_take(&ras->moves_wl, &m)) {
-		simplify(ras);
-		assert(wl_empty(&ras->simplify_wl));
-		Inst *move = moves[m];
-		fprintf(stderr, "Coalescing: \t");
+	assert(wl_empty(&ras->simplify_wl));
+	MFunction *mfunction = ras->mfunction;
+
+	Inst **moves = garena_array(&ras->gmoves, Inst *);
+	Inst *move = moves[m];
+	fprintf(stderr, "Coalescing: \t");
+	print_inst(stderr, mfunction, move);
+	fprintf(stderr, "\n");
+
+	Oper u = get_alias(ras, move->ops[0]);
+	Oper v = get_alias(ras, move->ops[1]);
+	if (v < R__MAX) {
+		Oper tmp = u;
+		u = v;
+		v = tmp;
+	}
+
+	if (u == v) {
+		// already coalesced
+		fprintf(stderr, "Already coalesced: \t");
 		print_inst(stderr, mfunction, move);
 		fprintf(stderr, "\n");
-		Oper u = get_alias(ras, move->ops[0]);
-		Oper v = get_alias(ras, move->ops[1]);
-		if (v < R__MAX) {
-			Oper tmp = u;
-			u = v;
-			v = tmp;
-		}
-		if (u == v) {
-			// already coalesced
-			fprintf(stderr, "Already coalesced: \t");
-			print_inst(stderr, mfunction, move);
-			fprintf(stderr, "\n");
-			add_to_worklist(ras, u);
-		} else if (v < R__MAX || ig_interfere(&ras->ig, u, v)) {
-			// constrained
-			fprintf(stderr, "Constrained: \t");
-			print_inst(stderr, mfunction, move);
-			fprintf(stderr, "\n");
-			add_to_worklist(ras, u);
-			add_to_worklist(ras, v);
-		} else if (are_coalesceble(ras, u, v)) {
-			// coalesce
-			combine(ras, u, v);
-			add_to_worklist(ras, u);
-		} else {
-			fprintf(stderr, "Moving to active: \t");
-			print_inst(stderr, mfunction, move);
-			fprintf(stderr, "\n");
-			wl_add(&ras->active_moves_wl, m);
-		}
+		add_to_worklist(ras, u);
+	} else if (v < R__MAX || ig_interfere(&ras->ig, u, v)) {
+		// constrained
+		fprintf(stderr, "Constrained: \t");
+		print_inst(stderr, mfunction, move);
+		fprintf(stderr, "\n");
+		add_to_worklist(ras, u);
+		add_to_worklist(ras, v);
+	} else if (are_coalesceble(ras, u, v)) {
+		// coalesce
+		combine(ras, u, v);
+		add_to_worklist(ras, u);
+	} else {
+		fprintf(stderr, "Moving to active: \t");
+		print_inst(stderr, mfunction, move);
+		fprintf(stderr, "\n");
+		wl_add(&ras->active_moves_wl, m);
 	}
 }
 
@@ -4546,18 +4545,29 @@ reg_alloc_function(RegAllocState *ras, MFunction *mfunction)
 		build_interference_graph(ras);
 		calculate_spill_cost(ras);
 		initialize_worklists(ras);
-		for (;;) {
-			simplify(ras);
-			coalesce(ras);
-			simplify(ras);
-			freeze(ras);
-			simplify(ras);
-			select_potential_spill_if_needed(ras);
 
-			if (wl_empty(&ras->simplify_wl) && wl_empty(&ras->spill_wl) && wl_empty(&ras->freeze_wl)) {
-				break;
-			}
+		Oper i;
+	simplify:
+		while (wl_take_back(&ras->simplify_wl, &i)) {
+			simplify_one(ras, i);
 		}
+		if (wl_take(&ras->moves_wl, &i)) {
+			coalesce_move(ras, i);
+			goto simplify;
+		}
+		if (wl_take_back(&ras->freeze_wl, &i)) {
+			freeze_one(ras, i);
+			goto simplify;
+		}
+		if (!wl_empty(&ras->spill_wl)) {
+			choose_and_spill_one(ras);
+			goto simplify;
+		}
+
+		assert(wl_empty(&ras->simplify_wl));
+		assert(wl_empty(&ras->spill_wl));
+		assert(wl_empty(&ras->freeze_wl));
+		assert(wl_empty(&ras->moves_wl));
 
 		if (assign_registers(ras)) {
 			break;
