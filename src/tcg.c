@@ -3852,6 +3852,11 @@ mark_defs_with_uninterrupted_uses_unspillable(void *user_data, Oper *def_)
 	// interruptions.
 	if (wl_remove(&ras->uninterrupted, def) && !ras->ever_interrupted[def]) {
 		ras->unspillable[def] = true;
+		if (def >= R__MAX) {
+			fprintf(stderr, "Marking ");
+			print_reg(stderr, def);
+			fprintf(stderr, " as unspillable\n");
+		}
 	}
 	// Update def count.
 	ras->def_count[def] += 1;
@@ -3896,6 +3901,14 @@ calculate_spill_cost(RegAllocState *ras)
 		MBlock *mblock = mfunction->mblocks[b];
 		Block *block = mblock->block;
 		get_live_out(ras, block, live_set);
+		// We currently can't make unspillable those vregs whose live
+		// ranges cross basic block boundaries. Make sure we don't mark
+		// them unspillable by marking them as "interrupted somewhere"
+		// (in this case by basic block boundary).
+		FOR_EACH_WL_INDEX(live_set, i) {
+			Oper live_across_block = live_set->dense[i];
+			ras->ever_interrupted[live_across_block] = true;
+		}
 		for (Inst *inst = mblock->insts.prev; inst != &mblock->insts; inst = inst->prev) {
 			for_each_def(inst, mark_defs_with_uninterrupted_uses_unspillable, ras);
 			for_each_use(inst, detect_interrupting_deaths, ras);
