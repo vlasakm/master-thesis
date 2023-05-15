@@ -2700,14 +2700,17 @@ struct RegAllocState {
 	Oper *alias;
 
 	// Spill cost related
-	u8 *def_counts;
-	u8 *use_counts;
+	u8 *def_count;
+	u8 *use_count;
+	u8 *unspillable;
 
 	// Degrees of nodes.
 	u32 *degree;
 
 	InterferenceGraph ig;
 	WorkList live_set;
+	WorkList uninterrupted;
+	u8 *ever_interrupted;
 	WorkList block_work_list;
 	WorkList *live_in;
 
@@ -2764,11 +2767,14 @@ reg_alloc_state_reset(RegAllocState *ras)
 		GROW_ARRAY(ras->reg_assignment, ras->vreg_capacity);
 		GROW_ARRAY(ras->to_spill, ras->vreg_capacity);
 		GROW_ARRAY(ras->alias, ras->vreg_capacity);
-		GROW_ARRAY(ras->def_counts, ras->vreg_capacity);
-		GROW_ARRAY(ras->use_counts, ras->vreg_capacity);
+		GROW_ARRAY(ras->def_count, ras->vreg_capacity);
+		GROW_ARRAY(ras->use_count, ras->vreg_capacity);
+		GROW_ARRAY(ras->unspillable, ras->vreg_capacity);
 		GROW_ARRAY(ras->degree, ras->vreg_capacity);
 		ig_grow(&ras->ig, old_vreg_capacity, ras->vreg_capacity);
 		wl_grow(&ras->live_set, ras->vreg_capacity);
+		wl_grow(&ras->uninterrupted, ras->vreg_capacity);
+		GROW_ARRAY(ras->ever_interrupted, ras->vreg_capacity);
 		for (size_t i = 0; i < old_block_capacity; i++) {
 			wl_grow(&ras->live_in[i], ras->vreg_capacity);
 		}
@@ -2788,11 +2794,14 @@ reg_alloc_state_reset(RegAllocState *ras)
 	for (size_t i = 0; i < ras->mfunction->vreg_cnt; i++) {
 		ras->alias[i] = i;
 	}
-	ZERO_ARRAY(ras->def_counts, ras->mfunction->vreg_cnt);
-	ZERO_ARRAY(ras->use_counts, ras->mfunction->vreg_cnt);
+	ZERO_ARRAY(ras->def_count, ras->mfunction->vreg_cnt);
+	ZERO_ARRAY(ras->use_count, ras->mfunction->vreg_cnt);
+	ZERO_ARRAY(ras->unspillable, ras->mfunction->vreg_cnt);
 	ZERO_ARRAY(ras->degree, ras->mfunction->vreg_cnt);
 	ig_reset(&ras->ig, ras->mfunction->vreg_cnt);
 	wl_reset(&ras->live_set);
+	wl_reset(&ras->uninterrupted);
+	ZERO_ARRAY(ras->ever_interrupted, ras->vreg_capacity);
 	wl_reset(&ras->block_work_list);
 	for (size_t i = 0; i < ras->mfunction->mblock_cnt; i++) {
 		wl_reset(&ras->live_in[i]);
@@ -2815,11 +2824,15 @@ reg_alloc_state_destroy(RegAllocState *ras)
 	FREE_ARRAY(ras->reg_assignment, ras->vreg_capacity);
 	FREE_ARRAY(ras->to_spill, ras->vreg_capacity);
 	FREE_ARRAY(ras->alias, ras->vreg_capacity);
-	FREE_ARRAY(ras->def_counts, ras->vreg_capacity);
-	FREE_ARRAY(ras->use_counts, ras->vreg_capacity);
+	FREE_ARRAY(ras->def_count, ras->vreg_capacity);
+	FREE_ARRAY(ras->use_count, ras->vreg_capacity);
+	FREE_ARRAY(ras->unspillable, ras->vreg_capacity);
 	FREE_ARRAY(ras->degree, ras->vreg_capacity);
 	ig_destroy(&ras->ig, ras->vreg_capacity);
 	wl_destroy(&ras->live_set);
+	wl_destroy(&ras->uninterrupted);
+	FREE_ARRAY(ras->ever_interrupted, ras->vreg_capacity);
+	wl_reset(&ras->block_work_list);
 	wl_destroy(&ras->block_work_list);
 	for (size_t i = 0; i < ras->block_capacity; i++) {
 		wl_destroy(&ras->live_in[i]);
@@ -3104,8 +3117,6 @@ insert_stores_of_spilled(void *user_data, Oper *dest)
 void
 rewrite_program(RegAllocState *ras)
 {
-	// TODO: Infinite spill costs for uses immediately following
-	// definitions.
 	MFunction *mfunction = ras->mfunction;
 	SpillState ss_ = {
 		.ras = ras,
@@ -3831,14 +3842,64 @@ add_to_use_or_def_count(void *user_data, Oper *oper)
 }
 
 void
+mark_defs_with_uninterrupted_uses_unspillable(void *user_data, Oper *def_)
+{
+	RegAllocState *ras = user_data;
+	Oper def = *def_;
+	// Check if this definition has a following use and the live range is
+	// uninterrupted by any death of other live range. Make sure that the
+	// use is really uninterrupted, by checking global flag which forbids
+	// interruptions.
+	if (wl_remove(&ras->uninterrupted, def) && !ras->ever_interrupted[def]) {
+		ras->unspillable[def] = true;
+	}
+	// Update def count.
+	ras->def_count[def] += 1;
+	// Update liveness.
+	wl_remove(&ras->live_set, def);
+}
+
+void
+detect_interrupting_deaths(void *user_data, Oper *use_)
+{
+	RegAllocState *ras = user_data;
+	Oper use = *use_;
+	if (!wl_has(&ras->live_set, use)) {
+		WorkList *uninterrupted = &ras->uninterrupted;
+		FOR_EACH_WL_INDEX(uninterrupted, i) {
+			Oper op = uninterrupted->dense[i];
+			ras->ever_interrupted[op] = true;
+		}
+		wl_reset(uninterrupted);
+	}
+}
+
+void
+add_live(void *user_data, Oper *use_)
+{
+	RegAllocState *ras = user_data;
+	Oper use = *use_;
+	// Update use count.
+	ras->use_count[use] += 1;
+	// Update liveness and add note that this use is uninterrupted for now.
+	wl_add(&ras->live_set, use);
+	wl_add(&ras->uninterrupted, use);
+}
+
+void
 calculate_spill_cost(RegAllocState *ras)
 {
 	MFunction *mfunction = ras->mfunction;
-	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
+	WorkList *live_set = &ras->live_set;
+
+	for (Oper b = 0; b < mfunction->mblock_cnt; b++) {
 		MBlock *mblock = mfunction->mblocks[b];
-		for (Inst *inst = mblock->insts.next; inst != &mblock->insts; inst = inst->next) {
-			for_each_def(inst, add_to_use_or_def_count, ras->def_counts);
-			for_each_use(inst, add_to_use_or_def_count, ras->use_counts);
+		Block *block = mblock->block;
+		get_live_out(ras, block, live_set);
+		for (Inst *inst = mblock->insts.prev; inst != &mblock->insts; inst = inst->prev) {
+			for_each_def(inst, mark_defs_with_uninterrupted_uses_unspillable, ras);
+			for_each_use(inst, detect_interrupting_deaths, ras);
+			for_each_use(inst, add_live, ras);
 		}
 	}
 }
@@ -3921,7 +3982,7 @@ translate_function(Arena *arena, GArena *labels, Function *function)
 }
 
 void
-build_interference_graph(RegAllocState *ras)
+liveness_analysis(RegAllocState *ras)
 {
 	MFunction *mfunction = ras->mfunction;
 	WorkList *live_set = &ras->live_set;
@@ -3946,9 +4007,15 @@ build_interference_graph(RegAllocState *ras)
 			}
 		}
 	}
+}
 
+void
+build_interference_graph(RegAllocState *ras)
+{
+	MFunction *mfunction = ras->mfunction;
+	WorkList *live_set = &ras->live_set;
 
-	for (b = 0; b < mfunction->mblock_cnt; b++) {
+	for (Oper b = 0; b < mfunction->mblock_cnt; b++) {
 		MBlock *mblock = mfunction->mblocks[b];
 		Block *block = mblock->block;
 		get_live_out(ras, block, live_set);
@@ -4087,8 +4154,11 @@ spill_metric(RegAllocState *ras, Oper i)
 {
 	fprintf(stderr, "Spill cost for ");
 	print_reg(stderr, i);
-	fprintf(stderr, " degree: %"PRIu32", defs: %zu, uses: %zu\n", ras->degree[i], (size_t) ras->def_counts[i], (size_t) ras->use_counts[i]);
-	return (double) ras->degree[i] / (ras->def_counts[i] + ras->use_counts[i]);
+	fprintf(stderr, " degree: %"PRIu32", defs: %zu, uses: %zu, unspillable: %d\n", ras->degree[i], (size_t) ras->def_count[i], (size_t) ras->use_count[i], (int) ras->unspillable[i]);
+	if (ras->unspillable[i]) {
+		return 0.0;
+	}
+	return (double) ras->degree[i] / (ras->def_count[i] + ras->use_count[i]);
 }
 
 void
@@ -4197,10 +4267,11 @@ select_potential_spill_if_needed(RegAllocState *ras)
 	assert(wl_empty(&ras->moves_wl));
 	if (!wl_empty(&ras->spill_wl)) {
 		fprintf(stderr, "Potential spill\n");
-		Oper candidate = ras->spill_wl.dense[ras->spill_wl.head];
-		double max = spill_metric(ras, candidate);
-		for (size_t j = ras->spill_wl.head; j < ras->spill_wl.tail; j++) {
-			Oper i = ras->spill_wl.dense[j];
+		Oper candidate = OPER_MAX;
+		double max = 0.0;
+		WorkList *spill_wl = &ras->spill_wl;
+		FOR_EACH_WL_INDEX(spill_wl, j) {
+			Oper i = spill_wl->dense[j];
 			double curr = spill_metric(ras, i);
 			if (curr > max) {
 				max = curr;
@@ -4210,6 +4281,8 @@ select_potential_spill_if_needed(RegAllocState *ras)
 		fprintf(stderr, "Choosing for spill ");
 		print_reg(stderr, candidate);
 		fprintf(stderr, "\n");
+		assert(candidate != OPER_MAX);
+		assert(max > 0.0);
 		wl_remove(&ras->spill_wl, candidate);
 		wl_add(&ras->simplify_wl, candidate);
 		freeze_moves(ras, candidate);
@@ -4456,6 +4529,7 @@ reg_alloc_function(RegAllocState *ras, MFunction *mfunction)
 
 	for (;;) {
 		reg_alloc_state_reset(ras);
+		liveness_analysis(ras);
 		build_interference_graph(ras);
 		calculate_spill_cost(ras);
 		initialize_worklists(ras);
@@ -4945,14 +5019,17 @@ main(int argc, char **argv)
 		goto end;
 	}
 
+	Function **functions = NULL;
+	size_t function_cnt = 0;
+
 	if (argc < 2) {
 		goto end;
 	}
 
 	Str source = read_file(&ec, arena, argv[1]);
 	Module *module = parse_source(&ec, arena, source);
-	Function **functions = module->functions;
-	size_t function_cnt = module->function_cnt;
+	functions = module->functions;
+	function_cnt = module->function_cnt;
 
 	RegAllocState ras;
 	reg_alloc_state_init(&ras, arena);

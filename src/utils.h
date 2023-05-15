@@ -18,6 +18,7 @@ typedef int32_t i32;
 typedef int64_t i64;
 
 typedef i32 Oper;
+#define OPER_MAX INT32_MAX
 
 #define container_of(member_ptr, type, member) \
 	((type *) ((u8 *)(1 ? (member_ptr) : &((type *) 0)->member) - offsetof(type, member)))
