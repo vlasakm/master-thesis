@@ -4021,6 +4021,24 @@ for_each_move(RegAllocState *ras, Oper u, void (*fun)(RegAllocState *ras, Oper u
 	}
 }
 
+bool
+is_precolored(RegAllocState *ras, Oper op)
+{
+	return op < R__MAX;
+}
+
+bool
+is_trivially_colorable(RegAllocState *ras, Oper op)
+{
+	return ras->degree[op] < ras->reg_avail;
+}
+
+bool
+is_significant(RegAllocState *ras, Oper op)
+{
+	return ras->degree[op] >= ras->reg_avail;
+}
+
 void
 initialize_worklists(RegAllocState *ras)
 {
@@ -4045,7 +4063,7 @@ initialize_worklists(RegAllocState *ras)
 		GArena *gadj_list = &ras->ig.adj_list[i];
 		size_t adj_cnt = garena_cnt(gadj_list, Oper);
 		assert(adj_cnt == ras->degree[i]);
-		if (ras->degree[i] >= ras->reg_avail) {
+		if (is_significant(ras, i)) {
 			wl_add(&ras->spill_wl, i);
 			fprintf(stderr, "Starting in spill ");
 			print_reg(stderr, i);
@@ -4098,8 +4116,8 @@ decrement_degree(RegAllocState *ras, Oper op)
 	print_reg(stderr, op);
 	fprintf(stderr, "\n");
 	assert(ras->degree[op] > 0);
-	u32 old_degree = ras->degree[op]--;
-	if (old_degree == ras->reg_avail) {
+	ras->degree[op]--;
+	if (is_trivially_colorable(ras, op)) {
 		fprintf(stderr, "%zu %zu\n", (size_t) op, (size_t) R__MAX);
 		assert(op >= R__MAX);
 		fprintf(stderr, "Move from spill to %s ", is_move_related(ras, op) ? "freeze" : "simplify");
@@ -4126,7 +4144,7 @@ freeze_move(RegAllocState *ras, Oper u, Oper m, Inst *move)
 		wl_remove(&ras->moves_wl, m);
 	}
 	Oper v = move->ops[0] != u ? move->ops[0] : move->ops[1];
-	if (!is_move_related(ras, v) && ras->degree[v] < ras->reg_avail) {
+	if (!is_move_related(ras, v) && is_trivially_colorable(ras, v)) {
 		fprintf(stderr, "Move from freeze to simplify in freeze ");
 		print_reg(stderr, v);
 		fprintf(stderr, "\n");
@@ -4201,7 +4219,7 @@ select_potential_spill_if_needed(RegAllocState *ras)
 void
 add_to_worklist(RegAllocState *ras, Oper op)
 {
-	if (op >= R__MAX && !is_move_related(ras, op) && ras->degree[op] < ras->reg_avail) {
+	if (!is_precolored(ras, op) && !is_move_related(ras, op) && is_trivially_colorable(ras, op)) {
 		fprintf(stderr, "Move from freeze to simplify ");
 		print_reg(stderr, op);
 		fprintf(stderr, "\n");
@@ -4222,7 +4240,7 @@ significant_neighbour_cnt(RegAllocState *ras, Oper op)
 		if (wl_has(&ras->stack, t) || is_alias(ras, t)) {
 			continue;
 		}
-		n += ras->degree[t] >= ras->reg_avail;
+		n += is_significant(ras, t);
 	}
 	return n;
 }
@@ -4230,7 +4248,7 @@ significant_neighbour_cnt(RegAllocState *ras, Oper op)
 bool
 ok(RegAllocState *ras, Oper t, Oper r)
 {
-	return ras->degree[t] < ras->reg_avail || t < R__MAX || ig_interfere(&ras->ig, t, r);
+	return is_trivially_colorable(ras, t) || is_precolored(ras, t) || ig_interfere(&ras->ig, t, r);
 }
 
 bool
@@ -4301,7 +4319,7 @@ combine(RegAllocState *ras, Oper u, Oper v)
 		ig_add(&ras->ig, u, t);
 		decrement_degree(ras, t);
 	}
-	if (ras->degree[u] > ras->reg_avail && wl_remove(&ras->freeze_wl, u)) {
+	if (is_significant(ras, u) && wl_remove(&ras->freeze_wl, u)) {
 		fprintf(stderr, "Move combined ");
 		print_reg(stderr, u);
 		fprintf(stderr, " from freeze to spill\n");
