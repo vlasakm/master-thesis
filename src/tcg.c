@@ -4921,7 +4921,7 @@ peephole(MFunction *mfunction, Arena *arena)
 			// mov qword [t17], 5
 			// =>
 			// mov qword [t17+8], 5
-			// TODO: only valid if t17 is not used anywhere
+			// NOTE: only valid if t17 is not used anywhere
 			if (IK(inst) == IK_MOV && IS(inst) == MOV && (IM(inst) == M_MI || IM(inst) == M_Mr) && IK(prev) == IK_BINALU && IS(prev) == G1_ADD && IM(prev) == M_RI && IBASE(inst) == IREG(prev) && use_cnt[IBASE(inst)] == 2) {
 				def_cnt[IBASE(inst)]--;
 				use_cnt[IBASE(inst)]--;
