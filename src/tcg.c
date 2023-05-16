@@ -1989,8 +1989,8 @@ print_mem(FILE *f, MFunction *mfunction, Inst *inst)
 {
 	fprintf(f, "[");
 	if (IBASE(inst) == R_NONE) {
-		Str label = garena_array(mfunction->labels, Str)[IDISP(inst)];
-		print_str(f, label);
+		Value *value = garena_array(mfunction->labels, Value *)[IDISP(inst)];
+		print_value(f, value);
 	} else {
 		print_reg(f, IBASE(inst));
 		if (IINDEX(inst)) {
@@ -2091,8 +2091,8 @@ print_inst(FILE *f, MFunction *mfunction, Inst *inst)
 		break;
 	case M_LCALL: {
 		fprintf(f, " ");
-		Str label = garena_array(mfunction->labels, Str)[ILABEL(inst)];
-		print_str(f, label);
+		Value *value = garena_array(mfunction->labels, Value *)[IDISP(inst)];
+		print_value(f, value);
 		break;
 	}
 	case M_NONE:
@@ -2396,6 +2396,20 @@ typedef struct {
 	Oper opers[10];
 } TranslateOperandState;
 
+size_t
+add_label(GArena *labels, Value *value)
+{
+	Value **existing = garena_array(labels, Value *);
+	size_t index = garena_cnt(labels, Value *);
+	for (size_t i = index; i--;) {
+		if (existing[i] == value) {
+			return i;
+		}
+	}
+	garena_push_value(labels, Value *, value);
+	return index;
+}
+
 void
 translate_operand(void *user_data, size_t i, Value **operand_)
 {
@@ -2408,19 +2422,17 @@ translate_operand(void *user_data, size_t i, Value **operand_)
 		res = operand->index;
 		break;
 	case VK_FUNCTION: {
-		Function *function = (void*) operand;
-		size_t label_index = garena_cnt(ts->labels, Str);
-		garena_push_value(ts->labels, Str, function->name);
+		//Function *function = (void*) operand;
+		size_t label_index = add_label(ts->labels, operand);
 		///res = tos->ts->index++;
 		//add_lea(tos->ts, res, R_NONE, label_index);
 		res = label_index;
 		break;
 	}
 	case VK_GLOBAL: {
-		Global *global = (void*) operand;
+		//Global *global = (void*) operand;
 		res = tos->ts->index++;
-		size_t label_index = garena_cnt(ts->labels, Str);
-		garena_push_value(ts->labels, Str, global->name);
+		size_t label_index = add_label(ts->labels, operand);
 		add_lea(tos->ts, res, R_NONE, label_index);
 		break;
 	}
@@ -3231,23 +3243,33 @@ static void
 print_value(FILE *f, Value *v)
 {
 	switch (v->kind) {
+	case VK_FUNCTION: {
+		Function *fun = (void *) v;
+		print_str(f, fun->name);
+		break;
+	}
+	case VK_GLOBAL: {
+		Global *g = (void *) v;
+		print_str(f, g->name);
+		break;
+	}
 	case VK_CONSTANT: {
-		Constant *k = (void*) v;
+		Constant *k = (void *) v;
 		fprintf(f, "%"PRIi64, k->k);
 		break;
 	}
 	case VK_ALLOCA: {
-		Alloca *a = (void*) v;
+		Alloca *a = (void *) v;
 		fprintf(f, "alloca %zu\n", a->size);
 		break;
 	}
 	case VK_ARGUMENT: {
-		Argument *a = (void*) v;
+		Argument *a = (void *) v;
 		fprintf(f, "argument %zu\n", a->index);
 		break;
 	}
 	case VK_GET_MEMBER_PTR: {
-		Operation *operation = (void*) v;
+		Operation *operation = (void *) v;
 		fprintf(f, "get_member_ptr ");
 		print_index(f, 0, &operation->operands[0]);
 		Field *field = get_member(v);
