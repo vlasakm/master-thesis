@@ -3887,13 +3887,6 @@ single_exit(Arena *arena, Function *function)
 }
 
 void
-add_to_use_or_def_count(void *user_data, Oper *oper)
-{
-	u8 *counts = user_data;
-	counts[*oper]++;
-}
-
-void
 mark_defs_with_uninterrupted_uses_unspillable(void *user_data, Oper *def_)
 {
 	RegAllocState *ras = user_data;
@@ -4652,8 +4645,40 @@ reg_alloc_function(RegAllocState *ras, MFunction *mfunction)
 }
 
 void
+add_to_use_or_def_count(void *user_data, Oper *oper)
+{
+	u8 *counts = user_data;
+	counts[*oper]++;
+}
+
+void
+calculate_def_use_counts(MFunction *mfunction)
+{
+	GROW_ARRAY(mfunction->def_count, mfunction->vreg_cnt);
+	GROW_ARRAY(mfunction->use_count, mfunction->vreg_cnt);
+	ZERO_ARRAY(mfunction->def_count, mfunction->vreg_cnt);
+	ZERO_ARRAY(mfunction->use_count, mfunction->vreg_cnt);
+	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
+		MBlock *mblock = mfunction->mblocks[b];
+		for (Inst *inst = mblock->insts.next; inst != &mblock->insts; inst = inst->next) {
+			for_each_def(inst, add_to_use_or_def_count, mfunction->def_count);
+			for_each_use(inst, add_to_use_or_def_count, mfunction->use_count);
+		}
+	}
+}
+
+void
+mfunction_free(MFunction *mfunction)
+{
+	FREE_ARRAY(mfunction->def_count, mfunction->vreg_cnt);
+	FREE_ARRAY(mfunction->use_count, mfunction->vreg_cnt);
+}
+
+void
 peephole(MFunction *mfunction, Arena *arena)
 {
+	u8 *use_cnt = mfunction->use_count;
+	u8 *def_cnt = mfunction->def_count;
 	print_str(stderr, mfunction->func->name);
 	fprintf(stderr, "\n");
 	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
@@ -4667,6 +4692,8 @@ peephole(MFunction *mfunction, Arena *arena)
 			// =>
 			// [deleted]
 			if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_Cr && IREG(inst) == IREG2(inst)) {
+				use_cnt[IREG(inst)]--;
+				def_cnt[IREG(inst)]--;
 				inst->prev->next = inst->next;
 				inst->next->prev = inst->prev;
 				goto next;
@@ -4676,6 +4703,7 @@ peephole(MFunction *mfunction, Arena *arena)
 			// =>
 			// test rax, rax
 			if (IK(inst) == IK_BINALU && IS(inst) == G1_CMP && IM(inst) == M_rI && IIMM(inst) == 0) {
+				use_cnt[IREG(inst)]++;
 				IS(inst) = G1_TEST;
 				IM(inst) = M_rr;
 				IREG2(inst) = IREG(inst);
@@ -4685,6 +4713,21 @@ peephole(MFunction *mfunction, Arena *arena)
 			Inst *prev = inst->prev;
 			if (!prev) {
 				goto next;
+			}
+
+			// lea t32, [rbp-16] // IK_MOV ANY M_C*
+			// mov t14, t32
+			// =>
+			// lea t14, [rbp-16]
+			if (IK(inst) == IK_MOV && IM(inst) == M_Cr && (IM(prev) == M_CI || IM(prev) == M_Cr || IM(prev) == M_CM) && IREG(prev) == IREG2(inst) && use_cnt[IREG(prev)] == 1) {
+				def_cnt[IREG(prev)]--;
+				use_cnt[IREG(prev)]--;
+				IREG(prev) = IREG(inst);
+				prev->next = inst->next;
+				inst->next->prev = prev;
+				prev->next = inst->next;
+				inst = prev;
+				continue;
 			}
 
 			//     jmp .BB5
@@ -4703,6 +4746,7 @@ peephole(MFunction *mfunction, Arena *arena)
 			// =>
 			// mov rax, 3
 			if (IK(inst) == IK_BINALU && IM(inst) == M_RI && IK(prev) == IK_MOV && IS(prev) == MOV && IM(prev) == M_CI && IREG(inst) == IREG(prev)) {
+				def_cnt[IREG(inst)]--;
 				Oper left = IIMM(prev);
 				Oper right = IIMM(inst);
 				Oper result;
@@ -4721,16 +4765,26 @@ peephole(MFunction *mfunction, Arena *arena)
 			skip:;
 			}
 
-			// mov rcx, 8
-			// add rax, rcx
+			// mov t14, 15
+			// mov t13, 3
+			// add t13, t14
+			//=>
+			// mov t13, 18
+
+			// mov t12, 8
+			// add t11, t12
 			// =>
-			// add rax, 8
+			//|mov t12, 8|
+			// add t11, 8
 			if (IK(inst) == IK_BINALU && (IM(inst) == M_Rr || IM(inst) == M_rr) && IK(prev) == IK_MOV && IS(prev) == MOV && IM(prev) == M_CI && IREG(prev) == IREG2(inst)) {
 				inst->mode = IM(inst) == M_Rr ? M_RI : M_rI;
 				IREG2(inst) = R_NONE;
 				IIMM(inst) = IIMM(prev);
-				inst->prev = prev->prev;
-				prev->prev->next = inst;
+				if (--use_cnt[IREG(prev)] == 0) {
+					--def_cnt[IREG(prev)];
+					inst->prev = prev->prev;
+					prev->prev->next = inst;
+				}
 				inst = inst;
 				continue;
 			}
@@ -4744,24 +4798,29 @@ peephole(MFunction *mfunction, Arena *arena)
 			// mov rcx, 5
 
 
-			// mov rcx, 5
-			// mov [rax], rcx
+			// mov t34, 3
+			// mov [t14], t34
 			// =>
-			// mov [rax], 5
+			//|mov 34, 3|
+			// mov [t14], 3
 			if (IK(inst) == IK_MOV && IM(inst) == M_Mr && IK(prev) == IK_MOV && IS(prev) == MOV && IM(prev) == M_CI && IREG(prev) == IREG(inst)) {
 				IM(inst) = M_MI;
 				IIMM(inst) = IIMM(prev);
-				inst->prev = prev->prev;
-				prev->prev->next = inst;
+				if (--use_cnt[IREG(prev)] == 0) {
+					inst->prev = prev->prev;
+					prev->prev->next = inst;
+				}
 				inst = inst;
 				continue;
 			}
 
-			// lea rax, [rbp-16]
-			// add rax, 8
+			// lea t14, [rbp-16]
+			// add t14, 8
 			// =>
-			// lea rax, [rbp-8]
+			// lea t14, [rbp-8]
 			if (IK(inst) == IK_BINALU && IS(inst) == G1_ADD && IM(inst) == M_RI && IK(prev) == IK_MOV && IS(prev) == LEA && IREG(prev) == IREG(inst)) {
+				def_cnt[IREG(inst)]--;
+				use_cnt[IREG(inst)]--;
 				IDISP(prev) += IIMM(inst);
 				prev->next = inst->next;
 				inst->next->prev = prev;
@@ -4770,16 +4829,13 @@ peephole(MFunction *mfunction, Arena *arena)
 				continue;
 			}
 
-			// lea rax, [global0]
-			// mov rcx, [rax]
+			// lea t25, [rbp-24]
+			// mov t26, [t25]
 			// =>
-			// mov rcx, [global0]
-			// TODO: this is incorrect if rax is used, should copy
-			// rcx? what does that imply currently? should
-			// we require a preceding use for every def to
-			// check these? what does regalloc produce? does
-			// SSA save us?
-			if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_CM && IINDEX(inst) == R_NONE && ISCALE(inst) == 0 && IDISP(inst) == 0 && IK(prev) == IK_MOV && IS(prev) == LEA && IM(prev) == M_CM && IBASE(inst) == IREG(prev)) {
+			// mov t26, [global0]
+			if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_CM && IINDEX(inst) == R_NONE && ISCALE(inst) == 0 && IDISP(inst) == 0 && IK(prev) == IK_MOV && IS(prev) == LEA && IM(prev) == M_CM && IBASE(inst) == IREG(prev) && use_cnt[IREG(prev)] == 1) {
+				def_cnt[IREG(prev)]--;
+				use_cnt[IREG(prev)]--;
 				IS(prev) = MOV;
 				IREG(prev) = IREG(inst);
 				prev->next = inst->next;
@@ -4788,12 +4844,13 @@ peephole(MFunction *mfunction, Arena *arena)
 				continue;
 			}
 
-			// mov [global0], rcx
-			// mov rax, [global0]
+			// mov [G], t27
+			// mov t28, [G]
 			// =>
-			// mov [global0], rcx
-			// mov rax, rcx
-			if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_CM && IK(prev) == IK_MOV && IS(prev) == MOV && IM(prev) == M_Mr && IBASE(inst) == IBASE(prev) && IINDEX(inst) == IINDEX(prev) && ISCALE(inst) == ISCALE(prev) && IDISP(inst) == IDISP(prev)) {
+			// mov [G], t27
+			// mov t28, t27
+			if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_CM && IK(prev) == IK_MOV && IS(prev) == MOV && IM(prev) == M_Mr && IBASE(inst) == IBASE(prev) && ISCALE(inst) == ISCALE(prev) && IINDEX(inst) == IINDEX(prev) && IDISP(inst) == IDISP(prev)) {
+				use_cnt[IREG(prev)]++;
 				IM(inst) = M_Cr;
 				IREG2(inst) = IREG(prev);
 				inst = inst;
@@ -4806,7 +4863,9 @@ peephole(MFunction *mfunction, Arena *arena)
 			// =>
 			// add rax, [global1]
 			// TODO: only valid if rcx is not used
-			if (IK(inst) == IK_BINALU && IM(inst) == M_Rr && IK(prev) == IK_MOV && IS(prev) == MOV && IM(prev) == M_CM && IREG2(inst) == IREG(prev) && IREG(inst) != IREG2(inst)) {
+			if (IK(inst) == IK_BINALU && IM(inst) == M_Rr && IK(prev) == IK_MOV && IS(prev) == MOV && IM(prev) == M_CM && IREG2(inst) == IREG(prev) && IREG(inst) != IREG2(inst) && use_cnt[IREG(prev)] == 1) {
+				def_cnt[IREG(prev)]--;
+				use_cnt[IREG(prev)]--;
 				IM(prev) = M_RM;
 				IK(prev) = IK(inst);
 				IS(prev) = IS(inst);
@@ -4863,7 +4922,9 @@ peephole(MFunction *mfunction, Arena *arena)
 			// =>
 			// mov qword [t17+8], 5
 			// TODO: only valid if t17 is not used anywhere
-			if (IK(inst) == IK_MOV && IS(inst) == MOV && (IM(inst) == M_MI || IM(inst) == M_Mr) && IK(prev) == IK_BINALU && IS(prev) == G1_ADD && IM(prev) == M_RI && IBASE(inst) == IREG(prev)) {
+			if (IK(inst) == IK_MOV && IS(inst) == MOV && (IM(inst) == M_MI || IM(inst) == M_Mr) && IK(prev) == IK_BINALU && IS(prev) == G1_ADD && IM(prev) == M_RI && IBASE(inst) == IREG(prev) && use_cnt[IBASE(inst)] == 2) {
+				def_cnt[IBASE(inst)]--;
+				use_cnt[IBASE(inst)]--;
 				IDISP(inst) += IIMM(prev);
 				inst->prev = prev->prev;
 				prev->prev->next = inst;
@@ -4882,15 +4943,42 @@ peephole(MFunction *mfunction, Arena *arena)
 			// =>
 			// mov t14, t34
 			// add t14, 8
-			// TODO: only valid if t35 is not used anywhere
-			// (alternatively keep t35 and delete the unnecessery
-			// move somewhere else)
-			if (IK(inst) == IK_BINALU && IM(inst) == M_Rr && IK(prev) == IK_MOV && IS(prev) == MOV && IM(prev) == M_Cr && IK(pprev) == IK_MOV && IS(pprev) == MOV && IM(pprev) == M_CI && IREG(pprev) == IREG2(inst)) {
+			if (IK(inst) == IK_BINALU && IM(inst) == M_Rr && IK(prev) == IK_MOV && IS(prev) == MOV && IM(prev) == M_Cr && IK(pprev) == IK_MOV && IS(pprev) == MOV && IM(pprev) == M_CI && IREG(pprev) == IREG2(inst) && use_cnt[IREG2(inst)] == 1) {
+				def_cnt[IREG2(inst)]--;
+				use_cnt[IREG2(inst)]--;
 				IM(inst) = M_RI;
 				IIMM(inst) = IIMM(pprev);
 				pprev->prev->next = prev;
 				prev->prev = pprev->prev;
 				inst = prev;
+				continue;
+			}
+
+			// mov t22, [H]
+			// mov t23, ...
+			// add t23, t22
+			// =>
+			// mov t23, ...
+			// add t23, [H]
+			if (IK(inst) == IK_BINALU && IM(inst) == M_Rr && IK(prev) == IK_MOV && IS(prev) == MOV && (IM(pprev) == M_CI || IM(pprev) == M_Cr || IM(pprev) == M_CM) && IREG(prev) == IREG(inst) && IREG(pprev) == IREG2(inst) && use_cnt[IREG(pprev)] == 1) {
+				def_cnt[IREG(pprev)]--;
+				use_cnt[IREG(pprev)]--;
+				IK(pprev) = IK(inst);
+				IS(pprev) = IS(inst);
+				switch (IM(pprev)) {
+				case M_CI: IM(pprev) = M_RI; break;
+				case M_Cr: IM(pprev) = M_Rr; break;
+				case M_CM: IM(pprev) = M_RM; break;
+				default: UNREACHABLE();
+				}
+				IREG(pprev) = IREG(inst);
+				pprev->prev->next = prev;
+				prev->prev = pprev->prev;
+				prev->next = pprev;
+				pprev->prev = prev;
+				pprev->next = inst->next;
+				inst->next->prev = pprev;
+				inst = pprev;
 				continue;
 			}
 
@@ -5151,6 +5239,7 @@ main(int argc, char **argv)
 		///*
 		translate_function(arena, &labels, functions[i]);
 		print_mfunction(stderr, functions[i]->mfunc);
+		calculate_def_use_counts(functions[i]->mfunc);
 		peephole(functions[i]->mfunc, arena);
 		print_mfunction(stderr, functions[i]->mfunc);
 		reg_alloc_function(&ras, functions[i]->mfunc);
@@ -5241,6 +5330,7 @@ end:
 		}
 		free(function->blocks);
 		free(function->post_order);
+		mfunction_free(function->mfunc);
 	}
 	garena_destroy(&labels);
 

@@ -433,4 +433,6 @@ struct MFunction {
 	size_t stack_space;
 	size_t vreg_cnt;
 	Inst *make_stack_space;
+	u8 *def_count;
+	u8 *use_count;
 };
