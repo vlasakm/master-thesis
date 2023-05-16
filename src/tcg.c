@@ -383,6 +383,48 @@ cc_invert(CondCode cc)
 	return cc ^ 1;
 }
 
+enum {
+	F_CF = UINT32_C(1) << 0, // Carry
+	F_PF = UINT32_C(1) << 2, // Parity
+	F_AF = UINT32_C(1) << 4, // Auxiliary Carry
+	F_ZF = UINT32_C(1) << 6, // Zero
+	F_SF = UINT32_C(1) << 7, // Sign
+	F_OF = UINT32_C(1) << 11, // Overflow
+};
+
+u32
+cc_read_flags(CondCode cc)
+{
+	switch (cc) {
+	case CC_O:
+	case CC_NO:
+		return F_OF;
+	case CC_B:
+	case CC_AE:
+		return F_CF;
+	case CC_Z:
+	case CC_NZ:
+		return F_ZF;
+	case CC_BE:
+	case CC_A:
+		return F_CF | F_ZF;
+	case CC_S:
+	case CC_NS:
+		return F_SF;
+	case CC_P:
+	case CC_NP:
+		return F_PF;
+	case CC_L:
+	case CC_GE:
+		return F_SF | F_OF;
+	case CC_LE:
+	case CC_G:
+		return F_SF | F_ZF | F_OF;
+	default:
+		UNREACHABLE();
+	}
+}
+
 bool
 g1_is_commutative(X86Group1 g1)
 {
@@ -2016,6 +2058,7 @@ print_inst(FILE *f, MFunction *mfunction, Inst *inst)
 	case M_Rr:
 	case M_rr:
 	case M_Cr:
+	case M_Cn:
 		fprintf(f, " ");
 		print_reg(f, IREG1(inst));
 		fprintf(f, ", ");
@@ -2102,6 +2145,13 @@ print_inst(FILE *f, MFunction *mfunction, Inst *inst)
 	case M_RET:
 		break;
 	}
+
+	if (inst->reads_flags || inst->writes_flags || inst->flags_observed) {
+		fprintf(f, " ; ");
+		fprintf(f, "%s", inst->reads_flags ? "R" : "");
+		fprintf(f, "%s", inst->writes_flags ? "W" : "");
+		fprintf(f, "%s", inst->flags_observed ? "O" : "");
+	}
 }
 
 
@@ -2126,6 +2176,9 @@ create_inst(Arena *arena, InstKind kind, int subkind)
 	Inst *inst = arena_alloc(arena, sizeof(*inst) + 6 * sizeof(inst->ops[0]));
 	inst->kind = kind;
 	inst->subkind = subkind;
+	inst->flags_observed = false; // Redefined later by analysis.
+	inst->writes_flags = false; // Default is no flags.
+	inst->reads_flags = false; // Default is no flags.
 	memset(&inst->ops[0], 0, 6 * sizeof(inst->ops[0]));
 	//for (size_t i = 0; i < 6; i++) {
 	//	inst->ops[i] = va_arg(ap, Oper);
@@ -2218,6 +2271,7 @@ add_unop(TranslationState *ts, X86Group3 op, Oper op1)
 {
 	Inst *inst = add_inst(ts, IK_UNALU, op);
 	inst->mode = M_R;
+	inst->writes_flags = true;
 	IREG(inst) = op1;
 }
 
@@ -2226,6 +2280,7 @@ add_binop(TranslationState *ts, X86Group1 op, Oper op1, Oper op2)
 {
 	Inst *inst = add_inst(ts, IK_BINALU, op);
 	inst->mode = M_Rr;
+	inst->writes_flags = true;
 	IREG1(inst) = op1;
 	IREG2(inst) = op2;
 }
@@ -2235,6 +2290,7 @@ add_cmp(TranslationState *ts, X86Group1 op, Oper op1, Oper op2)
 {
 	Inst *inst = add_inst(ts, IK_BINALU, op);
 	inst->mode = M_rr;
+	inst->writes_flags = true;
 	IREG1(inst) = op1;
 	IREG2(inst) = op2;
 }
@@ -2244,6 +2300,7 @@ add_shift(TranslationState *ts, X86Group2 op, Oper op1, Oper op2)
 {
 	Inst *inst = add_inst(ts, IK_SHIFT, op);
 	inst->mode = M_Rr;
+	inst->writes_flags = true;
 	IREG1(inst) = op1;
 	IREG2(inst) = op2;
 	assert(op2 == R_RCX);
@@ -2270,6 +2327,7 @@ add_setcc(TranslationState *ts, CondCode cc, Oper oper)
 {
 	Inst *inst = add_inst(ts, IK_SETCC, cc);
 	inst->mode = M_R; // partial register read
+	inst->reads_flags = true;
 	IREG(inst) = oper;
 }
 
@@ -2278,6 +2336,7 @@ add_imul3(TranslationState *ts, Oper dest, Oper arg, Oper imm)
 {
 	Inst *inst = add_inst(ts, IK_IMUL3, 0);
 	inst->mode = M_CrI;
+	inst->writes_flags = true;
 	IREG(inst) = dest;
 	IREG2(inst) = dest;
 	IIMM(inst) = imm;
@@ -2296,6 +2355,7 @@ add_jcc(TranslationState *ts, CondCode cc, Oper block_index)
 {
 	Inst *inst = add_inst(ts, IK_JCC, cc);
 	inst->mode = M_L;
+	inst->reads_flags = true;
 	ILABEL(inst) = block_index;
 }
 
@@ -2622,6 +2682,7 @@ translate_value(TranslationState *ts, Value *v)
 	}
 	case VK_BRANCH:
 		add_cmp(ts, G1_TEST, ops[0], ops[0]);
+		add_copy(ts, ts->index++, ts->index++);
 		add_jcc(ts, CC_Z, ops[2]);
 		add_jmp(ts, ops[1]);
 		break;
@@ -4011,6 +4072,7 @@ translate_function(Arena *arena, GArena *labels, Function *function)
 			ts->make_stack_space = add_inst(ts, IK_BINALU, G1_SUB);
 			Inst *inst = ts->make_stack_space;
 			inst->mode = M_RI;
+			inst->writes_flags = true;
 			IREG(inst) = R_RSP;
 			IIMM(inst) = 0;
 
@@ -4645,10 +4707,17 @@ reg_alloc_function(RegAllocState *ras, MFunction *mfunction)
 }
 
 void
-add_to_use_or_def_count(void *user_data, Oper *oper)
+increment_count(void *user_data, Oper *oper)
 {
-	u8 *counts = user_data;
-	counts[*oper]++;
+	u8 *count = user_data;
+	count[*oper]++;
+}
+
+void
+decrement_count(void *user_data, Oper *oper)
+{
+	u8 *count = user_data;
+	count[*oper]++;
 }
 
 void
@@ -4660,9 +4729,17 @@ calculate_def_use_counts(MFunction *mfunction)
 	ZERO_ARRAY(mfunction->use_count, mfunction->vreg_cnt);
 	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
 		MBlock *mblock = mfunction->mblocks[b];
-		for (Inst *inst = mblock->insts.next; inst != &mblock->insts; inst = inst->next) {
-			for_each_def(inst, add_to_use_or_def_count, mfunction->def_count);
-			for_each_use(inst, add_to_use_or_def_count, mfunction->use_count);
+		bool flags_needed = false;
+		for (Inst *inst = mblock->insts.prev; inst != &mblock->insts; inst = inst->prev) {
+			for_each_def(inst, increment_count, mfunction->def_count);
+			for_each_use(inst, decrement_count, mfunction->use_count);
+			inst->flags_observed = flags_needed;
+			if (inst->writes_flags) {
+				flags_needed = false;
+			}
+			if (inst->reads_flags) {
+				flags_needed = true;
+			}
 		}
 	}
 }
@@ -4699,6 +4776,21 @@ peephole(MFunction *mfunction, Arena *arena)
 				goto next;
 			}
 
+			// mov t13, ... (where t13 is not used further)
+			// =>
+			// deleted
+			//
+			// xor t14, t14 (where t14 is not used further)
+			// =>
+			// deleted
+			if ((IM(inst) == M_CI || IM(inst) == M_Cr || IM(inst) == M_CM || IM(inst) == M_Cn) && use_cnt[IREG(inst)] == 0) {
+				def_cnt[IREG(inst)]--;
+				for_each_use(inst, decrement_count, use_cnt);
+				inst->prev->next = inst->next;
+				inst->next->prev = inst->prev;
+				goto next;
+			}
+
 			// cmp rax, 0
 			// =>
 			// test rax, rax
@@ -4709,6 +4801,37 @@ peephole(MFunction *mfunction, Arena *arena)
 				IREG2(inst) = IREG(inst);
 				continue;
 			}
+
+			// test/cmp ..., ... (and no flags observed)
+			// =>
+			// [deleted]
+			if (IK(inst) == IK_BINALU && (IS(inst) == G1_TEST || IS(inst) == G1_CMP) && !IOF(inst)) {
+				for_each_def(inst, decrement_count, def_cnt);
+				for_each_use(inst, decrement_count, use_cnt);
+				inst->prev->next = inst->next;
+				inst->next->prev = inst->prev;
+				goto next;
+			}
+
+			// mov t20, 0 (and flags not observed)
+			// =>
+			// xor t20, t20 (sets flags, but noone will read them)
+			if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_CI && IIMM(inst) == 0 && !IOF(inst)) {
+				// the second occurence doesn't count as use
+				IK(inst) = IK_BINALU;
+				IS(inst) = G1_XOR;
+				IM(inst) = M_Cn;
+				IWF(inst) = true;
+				IREG2(inst) = IREG(inst);
+				continue;
+			}
+
+			// add ..., 1 (and flags not observed)
+			// =>
+			// inc ...
+			// Probably not worth it.
+			// https://www.agner.org/optimize/microarchitecture.pdf
+			if (false) {}
 
 			Inst *prev = inst->prev;
 			if (!prev) {
@@ -4734,6 +4857,13 @@ peephole(MFunction *mfunction, Arena *arena)
 				inst = prev;
 				continue;
 			}
+
+			// mov rcx, 5 ; R
+			// test rcx, rcx ; WO
+			// setg cl ; R
+			// test rcx, rcx ; WO
+			//if (IK(inst) == IK_BINALU && IS(inst) == G1_TEST && IM(inst) == M_rr && ) {
+			//}
 
 			//     jmp .BB5
 			// .BB5:
@@ -5042,6 +5172,29 @@ peephole(MFunction *mfunction, Arena *arena)
 			}
 
 
+			// setg t28
+			// test t28, t28
+			// jz .BB3
+			// =>
+			// jng .BB2
+			if ((IK(inst) == IK_JCC || IK(inst) == IK_CMOVCC || IK(inst) == IK_SETCC) && IS(inst) == CC_Z && IK(prev) == IK_BINALU && IS(prev) == G1_TEST && IM(prev) == M_rr && IREG(prev) == IREG2(prev) && IK(pprev) == IK_SETCC && IREG(prev) == IREG(pprev)) {
+				def_cnt[IREG(pprev)]--;
+				use_cnt[IREG(pprev)] -= 3; // (2 for test, 1 for setcc)
+				IS(inst) = cc_invert(IS(pprev));
+				pprev->prev->next = inst;
+				inst->prev = pprev->prev;
+				// Go back before the flags are set and look for
+				// optimization opportunities. For example for
+				// the rest of the following pattern:
+				// xor t28, t28 ; W
+				// cmp t27, t41 ; WO
+				// setg t28 ; R
+				while (IRF(inst) || IOF(inst)) {
+					inst = inst->prev;
+				}
+				continue;
+			}
+
 			// mov t21, [rbp-24]
 			// mov t22, t21
 			// add t22, 1
@@ -5083,13 +5236,13 @@ peephole(MFunction *mfunction, Arena *arena)
 			// cmp rax, rdx
 			// jng .BB2
 			if (IK(inst) == IK_JCC && IS(inst) == CC_Z && IK(prev) == IK_BINALU && IS(prev) == G1_TEST && IM(prev) == M_rr && IREG(prev) == IREG2(prev) && IK(pprev) == IK_SETCC && IREG(prev) == IREG(pprev) && IK(ppprev) == IK_BINALU && IS(ppprev) == G1_CMP && IK(pppprev) == IK_MOV && IS(pppprev) == MOV && IM(pppprev) == M_CI && IIMM(pppprev) == 0) {
-				IS(inst) = cc_invert(IS(pprev));
-				pppprev->prev->next = ppprev;
-				ppprev->prev = pppprev->prev;
-				inst->prev = ppprev;
-				ppprev->next = inst;
-				inst = ppprev;
-				continue;
+				//IS(inst) = cc_invert(IS(pprev));
+				//pppprev->prev->next = ppprev;
+				//ppprev->prev = pppprev->prev;
+				//inst->prev = ppprev;
+				//ppprev->next = inst;
+				//inst = ppprev;
+				//continue;
 			}
 		next:
 			inst = inst->next;
@@ -5256,8 +5409,8 @@ main(int argc, char **argv)
 		print_function(stderr, functions[i]);
 		///*
 		translate_function(arena, &labels, functions[i]);
-		print_mfunction(stderr, functions[i]->mfunc);
 		calculate_def_use_counts(functions[i]->mfunc);
+		print_mfunction(stderr, functions[i]->mfunc);
 		peephole(functions[i]->mfunc, arena);
 		print_mfunction(stderr, functions[i]->mfunc);
 		reg_alloc_function(&ras, functions[i]->mfunc);

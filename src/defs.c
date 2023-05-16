@@ -223,6 +223,9 @@ struct Inst {
 	u8 kind;
 	u8 subkind;
 	u8 mode;
+	bool writes_flags;
+	bool reads_flags;
+	bool flags_observed;
 	Oper ops[];
 	//Oper reg;
 	//union {
@@ -238,6 +241,9 @@ struct Inst {
 #define IK(inst) ((inst)->kind)
 #define IS(inst) ((inst)->subkind)
 #define IM(inst) ((inst)->mode)
+#define IRF(inst) ((inst)->reads_flags)
+#define IWF(inst) ((inst)->writes_flags)
+#define IOF(inst) ((inst)->flags_observed)
 
 #define IREG(inst) ((inst)->ops[0])
 #define IREG1(inst) ((inst)->ops[0])
@@ -335,6 +341,7 @@ static const char **is_repr[] = {
 // R = RW register
 // r = R register
 // C = W register ("clobber")
+// n = no read or write (for xor rax, rax, where read dependency is undesirable)
 // M = memory (base R, index R, scale, displacement)
 // I = immediate
 // L = label
@@ -344,6 +351,7 @@ typedef enum {
 	M_Rr,
 	M_rr,
 	M_Cr,
+	M_Cn,
 	M_RM,
 	M_rM,
 	M_CM,
@@ -394,6 +402,7 @@ InsFormat formats[] = {
 	[M_Rr]    = { 0, 1, 0, 2,  0, none, none },
 	[M_rr]    = { 0, 0, 0, 2,  0, none, none },
 	[M_Cr]    = { 0, 1, 1, 2,  0, none, none },
+	[M_Cn]    = { 0, 2, 0, 0,  0, none, none },
 	[M_RM]    = { 0, 1, 0, 3,  0, none, none },
 	[M_rM]    = { 0, 0, 0, 3,  0, none, none },
 	[M_CM]    = { 0, 1, 1, 3,  0, none, none },
