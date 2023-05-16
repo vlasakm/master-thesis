@@ -4429,9 +4429,10 @@ combine(RegAllocState *ras, Oper u, Oper v)
 	print_reg(stderr, v);
 	fprintf(stderr, "\n");
 
+	assert(v >= R__MAX);
 	if (!wl_remove(&ras->freeze_wl, v)) {
 		// TODO: assert this? What about precolored?
-		wl_remove(&ras->spill_wl, v);
+		assert(wl_remove(&ras->spill_wl, v));
 	}
 
 	// Set `v` as alias of `u`. Caller should already pass canonical `u`
