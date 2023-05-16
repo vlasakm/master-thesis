@@ -383,10 +383,10 @@ typedef struct {
 static Oper none[] = { R_NONE };
 
 static Oper rax_rdx[] = { R_RAX, R_RDX, R_NONE };
-static Oper callee_saved[] = { R_RBX, R_RBP, R_RSP, R_NONE };
-static Oper saved[] = { R_RBX };
-static Oper caller_saved[] = { R_RAX, R_RCX, R_RDX, R_RSI, R_RDI, R_NONE };
-static Oper argument_regs[] = { R_RDI, R_RSI, R_RDX, R_RCX, R_NONE };
+static Oper callee_saved[] = { R_RBX, R_12, R_13, R_14, R_15, R_RBP, R_RSP, R_NONE };
+static Oper saved[] = { R_RBX, R_12, R_13, R_14, R_15 };
+static Oper caller_saved[] = { R_RAX, R_RCX, R_RDX, R_RSI, R_RDI, R_8, R_9, R_10, R_11, R_NONE };
+static Oper argument_regs[] = { R_RDI, R_RSI, R_RDX, R_RCX, R_8, R_9, R_NONE };
 //static Oper return_regs[] = { R_RAX, R_RDX };
 
 

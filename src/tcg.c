@@ -263,9 +263,18 @@ typedef enum {
 	R_RDX,
 	R_RSI,
 	R_RDI,
+	R_8,
+	R_9,
+	R_10,
+	R_11,
+	R_12,
+	R_13,
+	R_14,
+	R_15,
 
 	R_RSP,
 	R_RBP,
+
 
 	R__RIP,
 	R__MAX,
@@ -279,6 +288,14 @@ static const char *reg_repr[] = {
 	"rdx",
 	"rsi",
 	"rdi",
+	"r8",
+	"r9",
+	"r10",
+	"r11",
+	"r12",
+	"r13",
+	"r14",
+	"r15",
 
 	"rsp",
 	"rbp",
@@ -292,6 +309,14 @@ static const char *reg_repr8[] = {
 	"dl",
 	"sil",
 	"dil",
+	"r8b",
+	"r9b",
+	"r10b",
+	"r11b",
+	"r12b",
+	"r13b",
+	"r14b",
+	"r15b",
 
 	"spl",
 	"bpl",
@@ -2287,7 +2312,7 @@ add_call(TranslationState *ts, Oper function_label, Oper arg_cnt)
 static void
 translate_call(TranslationState *ts, Oper res, Oper fun, Oper *args, size_t arg_cnt)
 {
-	assert(arg_cnt < ARRAY_LEN(argument_regs));
+	assert(arg_cnt < ARRAY_LEN(argument_regs) - 1);
 	for (size_t i = 0; i < arg_cnt; i++) {
 		add_copy(ts, argument_regs[i], args[0]);
 	}
