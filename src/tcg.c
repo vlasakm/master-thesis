@@ -1012,7 +1012,7 @@ declarator(Parser *parser, Str *name, Type *type, DeclaratorKind kind)
 				goto function_declarator;
 			}
 		}
-		declarator(parser, name, type, kind);
+		type = declarator(parser, name, type, kind);
 		eat(parser, TK_RPAREN);
 		break;
 	default:
