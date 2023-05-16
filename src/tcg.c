@@ -1913,10 +1913,11 @@ print_index(void *user_data, size_t i, Value **operand_)
 		fprintf(f, "block");
 		fprintf(f, "%zu", operand->index);
 		break;
-	case VK_FUNCTION:
-		fprintf(f, "function");
-		fprintf(f, "%zu", operand->index);
+	case VK_FUNCTION: {
+		Function *fun = (void *) operand;
+		print_str(f, fun->name);
 		break;
+	}
 	case VK_GLOBAL: {
 		Global *global = (void*) operand;
 		print_str(f, global->name);
