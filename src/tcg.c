@@ -2469,12 +2469,12 @@ translate_value(TranslationState *ts, Value *v)
 		// the predecessors.
 		return;
 	}
+	fprintf(stderr, "Translating: ");
+	print_value(stderr, v);
 	for_each_operand(v, translate_operand, tos);
 	Oper *ops = &tos->opers[0];
 	//Oper res = ts->index++;
 	Oper res = v->index;
-	fprintf(stderr, "Translating: ");
-	print_value(stderr, v);
 	switch (v->kind) {
 	case VK_NOP:
 	case VK_UNDEFINED:
