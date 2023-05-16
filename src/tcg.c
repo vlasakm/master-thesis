@@ -2769,7 +2769,7 @@ reg_alloc_state_init(RegAllocState *ras, Arena *arena)
 {
 	*ras = (RegAllocState) {
 		.arena = arena,
-		.reg_avail = 6,
+		.reg_avail = 14,
 	};
 }
 
