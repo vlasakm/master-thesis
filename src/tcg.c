@@ -2928,8 +2928,12 @@ ig_add(InterferenceGraph *ig, Oper op1, Oper op2)
 	assert(ig->matrix[op2 * ig->n + op1] == 0);
 	ig->matrix[op1 * ig->n + op2] = 1;
 	ig->matrix[op2 * ig->n + op1] = 1;
-	garena_push_value(&ig->adj_list[op1], Oper, op2);
-	garena_push_value(&ig->adj_list[op2], Oper, op1);
+	if (op1 >= R__MAX) {
+		garena_push_value(&ig->adj_list[op1], Oper, op2);
+	}
+	if (op2 >= R__MAX) {
+		garena_push_value(&ig->adj_list[op2], Oper, op1);
+	}
 	// TODO: Restructure Interefrence graph and Register allocation state.
 	RegAllocState *ras = container_of(ig, RegAllocState, ig);
 	ras->degree[op1]++;
@@ -4122,6 +4126,7 @@ is_move_related(RegAllocState *ras, Oper i)
 void
 for_each_adjacent(RegAllocState *ras, Oper op, void (*fun)(RegAllocState *ras, Oper neighbour))
 {
+	assert(op >= R__MAX);
 	GArena *gadj_list = &ras->ig.adj_list[op];
 	Oper *adj_list = garena_array(gadj_list, Oper);
 	size_t adj_cnt = garena_cnt(gadj_list, Oper);
@@ -4366,6 +4371,7 @@ size_t
 significant_neighbour_cnt(RegAllocState *ras, Oper op)
 {
 	size_t n = 0;
+	assert(op >= R__MAX);
 	GArena *gadj_list = &ras->ig.adj_list[op];
 	Oper *adj_list = garena_array(gadj_list, Oper);
 	size_t adj_cnt = garena_cnt(gadj_list, Oper);
@@ -4388,6 +4394,7 @@ ok(RegAllocState *ras, Oper t, Oper r)
 bool
 precolored_coalesce_heuristic(RegAllocState *ras, Oper u, Oper v)
 {
+	assert(v >= R__MAX);
 	GArena *gadj_list = &ras->ig.adj_list[v];
 	Oper *adj_list = garena_array(gadj_list, Oper);
 	size_t adj_cnt = garena_cnt(gadj_list, Oper);
@@ -4431,7 +4438,6 @@ combine(RegAllocState *ras, Oper u, Oper v)
 
 	assert(v >= R__MAX);
 	if (!wl_remove(&ras->freeze_wl, v)) {
-		// TODO: assert this? What about precolored?
 		assert(wl_remove(&ras->spill_wl, v));
 	}
 
@@ -4536,6 +4542,7 @@ assign_registers(RegAllocState *ras)
 
 	Oper i;
 	while (wl_take_back(&ras->stack, &i)) {
+		assert(i >= R__MAX);
 		fprintf(stderr, "Popping ");
 		print_reg(stderr, i);
 		fprintf(stderr, "\n");
