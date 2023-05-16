@@ -1990,7 +1990,7 @@ print_mem(FILE *f, MFunction *mfunction, Inst *inst)
 {
 	fprintf(f, "[");
 	if (IBASE(inst) == R_NONE) {
-		Value *value = garena_array(mfunction->labels, Value *)[IDISP(inst)];
+		Value *value = garena_array(mfunction->labels, Value *)[ILABEL(inst)];
 		print_value(f, value);
 	} else {
 		print_reg(f, IBASE(inst));
@@ -2092,7 +2092,7 @@ print_inst(FILE *f, MFunction *mfunction, Inst *inst)
 		break;
 	case M_LCALL: {
 		fprintf(f, " ");
-		Value *value = garena_array(mfunction->labels, Value *)[IDISP(inst)];
+		Value *value = garena_array(mfunction->labels, Value *)[ILABEL(inst)];
 		print_value(f, value);
 		break;
 	}
