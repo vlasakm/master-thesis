@@ -2375,7 +2375,7 @@ translate_call(TranslationState *ts, Oper res, Oper fun, Oper *args, size_t arg_
 {
 	assert(arg_cnt < ARRAY_LEN(argument_regs) - 1);
 	for (size_t i = 0; i < arg_cnt; i++) {
-		add_copy(ts, argument_regs[i], args[0]);
+		add_copy(ts, argument_regs[i], args[i]);
 	}
 	add_call(ts, fun, arg_cnt);
 	add_copy(ts, res, R_RAX);
