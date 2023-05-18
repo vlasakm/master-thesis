@@ -4587,6 +4587,11 @@ coalesce_move(RegAllocState *ras, Oper m)
 bool
 assign_registers(RegAllocState *ras)
 {
+	assert(wl_empty(&ras->simplify_wl));
+	assert(wl_empty(&ras->spill_wl));
+	assert(wl_empty(&ras->freeze_wl));
+	assert(wl_empty(&ras->moves_wl));
+
 	bool have_spill = false;
 	MFunction *mfunction = ras->mfunction;
 
@@ -4689,11 +4694,6 @@ reg_alloc_function(RegAllocState *ras, MFunction *mfunction)
 			choose_and_spill_one(ras);
 			goto simplify;
 		}
-
-		assert(wl_empty(&ras->simplify_wl));
-		assert(wl_empty(&ras->spill_wl));
-		assert(wl_empty(&ras->freeze_wl));
-		assert(wl_empty(&ras->moves_wl));
 
 		if (assign_registers(ras)) {
 			break;
