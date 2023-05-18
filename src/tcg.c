@@ -2682,7 +2682,6 @@ translate_value(TranslationState *ts, Value *v)
 	}
 	case VK_BRANCH:
 		add_cmp(ts, G1_TEST, ops[0], ops[0]);
-		add_copy(ts, ts->index++, ts->index++);
 		add_jcc(ts, CC_Z, ops[2]);
 		add_jmp(ts, ops[1]);
 		break;
