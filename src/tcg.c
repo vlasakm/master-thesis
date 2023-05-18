@@ -4378,7 +4378,12 @@ choose_and_spill_one(RegAllocState *ras)
 	FOR_EACH_WL_INDEX(spill_wl, j) {
 		Oper i = spill_wl->dense[j];
 		double curr = spill_metric(ras, i);
-		if (curr > max) {
+		// Prefer for spill either more beneficial candidates (with
+		// bigger metric) or "earlier" vregs ("smaller index"). This
+		// comes in handy for spilling callee saved registers, where we
+		// want to spill `rbx` first, since encoding it is (sometimes)
+		// shorter.
+		if (curr > max || (curr == max && i < candidate)) {
 			max = curr;
 			candidate = i;
 		}
