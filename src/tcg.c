@@ -4801,7 +4801,7 @@ peephole(MFunction *mfunction, Arena *arena)
 			// mov t20, 0 (and flags not observed)
 			// =>
 			// xor t20, t20 (sets flags, but noone will read them)
-			if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_CI && IIMM(inst) == 0 && !IOF(inst)) {
+			if (false && IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_CI && IIMM(inst) == 0 && !IOF(inst)) {
 				// the second occurence doesn't count as use
 				IK(inst) = IK_BINALU;
 				IS(inst) = G1_XOR;
