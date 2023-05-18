@@ -5415,6 +5415,7 @@ main(int argc, char **argv)
 		print_mfunction(stderr, functions[i]->mfunc);
 		reg_alloc_function(&ras, functions[i]->mfunc);
 		print_mfunction(stderr, functions[i]->mfunc);
+		calculate_def_use_counts(functions[i]->mfunc);
 		peephole(functions[i]->mfunc, arena);
 		print_mfunction(stderr, functions[i]->mfunc);
 		//*/
