@@ -4907,7 +4907,7 @@ peephole(MFunction *mfunction, Arena *arena)
 			// lea t25, [rbp-24]
 			// mov t26, [t25]
 			// =>
-			// mov t26, [global0]
+			// mov t26, [rbp-24]
 			if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_CM && IINDEX(inst) == R_NONE && ISCALE(inst) == 0 && IDISP(inst) == 0 && IK(prev) == IK_MOV && IS(prev) == LEA && IM(prev) == M_CM && IBASE(inst) == IREG(prev) && use_cnt[IREG(prev)] == 1) {
 				def_cnt[IREG(prev)]--;
 				use_cnt[IREG(prev)]--;
