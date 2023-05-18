@@ -4707,22 +4707,43 @@ void
 decrement_count(void *user_data, Oper *oper)
 {
 	u8 *count = user_data;
-	count[*oper]++;
+	count[*oper]--;
+}
+
+typedef struct {
+	Inst *inst;
+	Inst **only_def;
+	u8 *def_cnt;
+} LastDefState;
+
+void
+track_last_def(void *user_data, Oper *oper)
+{
+	LastDefState *lds = user_data;
+	// It is important that we set this to NULL if any second definition
+	// exists, otherwise decrements of the def count might make it seem
+	// like there was only one definition.
+	lds->only_def[*oper] = lds->def_cnt[*oper] == 1 ? lds->inst : NULL;
 }
 
 void
-calculate_def_use_counts(MFunction *mfunction)
+calculate_def_use_info(MFunction *mfunction)
 {
 	GROW_ARRAY(mfunction->def_count, mfunction->vreg_cnt);
 	GROW_ARRAY(mfunction->use_count, mfunction->vreg_cnt);
+	GROW_ARRAY(mfunction->only_def, mfunction->vreg_cnt);
 	ZERO_ARRAY(mfunction->def_count, mfunction->vreg_cnt);
 	ZERO_ARRAY(mfunction->use_count, mfunction->vreg_cnt);
+	ZERO_ARRAY(mfunction->only_def, mfunction->vreg_cnt);
+	LastDefState lds = { .only_def = mfunction->only_def, .def_cnt = mfunction->def_count };
 	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
 		MBlock *mblock = mfunction->mblocks[b];
 		bool flags_needed = false;
 		for (Inst *inst = mblock->insts.prev; inst != &mblock->insts; inst = inst->prev) {
+			lds.inst = inst;
 			for_each_def(inst, increment_count, mfunction->def_count);
-			for_each_use(inst, decrement_count, mfunction->use_count);
+			for_each_def(inst, track_last_def, &lds);
+			for_each_use(inst, increment_count, mfunction->use_count);
 			inst->flags_observed = flags_needed;
 			if (inst->writes_flags) {
 				flags_needed = false;
@@ -4739,6 +4760,7 @@ mfunction_free(MFunction *mfunction)
 {
 	FREE_ARRAY(mfunction->def_count, mfunction->vreg_cnt);
 	FREE_ARRAY(mfunction->use_count, mfunction->vreg_cnt);
+	FREE_ARRAY(mfunction->only_def, mfunction->vreg_cnt);
 }
 
 void
@@ -5304,13 +5326,13 @@ main(int argc, char **argv)
 		print_function(stderr, functions[i]);
 		///*
 		translate_function(arena, &labels, functions[i]);
-		calculate_def_use_counts(functions[i]->mfunc);
+		calculate_def_use_info(functions[i]->mfunc);
 		print_mfunction(stderr, functions[i]->mfunc);
 		peephole(functions[i]->mfunc, arena);
 		print_mfunction(stderr, functions[i]->mfunc);
 		reg_alloc_function(&ras, functions[i]->mfunc);
 		print_mfunction(stderr, functions[i]->mfunc);
-		calculate_def_use_counts(functions[i]->mfunc);
+		calculate_def_use_info(functions[i]->mfunc);
 		peephole(functions[i]->mfunc, arena);
 		print_mfunction(stderr, functions[i]->mfunc);
 		//*/
