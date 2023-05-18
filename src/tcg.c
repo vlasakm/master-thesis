@@ -4843,13 +4843,6 @@ peephole(MFunction *mfunction, Arena *arena)
 				continue;
 			}
 
-			// mov rcx, 5 ; R
-			// test rcx, rcx ; WO
-			// setg cl ; R
-			// test rcx, rcx ; WO
-			//if (IK(inst) == IK_BINALU && IS(inst) == G1_TEST && IM(inst) == M_rr && ) {
-			//}
-
 			//     jmp .BB5
 			// .BB5:
 			// =>
@@ -4888,12 +4881,6 @@ peephole(MFunction *mfunction, Arena *arena)
 			skip:;
 			}
 
-			// mov t14, 15
-			// mov t13, 3
-			// add t13, t14
-			//=>
-			// mov t13, 18
-
 			// mov t12, 8
 			// add t11, t12
 			// =>
@@ -4914,8 +4901,6 @@ peephole(MFunction *mfunction, Arena *arena)
 
 			// Produces longer instruction stream, but deletes one
 			// definition, so it may unlock other optimizations.
-			// mov rax, 5
-			// mov rcx, rax
 			// mov t18, 3
 			// mov t19, t18
 			// =>
@@ -5115,13 +5100,6 @@ peephole(MFunction *mfunction, Arena *arena)
 				continue;
 			}
 
-
-			// mov t20, t19
-			// add t20, X
-			// =>
-			// coalesce if possible
-			// HOW? Integrate with register coalescing?
-
 			//     jge .BB3
 			//     jmp .BB4
 			// .BB3:
@@ -5156,7 +5134,6 @@ peephole(MFunction *mfunction, Arena *arena)
 				continue;
 			}
 
-
 			// setg t28
 			// test t28, t28
 			// jz .BB3
@@ -5180,49 +5157,6 @@ peephole(MFunction *mfunction, Arena *arena)
 				continue;
 			}
 
-			// mov t18, 4
-			// mov t12, t18
-			// add t12, t11
-			// =>
-			// mov t12, t11
-			// add t12, 4
-			if (IK(inst) == IK_BINALU && g1_is_commutative(IS(inst)) && IM(inst) == M_Rr && IK(prev) == IK_MOV && IS(prev) == MOV && IM(prev) == M_Cr && IK(pprev) == IK_MOV && IS(pprev) == MOV && IM(pprev) == M_CI && IREG2(prev) == IREG(pprev) && IREG(inst) == IREG(prev)) {
-				IREG2(prev) = IREG2(inst);
-				IM(inst) = M_RI;
-				IIMM(inst) = IIMM(pprev);
-				pprev->prev->next = prev;
-				prev->prev = pprev->prev;
-				inst = prev;
-				continue;
-			}
-
-			Inst *ppprev = pprev->prev;
-			if (!ppprev) {
-				goto next;
-			}
-
-			Inst *pppprev = ppprev->prev;
-			if (!pppprev) {
-				goto next;
-			}
-
-			// mov rcx, 0
-			// cmp rax, rdx
-			// setg cl
-			// test rcx, rcx
-			// jz .BB2
-			// =>
-			// cmp rax, rdx
-			// jng .BB2
-			if (IK(inst) == IK_JCC && IS(inst) == CC_Z && IK(prev) == IK_BINALU && IS(prev) == G1_TEST && IM(prev) == M_rr && IREG(prev) == IREG2(prev) && IK(pprev) == IK_SETCC && IREG(prev) == IREG(pprev) && IK(ppprev) == IK_BINALU && IS(ppprev) == G1_CMP && IK(pppprev) == IK_MOV && IS(pppprev) == MOV && IM(pppprev) == M_CI && IIMM(pppprev) == 0) {
-				//IS(inst) = cc_invert(IS(pprev));
-				//pppprev->prev->next = ppprev;
-				//ppprev->prev = pppprev->prev;
-				//inst->prev = ppprev;
-				//ppprev->next = inst;
-				//inst = ppprev;
-				//continue;
-			}
 		next:
 			inst = inst->next;
 		}
