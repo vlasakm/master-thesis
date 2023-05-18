@@ -276,7 +276,8 @@ typedef enum {
 	IK_LEAVE,
 	IK_PUSH,
 	IK_POP,
-	//IK_INCDEC, // INC, DEC
+	IK_INCDEC, // INC, DEC
+	IK_ENTRY,
 	IK__MAX,
 } InstKind;
 
@@ -300,6 +301,7 @@ static const char *ik_repr[] = {
 	"push",
 	"pop",
 	"",
+	"; entry",
 };
 
 static const char *no_repr[] = {
@@ -330,6 +332,8 @@ static const char **is_repr[] = {
 	cc_repr,
 	cc_repr,
 	g3_repr,
+	no_repr,
+	no_repr,
 	no_repr,
 	no_repr,
 	no_repr,
@@ -373,6 +377,7 @@ typedef enum {
 	M_rCALL,
 	M_MCALL,
 	M_RET,
+	M_ENTRY,
 	M_ADr,
 	M_ADM,
 } X86Mode;
@@ -383,6 +388,7 @@ typedef struct {
 	u8 use_start;
 	u8 use_end;
 	bool use_cnt_given_by_arg_cnt;
+	bool def_cnt_given_by_arg_cnt;
 	Oper *extra_defs;
 	Oper *extra_uses;
 } InsFormat;
@@ -399,33 +405,34 @@ static Oper argument_regs[] = { R_RDI, R_RSI, R_RDX, R_RCX, R_8, R_9, R_NONE };
 
 
 InsFormat formats[] = {
-	[M_Rr]    = { 0, 1, 0, 2,  0, none, none },
-	[M_rr]    = { 0, 0, 0, 2,  0, none, none },
-	[M_Cr]    = { 0, 1, 1, 2,  0, none, none },
-	[M_Cn]    = { 0, 2, 0, 0,  0, none, none },
-	[M_RM]    = { 0, 1, 0, 3,  0, none, none },
-	[M_rM]    = { 0, 0, 0, 3,  0, none, none },
-	[M_CM]    = { 0, 1, 1, 3,  0, none, none },
-	[M_Mr]    = { 0, 0, 0, 3,  0, none, none },
-	[M_RI]    = { 0, 1, 0, 1,  0, none, none },
-	[M_rI]    = { 0, 0, 0, 1,  0, none, none },
-	[M_CI]    = { 0, 1, 0, 0,  0, none, none },
-	[M_MI]    = { 0, 0, 1, 3,  0, none, none },
-	[M_CrI]   = { 0, 1, 1, 2,  0, none, none },
-	[M_CMI]   = { 0, 1, 1, 3,  0, none, none },
-	[M_R]     = { 0, 1, 0, 1,  0, none, none },
-	[M_r]     = { 0, 0, 0, 1,  0, none, none },
-	[M_C]     = { 0, 1, 0, 0,  0, none, none },
-	[M_M]     = { 0, 0, 1, 3,  0, none, none },
-	[M_I]     = { 0, 0, 0, 0,  0, none, none },
-	[M_L]     = { 0, 0, 0, 0,  0, none, none },
-	[M_NONE]  = { 0, 0, 0, 0,  0, none, none },
-	[M_LCALL] = { 0, 0, 0, 0,  1, caller_saved, argument_regs },
-	[M_rCALL] = { 0, 0, 0, 1,  1, caller_saved, argument_regs },
-	[M_MCALL] = { 0, 0, 1, 3,  1, caller_saved, argument_regs },
-	[M_RET]   = { 0, 0, 0, 1,  0, none, callee_saved }, // hack for use of R_RAX (and potentially R_RDX)
-	[M_ADr]   = { 0, 0, 0, 1,  0, rax_rdx, rax_rdx },
-	[M_ADM]   = { 0, 0, 1, 3,  0, rax_rdx, rax_rdx },
+	[M_Rr]    = { 0, 1, 0, 2,  0, 0, none, none },
+	[M_rr]    = { 0, 0, 0, 2,  0, 0, none, none },
+	[M_Cr]    = { 0, 1, 1, 2,  0, 0, none, none },
+	[M_Cn]    = { 0, 2, 0, 0,  0, 0, none, none },
+	[M_RM]    = { 0, 1, 0, 3,  0, 0, none, none },
+	[M_rM]    = { 0, 0, 0, 3,  0, 0, none, none },
+	[M_CM]    = { 0, 1, 1, 3,  0, 0, none, none },
+	[M_Mr]    = { 0, 0, 0, 3,  0, 0, none, none },
+	[M_RI]    = { 0, 1, 0, 1,  0, 0, none, none },
+	[M_rI]    = { 0, 0, 0, 1,  0, 0, none, none },
+	[M_CI]    = { 0, 1, 0, 0,  0, 0, none, none },
+	[M_MI]    = { 0, 0, 1, 3,  0, 0, none, none },
+	[M_CrI]   = { 0, 1, 1, 2,  0, 0, none, none },
+	[M_CMI]   = { 0, 1, 1, 3,  0, 0, none, none },
+	[M_R]     = { 0, 1, 0, 1,  0, 0, none, none },
+	[M_r]     = { 0, 0, 0, 1,  0, 0, none, none },
+	[M_C]     = { 0, 1, 0, 0,  0, 0, none, none },
+	[M_M]     = { 0, 0, 1, 3,  0, 0, none, none },
+	[M_I]     = { 0, 0, 0, 0,  0, 0, none, none },
+	[M_L]     = { 0, 0, 0, 0,  0, 0, none, none },
+	[M_NONE]  = { 0, 0, 0, 0,  0, 0, none, none },
+	[M_LCALL] = { 0, 0, 0, 0,  1, 0, caller_saved, argument_regs },
+	[M_rCALL] = { 0, 0, 0, 1,  1, 0, caller_saved, argument_regs },
+	[M_MCALL] = { 0, 0, 1, 3,  1, 0, caller_saved, argument_regs },
+	[M_RET]   = { 0, 0, 0, 1,  0, 0, none, callee_saved }, // hack for use of R_RAX (and potentially R_RDX)
+	[M_ENTRY] = { 0, 0, 0, 1,  0, 1, argument_regs, none },
+	[M_ADr]   = { 0, 0, 0, 1,  0, 0, rax_rdx, rax_rdx },
+	[M_ADM]   = { 0, 0, 1, 3,  0, 0, rax_rdx, rax_rdx },
 };
 
 struct MBlock {

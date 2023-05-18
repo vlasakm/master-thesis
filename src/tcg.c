@@ -2371,6 +2371,14 @@ add_call(TranslationState *ts, Oper function_label, Oper arg_cnt)
 }
 
 static void
+add_entry(TranslationState *ts, Oper arg_cnt)
+{
+	Inst *inst = add_inst(ts, IK_ENTRY, 0);
+	inst->mode = M_ENTRY;
+	IARG_CNT(inst) = arg_cnt;
+}
+
+static void
 translate_call(TranslationState *ts, Oper res, Oper fun, Oper *args, size_t arg_cnt)
 {
 	assert(arg_cnt < ARRAY_LEN(argument_regs) - 1);
@@ -3007,8 +3015,15 @@ for_each_def(Inst *inst, void (*fun)(void *user_data, Oper *def), void *user_dat
 	for (size_t i = mode->def_start; i < mode->def_end; i++) {
 		fun(user_data, &inst->ops[i]);
 	}
-	for (Oper *def = mode->extra_defs; *def != R_NONE; def++) {
-		fun(user_data, def);
+	if (mode->def_cnt_given_by_arg_cnt) {
+		size_t def_cnt = IARG_CNT(inst);
+		for (size_t i = 0; i < def_cnt; i++) {
+			fun(user_data, &mode->extra_defs[i]);
+		}
+	} else {
+		for (Oper *def = mode->extra_defs; *def != R_NONE; def++) {
+			fun(user_data, def);
+		}
 	}
 }
 
@@ -4048,6 +4063,7 @@ translate_function(Arena *arena, GArena *labels, Function *function)
 		block->mblock = mblock;
 		ts->block = mblock;
 		if (block == function->entry) {
+			add_entry(ts, type_function_param_cnt(function->base.type));
 			add_push(ts, R_RBP);
 			add_copy(ts, R_RBP, R_RSP);
 			// Add instruction to make stack space, since we may
@@ -4770,7 +4786,7 @@ try_replace_by_immediate(MFunction *mfunction, Inst *inst, Oper o)
 	if (!def) {
 		return false;
 	}
-	assert(o < R__MAX || mfunction->def_count[o] == 1);
+	assert(mfunction->def_count[o] == 1);
 	if (!(IK(def) == IK_MOV && IS(def) == MOV && IM(def) == M_CI)) {
 		return false;
 	}
