@@ -2698,19 +2698,6 @@ translate_value(TranslationState *ts, Value *v)
 	}
 }
 
-void
-number_operand(void *user_data, size_t i, Value *operand)
-{
-	size_t *idx = user_data;
-	switch (operand->kind) {
-	case VK_CONSTANT:
-		operand->index = (*idx)++;
-		break;
-	default:;
-	}
-}
-
-
 typedef struct RegAllocState RegAllocState;
 
 typedef struct {
@@ -3296,7 +3283,6 @@ number_values(Function *function, size_t start_index)
 	for (size_t b = function->block_cnt; b--;) {
 		Block *block = function->post_order[b];
 		for (Value *v = block->base.next; v != &block->base; v = v->next) {
-			//for_each_operand(v, number_operand, &i);
 			v->index = i++;
 		}
 	}
@@ -5193,12 +5179,6 @@ peephole(MFunction *mfunction, Arena *arena)
 				}
 				continue;
 			}
-
-			// mov t21, [rbp-24]
-			// mov t22, t21
-			// add t22, 1
-			// mov [rbp-24], t22
-
 
 			// mov t18, 4
 			// mov t12, t18
