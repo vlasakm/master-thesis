@@ -5078,7 +5078,13 @@ peephole(MFunction *mfunction, Arena *arena)
 			// =>
 			// mov t23, ...
 			// add t23, [H]
-			if (IK(inst) == IK_BINALU && IM(inst) == M_Rr && IK(prev) == IK_MOV && IS(prev) == MOV && (IM(pprev) == M_CI || IM(pprev) == M_Cr || IM(pprev) == M_CM) && IREG(prev) == IREG(inst) && IREG(pprev) == IREG2(inst) && use_cnt[IREG(pprev)] == 1) {
+			if (IK(inst) == IK_BINALU && IM(inst) == M_Rr && IK(prev) == IK_MOV && IS(prev) == MOV && (IM(pprev) == M_CI || IM(pprev) == M_Cr || IM(pprev) == M_CM) && IREG(prev) == IREG(inst) && IREG(pprev) == IREG2(inst) && use_cnt[IREG(pprev)] == 1 && def_cnt[IREG(inst)] == 2) {
+				// We made sure that def_cnt of t23 is 2, which
+				// is the two definitions we see in this
+				// peephole. This should guarantee us, that t23
+				// isn't in any way connected to definition of
+				// of [H] (because then there would be an
+				// additional definition).
 				def_cnt[IREG(pprev)]--;
 				use_cnt[IREG(pprev)]--;
 				IK(pprev) = IK(inst);
