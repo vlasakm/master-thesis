@@ -4763,11 +4763,67 @@ mfunction_free(MFunction *mfunction)
 	FREE_ARRAY(mfunction->only_def, mfunction->vreg_cnt);
 }
 
+bool
+try_replace_by_immediate(MFunction *mfunction, Inst *inst, Oper o)
+{
+	Inst *def = mfunction->only_def[o];
+	if (!def) {
+		return false;
+	}
+	assert(o < R__MAX || mfunction->def_count[o] == 1);
+	if (!(IK(def) == IK_MOV && IS(def) == MOV && IM(def) == M_CI)) {
+		return false;
+	}
+	IIMM(inst) = IIMM(def);
+	if (--mfunction->use_count[IREG(def)] == 0) {
+		assert(--mfunction->def_count[IREG(def)] == 0);
+		def->prev->next = def->next;
+		def->next->prev = def->prev;
+	}
+	return true;
+}
+
+bool
+try_combine_memory(MFunction *mfunction, Inst *inst)
+{
+	Inst *def = mfunction->only_def[IBASE(inst)];
+	if (!def) {
+		return false;
+	}
+	assert(mfunction->def_count[IBASE(inst)] == 1);
+	if (!(IK(def) == IK_MOV && IS(def) == LEA)) {
+		return false;
+	}
+	i64 disp = IDISP(inst) + IDISP(def);
+	if (disp > INT32_MAX || disp < INT32_MIN) {
+		return false;
+	}
+	if (IINDEX(inst) || IINDEX(def)) {
+                // We could try harder to support some combinations, but we
+                // currently don't. E.g. if only has one index or both have same
+                // index and both scales are 1 (making the combined scale 2),
+                // etc.
+                return false;
+	}
+	assert(ISCALE(inst) == 0 && ISCALE(def) == 0);
+	IBASE(inst) = IBASE(def);
+	ISCALE(inst) = 0;
+	IINDEX(inst) = IINDEX(def);
+	IDISP(inst) = disp;
+	if (--mfunction->use_count[IREG(def)] == 0) {
+		assert(--mfunction->def_count[IREG(def)] == 0);
+		def->prev->next = def->next;
+		def->next->prev = def->prev;
+	}
+	return true;
+}
+
 void
 peephole(MFunction *mfunction, Arena *arena)
 {
 	u8 *use_cnt = mfunction->use_count;
 	u8 *def_cnt = mfunction->def_count;
+	//Inst **def = mfunction->only_def;
 	print_str(stderr, mfunction->func->name);
 	fprintf(stderr, "\n");
 	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
@@ -5158,6 +5214,58 @@ peephole(MFunction *mfunction, Arena *arena)
 				while (IRF(inst) || IOF(inst)) {
 					inst = inst->prev;
 				}
+				continue;
+			}
+
+			// ... t32, CONST
+			// ...
+			// mov t14, t32
+			// =>
+			//|... t32, ...|
+			// mov t14, CONST
+			if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_Cr && try_replace_by_immediate(mfunction, inst, IREG2(inst))) {
+				IM(inst) = M_CI;
+				continue;
+			}
+
+			// ... t32, CONST
+			// ...
+			// add t14, t32
+			// =>
+			//|... t32, ...|
+			// add t14, CONST
+			if (IK(inst) == IK_BINALU && (IM(inst) == M_Rr || IM(inst) == M_rr) && try_replace_by_immediate(mfunction, inst, IREG2(inst))) {
+				assert(IM(inst) == M_rr || inst->writes_flags);
+				IM(inst) = IM(inst) == M_Rr ? M_RI : M_rI;
+				continue;
+			}
+
+			// ... t32, CONST
+			// ...
+			// mov [t14], t32
+			// =>
+			//|... t32, ...|
+			// mov [t14], CONST
+			if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_Mr && try_replace_by_immediate(mfunction, inst, IREG2(inst))) {
+				IM(inst) = M_MI;
+				continue;
+			}
+
+			// lea t25, [rbp-24]
+			// ...
+			// mov t26, [t25]
+			// =>
+			// mov t26, [rbp-24]
+			if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_CM && try_combine_memory(mfunction, inst)) {
+				continue;
+			}
+
+			// lea t25, [rbp-24]
+			// ...
+			// mov [t25], t24
+			// =>
+			// mov [rbp-24], t24
+			if (IK(inst) == IK_MOV && IS(inst) == MOV && (IM(inst) == M_Mr || IM(inst) == M_MI) && try_combine_memory(mfunction, inst)) {
 				continue;
 			}
 
