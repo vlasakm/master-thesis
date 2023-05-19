@@ -13,6 +13,7 @@
 #include <errno.h>
 
 #include "utils.h"
+#include "str.h"
 #include "arena.h"
 #include "worklist.h"
 
@@ -32,28 +33,6 @@ unreachable(char *file, size_t line)
 {
 	fprintf(stderr, "ERROR: unreachable code reached at %s:%zu\n", file, line);
 	exit(EXIT_FAILURE);
-}
-
-typedef struct {
-	const u8 *str;
-	size_t len;
-} Str;
-#define STR(lit) (Str) { .str = (const u8 *) lit, .len = sizeof(lit) - 1 }
-
-bool str_eq(Str a, Str b)
-{
-	return a.len == b.len && memcmp(a.str, b.str, a.len) == 0;
-}
-
-int str_cmp(Str a, Str b)
-{
-	int cmp = memcmp(a.str, b.str, a.len < b.len ? a.len : b.len);
-	return cmp == 0 ? (a.len > b.len) - (b.len > a.len) : cmp;
-}
-
-void print_str(FILE *f, Str s)
-{
-	fwrite(s.str, 1, s.len, f);
 }
 
 Str
@@ -510,21 +489,6 @@ block_succs(Block *block)
 
 // A simple hash table.
 // Inspired by: http://www.craftinginterpreters.com/hash-tables.html
-
-
-// FNV-1a hash
-// http://www.isthe.com/chongo/tech/comp/fnv/
-u64
-str_hash(Str id)
-{
-	u64 h = UINT64_C(14695981039346656037);
-	for (size_t i = 0; i < id.len; i++) {
-		// beware of unwanted sign extension!
-		h ^= id.str[i];
-		h *= UINT64_C(1099511628211);
-	}
-	return h;
-}
 
 typedef struct {
 	Str key;

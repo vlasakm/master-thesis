@@ -32,6 +32,7 @@ exe = executable('tcg',
 	sources: files(
 		'src/arena.c',
 		'src/worklist.c',
+		'src/str.c',
 		'src/tcg.c',
 	),
 	include_directories: include_directories(
