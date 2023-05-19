@@ -1983,12 +1983,6 @@ static void print_value(FILE *f, Value *v);
 static void
 dfs(Block *block, size_t *index, Block **post_order)
 {
-	//fprintf(stderr, "DFS at\n");
-	////print_function(stderr, (Function *) block->base.parent);
-	//for (Value *v = block->base.next; v != &block->base; v = v->next) {
-	//	fprintf(stderr, "\tv%zu = ", v->index);
-	//	print_value(stderr, v);
-	//}
 	assert(block->base.kind == VK_BLOCK);
 	if (block->base.visited > 0) {
 		return;
