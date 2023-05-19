@@ -2604,10 +2604,10 @@ translate_value(TranslationState *ts, Value *v)
 		translate_unop(ts, G3_NOT, res, ops[0]);
 		break;
 	case VK_EQ:
-		translate_cmpop(ts, CC_Z, res, ops[0], ops[1]);
+		translate_cmpop(ts, CC_E, res, ops[0], ops[1]);
 		break;
 	case VK_NEQ:
-		translate_cmpop(ts, CC_NZ, res, ops[0], ops[1]);
+		translate_cmpop(ts, CC_NE, res, ops[0], ops[1]);
 		break;
 	case VK_LT:
 		translate_cmpop(ts, CC_L, res, ops[0], ops[1]);
