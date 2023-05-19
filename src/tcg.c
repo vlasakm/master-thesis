@@ -5210,6 +5210,19 @@ peephole(MFunction *mfunction, Arena *arena)
 				continue;
 			}
 
+
+			// imul t36, t44 ; W
+			// test t36, t36 ; WO
+			// =>
+			// imul t36, t44 ; WO
+			if (IK(inst) == IK_BINALU && (IS(inst) == G1_CMP || IS(inst) == G1_TEST) && IM(inst) == M_rr && IREG(inst) == IREG2(inst) && IWF(prev) && ((IK(prev) == IK_BINALU && (IM(prev) == M_Rr || IM(prev) == M_RI || IM(prev) == M_RM)) || (IK(prev) == IK_UNALU && IM(prev) == M_R)) && IREG(prev) == IREG(inst)) {
+				IOF(prev) = true;
+				prev->next = inst->next;
+				inst->next->prev = prev;
+				inst = prev;
+				continue;
+			}
+
 			// setg t28
 			// test t28, t28
 			// jz .BB3
