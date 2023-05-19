@@ -48,3 +48,6 @@ typedef i32 Oper;
 #endif
 
 #define USE_VALGRIND
+
+#define UNREACHABLE() unreachable(__FILE__, __LINE__)
+_Noreturn void unreachable(char *file, size_t line);

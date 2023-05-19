@@ -28,14 +28,6 @@ typedef int16_t i16;
 typedef int32_t i32;
 typedef int64_t i64;
 
-#define UNREACHABLE() unreachable(__FILE__, __LINE__)
-_Noreturn void
-unreachable(char *file, size_t line)
-{
-	fprintf(stderr, "ERROR: unreachable code reached at %s:%zu\n", file, line);
-	exit(EXIT_FAILURE);
-}
-
 Str
 arena_vaprintf(Arena *arena, const char *fmt, va_list ap)
 {
