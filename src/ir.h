@@ -1,5 +1,10 @@
 #pragma once
 
+typedef struct Function Function;
+typedef struct MFunction MFunction;
+typedef struct Block Block;
+typedef struct MBlock MBlock;
+
 #include "utils.h"
 #include "arena.h"
 #include "str.h"
@@ -112,9 +117,15 @@ void for_each_operand(Value *value, void (*fun)(void *user_data, size_t i, Value
 
 void print_value(FILE *f, Value *v);
 
+void prepend_value(Value *pos, Value *new);
 
-typedef struct Block Block;
-typedef struct MBlock MBlock;
+void remove_value(Value *v);
+
+Operation *create_operation(Arena *arena, Block *block, ValueKind kind, Type *type, size_t operand_cnt);
+
+
+Value *create_unary(Arena *arena, Block *block, ValueKind kind, Type *type, Value *arg);
+
 
 struct Block {
 	Value base;
@@ -128,13 +139,16 @@ struct Block {
 	GArena incomplete_phis;
 };
 
-size_t block_pred_cnt(Block *block);
+Block *create_block(Arena *arena, Function *function);
 
 Block ** block_preds(Block *block);
-
-size_t block_succ_cnt(Block *block);
+size_t block_pred_cnt(Block *block);
 
 Block ** block_succs(Block *block);
+size_t block_succ_cnt(Block *block);
+
+void block_add_pred(Block *block, Block *pred);
+void block_add_pred_to_succs(Block *block);
 
 #define FOR_EACH_BLOCK_PRED(block, pred) \
 	for (Block **pred = block_preds(block), **last = pred + block_pred_cnt(block); pred != last; pred++)
@@ -149,9 +163,6 @@ Block ** block_succs(Block *block);
 
 
 
-typedef struct Function Function;
-typedef struct MFunction MFunction;
-
 struct Function {
 	Value base;
 	Str name;
@@ -165,6 +176,8 @@ struct Function {
 
 	GArena *uses; // array of Value * for each Value * (by its index)
 };
+
+void compute_preorder(Function *function);
 
 void print_function(FILE *f, Function *function);
 

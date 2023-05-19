@@ -37,6 +37,46 @@ value_is_terminator(Value *value)
 	}
 }
 
+Operation *
+create_operation(Arena *arena, Block *block, ValueKind kind, Type *type, size_t operand_cnt)
+{
+	Operation *op = arena_alloc(arena, sizeof(*op) + sizeof(op->operands[0]) * operand_cnt);
+	value_init(&op->base, kind, &TYPE_INT);
+	op->base.kind = kind;
+	op->base.type = type;
+	return op;
+}
+
+Value *
+create_unary(Arena *arena, Block *block, ValueKind kind, Type *type, Value *arg)
+{
+	Operation *op = create_operation(arena, block, kind, type, 1);
+	op->operands[0] = arg;
+	return &op->base;
+}
+
+
+Block *
+create_block(Arena *arena, Function *function)
+{
+	Block *block = arena_alloc(arena, sizeof(*block));
+	*block = (Block) {0};
+	value_init(&block->base, VK_BLOCK, type_pointer(arena, &TYPE_VOID));
+	block->base.next = &block->base;
+	block->base.prev = &block->base;
+	block->base.parent = &function->base;
+	block->preds_ = NULL;
+	block->pred_cnt_ = 0;
+	block->pred_cap_ = 0;
+	block->base.index = function->block_cap;
+	// Functions grow in powers of two.
+	if (!(function->block_cap & (function->block_cap - 1))) {
+		GROW_ARRAY(function->blocks, function->block_cap ? function->block_cap * 2 : 4);
+	}
+	function->blocks[function->block_cap++] = block;
+	return block;
+}
+
 size_t
 block_pred_cnt(Block *block)
 {
@@ -78,6 +118,26 @@ block_succs(Block *block)
 	default:
 		assert(block_succ_cnt(block) == 0);
 		return NULL;
+	}
+}
+
+void
+block_add_pred(Block *block, Block *pred)
+{
+	assert(VK(block) == VK_BLOCK);
+	assert(VK(pred) == VK_BLOCK);
+	if (block->pred_cnt_ == block->pred_cap_) {
+		block->pred_cap_ = block->pred_cap_ ? block->pred_cap_ * 2 : 4;
+		GROW_ARRAY(block->preds_, block->pred_cap_);
+	}
+	block->preds_[block->pred_cnt_++] = pred;
+}
+
+void
+block_add_pred_to_succs(Block *block)
+{
+	FOR_EACH_BLOCK_SUCC(block, succ) {
+		block_add_pred(*succ, block);
 	}
 }
 
@@ -164,6 +224,23 @@ number_values(Function *function, size_t start_index)
 	}
 	function->value_cnt = i;
 	return i;
+}
+
+void
+prepend_value(Value *pos, Value *new)
+{
+	Value *prev = pos->prev;
+	new->prev = prev;
+	new->next = pos;
+	prev->next = new;
+	pos->prev = new;
+}
+
+void
+remove_value(Value *v)
+{
+	v->prev->next = v->next;
+	v->next->prev = v->prev;
 }
 
 void
@@ -277,6 +354,34 @@ print_function(FILE *f, Function *function)
 		}
 	}
 	validate_function(function);
+}
+
+static void dfs(Block *block, size_t *index, Block **post_order);
+
+void
+compute_preorder(Function *function)
+{
+	GROW_ARRAY(function->post_order, function->block_cap);
+	function->block_cnt = 0;
+	dfs(function->entry, &function->block_cnt, function->post_order);
+	for (size_t b = function->block_cnt, i = 0; b--; i++) {
+		function->post_order[b]->base.visited = 0;
+	}
+}
+
+static void
+dfs(Block *block, size_t *index, Block **post_order)
+{
+	assert(block->base.kind == VK_BLOCK);
+	if (block->base.visited > 0) {
+		return;
+	}
+	block->base.visited = 1;
+	FOR_EACH_BLOCK_SUCC(block, succ) {
+		dfs(*succ, index, post_order);
+	}
+	block->base.visited = 2;
+	post_order[(*index)++] = block;
 }
 
 void

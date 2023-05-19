@@ -7,6 +7,7 @@
 #include <string.h>
 #include <assert.h>
 #include <stdbool.h>
+#include <stdarg.h>
 
 typedef uint8_t  u8;
 typedef uint16_t u16;
