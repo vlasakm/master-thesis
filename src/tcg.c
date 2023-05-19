@@ -2361,13 +2361,11 @@ add_jcc(TranslationState *ts, CondCode cc, Oper block_index)
 }
 
 static void
-add_call(TranslationState *ts, Oper function_label, Oper arg_cnt)
+add_call(TranslationState *ts, Oper function_reg, Oper arg_cnt)
 {
 	Inst *inst = add_inst(ts, IK_CALL, 0);
-	//inst->mode = M_rCALL;
-	inst->mode = M_LCALL;
-	//IREG(inst) = function_reg;
-	ILABEL(inst) = function_label;
+	inst->mode = M_rCALL;
+	IREG(inst) = function_reg;
 	IARG_CNT(inst) = arg_cnt;
 }
 
@@ -2494,9 +2492,8 @@ translate_operand(void *user_data, size_t i, Value **operand_)
 	case VK_FUNCTION: {
 		//Function *function = (void*) operand;
 		size_t label_index = add_label(ts->labels, operand);
-		///res = tos->ts->index++;
-		//add_lea(tos->ts, res, R_NONE, label_index);
-		res = label_index;
+		res = tos->ts->index++;
+		add_lea(tos->ts, res, R_NONE, label_index);
 		break;
 	}
 	case VK_GLOBAL: {
@@ -2646,9 +2643,7 @@ translate_value(TranslationState *ts, Value *v)
 	}
 	case VK_CALL: {
 		Operation *call = (void *) v;
-		// TODO: indirect calls
 		size_t arg_cnt = type_function_param_cnt(call->operands[0]->type);
-		//Function *function = (Function *) call->operands[0];
 		translate_call(ts, res, ops[0], &ops[1], arg_cnt);
 		break;
 	}
@@ -4838,6 +4833,25 @@ try_combine_memory(MFunction *mfunction, Inst *inst)
 	return true;
 }
 
+bool
+try_combine_label(MFunction *mfunction, Inst *inst)
+{
+	Inst *def = mfunction->only_def[IREG(inst)];
+	if (!def) {
+		return false;
+	}
+	assert(mfunction->def_count[IREG(inst)] == 1);
+	if (!(IK(def) == IK_MOV && IS(def) == LEA && IBASE(def) == R_NONE)) {
+		return false;
+	}
+	ILABEL(inst) = IDISP(def);
+	if (--mfunction->use_count[IREG(def)] == 0) {
+		def->prev->next = def->next;
+		def->next->prev = def->prev;
+	}
+	return true;
+}
+
 void
 peephole(MFunction *mfunction, Arena *arena)
 {
@@ -5312,6 +5326,15 @@ peephole(MFunction *mfunction, Arena *arena)
 			// =>
 			// mov [rbp-24], t24
 			if (IK(inst) == IK_MOV && IS(inst) == MOV && (IM(inst) == M_Mr || IM(inst) == M_MI) && try_combine_memory(mfunction, inst)) {
+				continue;
+			}
+
+			// lea rax, [one]
+			// call rax
+			//=>
+			// call one
+			if (IK(inst) == IK_CALL && IM(inst) == M_rCALL && try_combine_label(mfunction, inst)) {
+				IM(inst) = M_LCALL;
 				continue;
 			}
 
