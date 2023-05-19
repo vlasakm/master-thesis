@@ -38,6 +38,7 @@ exe = executable('tcg',
 		'src/type.c',
 		'src/ir.c',
 		'src/parser.c',
+		'src/x86-64.c',
 		'src/tcg.c',
 	),
 	include_directories: include_directories(
