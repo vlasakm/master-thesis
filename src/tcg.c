@@ -5024,17 +5024,6 @@ peephole(MFunction *mfunction, Arena *arena)
 			}
 
 
-			//     jmp .BB5
-			// .BB5:
-			// =>
-			// .BB5:
-			if (IK(inst) == IK_BLOCK && IK(prev) == IK_JUMP && IIMM(prev) == container_of(inst, MBlock, insts)->block->base.index) {
-				prev->prev->next = inst;
-				inst->prev = prev->prev;
-				inst = inst;
-				continue;
-			}
-
 			// mov rax, 1
 			// add rax, 2
 			// =>
@@ -5176,21 +5165,6 @@ peephole(MFunction *mfunction, Arena *arena)
 				continue;
 			}
 
-			//     jge .BB3
-			//     jmp .BB4
-			// .BB3:
-			// =>
-			//     jl .BB4
-			// .BB3:
-			if (IK(pprev) == IK_JCC && IK(prev) == IK_JUMP && IK(inst) == IK_BLOCK && container_of(inst, MBlock, insts)->block->base.index == IIMM(pprev)) {
-				IK(prev) = IK_JCC;
-				IS(prev) = cc_invert(IS(pprev));
-				pprev->prev->next = prev;
-				prev->prev = pprev->prev;
-				inst = prev;
-				continue;
-			}
-
 			// mov rax, [rbp-24]
 			// add rax, 1
 			// mov [rbp-24], rax
@@ -5300,6 +5274,38 @@ peephole(MFunction *mfunction, Arena *arena)
 
 		next:
 			inst = inst->next;
+		}
+
+		if (b == mfunction->mblock_cnt - 1) {
+			break;
+		}
+
+		Oper next_block_index = mfunction->mblocks[b + 1]->block->base.index;
+		Inst *last = mblock->insts.prev;
+		Inst *prev = last->prev;
+
+		//     jge .BB3
+		//     jmp .BB4
+		// .BB3:
+		// =>
+		//     jl .BB4
+		// .BB3:
+		if (IK(last) == IK_JUMP && IK(prev) == IK_JCC && ILABEL(prev) == next_block_index) {
+			IS(prev) = cc_invert(IS(prev));
+			ILABEL(prev) = ILABEL(last);
+			last->prev->next = last->next;
+			last->next->prev = last->prev;
+			continue;
+		}
+
+		//     jmp .BB5
+		// .BB5:
+		// =>
+		// .BB5:
+		if (IK(last) == IK_JUMP && ILABEL(last) == next_block_index) {
+			last->prev->next = last->next;
+			last->next->prev = last->prev;
+			continue;
 		}
 	}
 }
