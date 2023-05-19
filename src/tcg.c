@@ -5208,22 +5208,6 @@ peephole(MFunction *mfunction, Arena *arena)
 				continue;
 			}
 
-			// mov t26, t18
-			// add t26, t34 ; W
-			// mov t27, [t26]
-			// =>
-			// mov t27, [t18+t34]
-			if (mode_has_memory(IM(inst)) && IINDEX(inst) == R_NONE && ISCALE(inst) == 0 && IK(prev) == IK_BINALU && IS(prev) == G1_ADD && IM(prev) == M_Rr && IREG(prev) == IBASE(inst) && IK(pprev) == IK_MOV && IS(pprev) == MOV && IM(pprev) == M_Cr && IREG(pprev) == IREG(prev) && use_cnt[IREG(pprev)] == 2 && def_cnt[IREG(pprev)] == 2) {
-				use_cnt[IREG(pprev)] -= 2;
-				def_cnt[IREG(pprev)] -= 2;
-				IINDEX(inst) = IREG2(prev);
-				IBASE(inst) = IREG2(pprev);
-				inst->prev = pprev->prev;
-				pprev->prev->next = inst;
-				inst = inst;
-				continue;
-			}
-
 			// mov rax, [rbp-24]
 			// add rax, 1
 			// mov [rbp-24], rax
