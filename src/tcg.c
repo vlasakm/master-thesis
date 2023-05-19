@@ -1294,7 +1294,7 @@ lognot(Parser *parser)
 	CValue carg = expression_bp(parser, 14);
 	Value *arg = as_rvalue(parser, carg);
 	Value *zero = create_const(parser, 0);
-	return rvalue(add_binary(parser, VK_NEQ, &TYPE_INT, arg, zero));
+	return rvalue(add_binary(parser, VK_EQ, &TYPE_INT, arg, zero));
 }
 
 static CValue
