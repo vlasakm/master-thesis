@@ -1672,7 +1672,7 @@ statement(Parser *parser)
 		} else {
 			parser_error(parser, tok, false, "Expected some value to be 'return'ed");
 		}
-		// Following code is unreachable. Let's add it by unsetting
+		// Following code is unreachable. Let's not add it by unsetting
 		// the current block.
 		switch_to_block(parser, NULL);
 		eat(parser, TK_SEMICOLON);
