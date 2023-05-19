@@ -4815,16 +4815,19 @@ try_combine_memory(MFunction *mfunction, Inst *inst)
 	if (disp > INT32_MAX || disp < INT32_MIN) {
 		return false;
 	}
-	if (IINDEX(inst) || IINDEX(def)) {
+	if (IINDEX(inst)) {
                 // We could try harder to support some combinations, but we
                 // currently don't. E.g. if only has one index or both have same
                 // index and both scales are 1 (making the combined scale 2),
                 // etc.
                 return false;
 	}
-	assert(ISCALE(inst) == 0 && ISCALE(def) == 0);
+	if (ISCALE(inst) != 0) {
+		// Like above.
+		return false;
+	}
 	IBASE(inst) = IBASE(def);
-	ISCALE(inst) = 0;
+	ISCALE(inst) = ISCALE(def);
 	IINDEX(inst) = IINDEX(def);
 	IDISP(inst) = disp;
 	if (--mfunction->use_count[IREG(def)] == 0) {
@@ -4840,7 +4843,7 @@ peephole(MFunction *mfunction, Arena *arena)
 {
 	u8 *use_cnt = mfunction->use_count;
 	u8 *def_cnt = mfunction->def_count;
-	//Inst **def = mfunction->only_def;
+	Inst **defs = mfunction->only_def;
 	print_str(stderr, mfunction->func->name);
 	fprintf(stderr, "\n");
 	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
@@ -5163,6 +5166,61 @@ peephole(MFunction *mfunction, Arena *arena)
 				pprev->next = inst->next;
 				inst->next->prev = pprev;
 				inst = pprev;
+				continue;
+			}
+
+			// mov t26, t18
+			// add t26, t34 ; W (no flags observed)
+			// =>
+			// lea t26, [t18+t34]
+			if (IK(inst) == IK_BINALU && IS(inst) == G1_ADD && (IM(inst) == M_Rr || IM(inst) == M_RI) && IK(prev) == IK_MOV && IS(prev) == MOV && IM(prev) == M_Cr && IREG(prev) == IREG(inst) && def_cnt[IREG(inst)] == 2) {
+				use_cnt[IREG(inst)]--;
+				def_cnt[IREG(inst)]--;
+				defs[IREG(inst)] = prev;
+				IS(prev) = LEA;
+				IM(prev) = M_CM;
+				IBASE(prev) = IREG2(prev);
+				ISCALE(prev) = 0;
+				if (IM(inst) == M_Rr) {
+					IINDEX(prev) = IREG2(inst);
+					IDISP(prev) = 0;
+				} else {
+					IINDEX(prev) = R_NONE;
+					IDISP(prev) = IIMM(inst);
+				}
+				prev->next = inst->next;
+				inst->next->prev = prev;
+				inst = prev;
+				continue;
+			}
+
+			// imul t50, t21, 8 ; W
+			// lea t32, [t18+t50]
+			// =>
+			// lea t32, [t18+8*t50]
+			if (mode_has_memory(IM(inst)) && IINDEX(inst) != R_NONE && IK(prev) == IK_IMUL3 && IM(prev) == M_CrI && IREG(prev) == IINDEX(inst) && IIMM(prev) == 8 && ISCALE(inst) == 0 && use_cnt[IREG(prev)] == 1) {
+				use_cnt[IREG(prev)]--;
+				ISCALE(inst) = 3;
+				IINDEX(inst) = IREG2(prev);
+				inst->prev = pprev;
+				pprev->next = inst;
+				inst = inst;
+				continue;
+			}
+
+			// mov t26, t18
+			// add t26, t34 ; W
+			// mov t27, [t26]
+			// =>
+			// mov t27, [t18+t34]
+			if (mode_has_memory(IM(inst)) && IINDEX(inst) == R_NONE && ISCALE(inst) == 0 && IK(prev) == IK_BINALU && IS(prev) == G1_ADD && IM(prev) == M_Rr && IREG(prev) == IBASE(inst) && IK(pprev) == IK_MOV && IS(pprev) == MOV && IM(pprev) == M_Cr && IREG(pprev) == IREG(prev) && use_cnt[IREG(pprev)] == 2 && def_cnt[IREG(pprev)] == 2) {
+				use_cnt[IREG(pprev)] -= 2;
+				def_cnt[IREG(pprev)] -= 2;
+				IINDEX(inst) = IREG2(prev);
+				IBASE(inst) = IREG2(pprev);
+				inst->prev = pprev->prev;
+				pprev->prev->next = inst;
+				inst = inst;
 				continue;
 			}
 

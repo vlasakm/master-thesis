@@ -382,6 +382,25 @@ typedef enum {
 	M_ADM,
 } X86Mode;
 
+bool
+mode_has_memory(X86Mode m)
+{
+	switch (m) {
+	case M_RM:
+	case M_rM:
+	case M_CM:
+	case M_Mr:
+	case M_MI:
+	case M_CMI:
+	case M_M:
+	case M_MCALL:
+	case M_ADM:
+	     return true;
+	default:
+	     return false;
+	}
+}
+
 typedef struct {
 	u8 def_start;
 	u8 def_end;
