@@ -64,7 +64,7 @@ arena_restore(Arena *arena, size_t pos)
 }
 
 void
-arena_destroy(Arena *arena)
+arena_free(Arena *arena)
 {
 	arena_restore(arena, 0);
 	if (arena->current != &sentinel) {
@@ -85,7 +85,7 @@ garena_init(GArena *arena)
 }
 
 void
-garena_destroy(GArena *arena)
+garena_free(GArena *arena)
 {
 	free(arena->mem);
 }

@@ -39,4 +39,4 @@ void wl_reset(WorkList *wl);
 
 bool wl_eq(WorkList *wl, WorkList *other);
 
-void wl_destroy(WorkList *wl);
+void wl_free(WorkList *wl);

@@ -510,7 +510,7 @@ table_init(Table *table)
 }
 
 void
-table_destroy(Table *table)
+table_free(Table *table)
 {
 	FREE_ARRAY(table->entries, table->capacity);
 }
@@ -599,7 +599,7 @@ void
 env_pop(Environment *env)
 {
 	assert(env->scope_cnt > 0);
-	table_destroy(&env->scopes[--env->scope_cnt]);
+	table_free(&env->scopes[--env->scope_cnt]);
 }
 
 void
@@ -624,7 +624,7 @@ void
 env_free(Environment *env)
 {
 	for (size_t i = 0; i < env->scope_cnt; i++) {
-		table_destroy(&env->scopes[--env->scope_cnt]);
+		table_free(&env->scopes[--env->scope_cnt]);
 	}
 	FREE_ARRAY(env->scopes, env->scope_cnt);
 }
@@ -2693,11 +2693,11 @@ ig_reset(InterferenceGraph *ig, size_t size)
 }
 
 void
-ig_destroy(InterferenceGraph *ig, size_t capacity)
+ig_free(InterferenceGraph *ig, size_t capacity)
 {
 	FREE_ARRAY(ig->matrix, capacity * capacity);
 	for (size_t i = 0; i < capacity; i++) {
-		garena_destroy(&ig->adj_list[i]);
+		garena_free(&ig->adj_list[i]);
 	}
 	FREE_ARRAY(ig->adj_list, capacity);
 }
@@ -2866,7 +2866,7 @@ reg_alloc_state_reset(RegAllocState *ras)
 }
 
 void
-reg_alloc_state_destroy(RegAllocState *ras)
+reg_alloc_state_free(RegAllocState *ras)
 {
 	FREE_ARRAY(ras->reg_assignment, ras->vreg_capacity);
 	FREE_ARRAY(ras->to_spill, ras->vreg_capacity);
@@ -2875,25 +2875,25 @@ reg_alloc_state_destroy(RegAllocState *ras)
 	FREE_ARRAY(ras->use_count, ras->vreg_capacity);
 	FREE_ARRAY(ras->unspillable, ras->vreg_capacity);
 	FREE_ARRAY(ras->degree, ras->vreg_capacity);
-	ig_destroy(&ras->ig, ras->vreg_capacity);
-	wl_destroy(&ras->live_set);
-	wl_destroy(&ras->uninterrupted);
+	ig_free(&ras->ig, ras->vreg_capacity);
+	wl_free(&ras->live_set);
+	wl_free(&ras->uninterrupted);
 	FREE_ARRAY(ras->ever_interrupted, ras->vreg_capacity);
 	wl_reset(&ras->block_work_list);
-	wl_destroy(&ras->block_work_list);
+	wl_free(&ras->block_work_list);
 	for (size_t i = 0; i < ras->block_capacity; i++) {
-		wl_destroy(&ras->live_in[i]);
+		wl_free(&ras->live_in[i]);
 	}
 	FREE_ARRAY(ras->live_in, ras->block_capacity);
-	wl_destroy(&ras->spill_wl);
-	wl_destroy(&ras->freeze_wl);
-	wl_destroy(&ras->simplify_wl);
-	wl_destroy(&ras->moves_wl);
-	wl_destroy(&ras->active_moves_wl);
-	wl_destroy(&ras->stack);
-	garena_destroy(&ras->gmoves);
+	wl_free(&ras->spill_wl);
+	wl_free(&ras->freeze_wl);
+	wl_free(&ras->simplify_wl);
+	wl_free(&ras->moves_wl);
+	wl_free(&ras->active_moves_wl);
+	wl_free(&ras->stack);
+	garena_free(&ras->gmoves);
 	for (size_t i = 0; i < ras->vreg_capacity; i++) {
-		garena_destroy(&ras->move_list[i]);
+		garena_free(&ras->move_list[i]);
 	}
 	FREE_ARRAY(ras->move_list, ras->vreg_capacity);
 }
@@ -3414,7 +3414,7 @@ parse(Arena *arena, GArena *scratch, Str source, void (*error_callback)(void *us
 	parse_program(&parser);
 	env_pop(&parser.env);
 	env_free(&parser.env);
-	table_destroy(&parser.type_env);
+	table_free(&parser.type_env);
 
 	if (parser.had_error) {
 		return NULL;
@@ -3424,8 +3424,8 @@ parse(Arena *arena, GArena *scratch, Str source, void (*error_callback)(void *us
 	module->functions = move_to_arena(arena, &parser.functions, 0, Function *);
 	module->global_cnt = garena_cnt(&parser.globals, Global *);
 	module->globals = move_to_arena(arena, &parser.globals, 0, Global *);
-	garena_destroy(&parser.functions);
-	garena_destroy(&parser.globals);
+	garena_free(&parser.functions);
+	garena_free(&parser.globals);
 	return module;
 }
 
@@ -3466,7 +3466,7 @@ void
 free_uses(Function *function)
 {
 	for (size_t i = 0; i < function->value_cnt; i++) {
-		garena_destroy(&function->uses[i]);
+		garena_free(&function->uses[i]);
 	}
 	free(function->uses);
 }
@@ -3623,7 +3623,7 @@ seal_block(ValueNumberingState *vns, Block *block)
 		IncompletePhi *inc = &incomplete_phis[i];
 		add_phi_operands(vns, inc->phi, block, inc->variable);
 	}
-	garena_destroy(&block->incomplete_phis);
+	garena_free(&block->incomplete_phis);
 }
 
 void
@@ -3751,7 +3751,7 @@ merge_simple_blocks(Arena *arena, Function *function)
 
 		wl_add(&worklist, b);
 	}
-	wl_destroy(&worklist);
+	wl_free(&worklist);
 
 	// Recompute function->post_order, since we invalidated it.
 	compute_preorder(function);
@@ -3793,7 +3793,7 @@ thread_jumps(Arena *arena, Function *function)
 			wl_add(&worklist, (*pred)->base.index);
 		}
 	}
-	wl_destroy(&worklist);
+	wl_free(&worklist);
 
 	// Recompute function->post_order, since we invalidated it.
 	compute_preorder(function);
@@ -3861,7 +3861,7 @@ single_exit(Arena *arena, Function *function)
 	PendingPhi *phis = garena_array(&gphis, PendingPhi);
 	size_t phi_cnt = garena_cnt(&gphis, PendingPhi);
 	if (phi_cnt == 1) {
-		garena_destroy(&gphis);
+		garena_free(&gphis);
 		return;
 	}
 	Block *ret_block = create_block(arena, function);
@@ -3895,7 +3895,7 @@ single_exit(Arena *arena, Function *function)
 	ret_inst->parent = &ret_block->base;
 	prepend_value(&ret_block->base, ret_inst);
 
-	garena_destroy(&gphis);
+	garena_free(&gphis);
 
 	// Recompute function->post_order, since we invalidated it.
 	compute_preorder(function);
@@ -5394,7 +5394,7 @@ parse_source(ErrorContext *ec, Arena *arena, Str source)
 	garena_init(&scratch);
 	ec->source = source;
 	Module *module = parse(arena, &scratch, source, parser_verror, ec);
-	garena_destroy(&scratch);
+	garena_free(&scratch);
 
 	if (!module) {
 		arena_restore(arena, arena_start);
@@ -5507,7 +5507,7 @@ main(int argc, char **argv)
 	}
 
 	///*
-	reg_alloc_state_destroy(&ras);
+	reg_alloc_state_free(&ras);
 
 	printf("\tdefault rel\n\n");
 
@@ -5588,9 +5588,9 @@ end:
 		free(function->post_order);
 		mfunction_free(function->mfunc);
 	}
-	garena_destroy(&labels);
+	garena_free(&labels);
 
-	arena_destroy(&ec.arena);
-	arena_destroy(arena);
+	arena_free(&ec.arena);
+	arena_free(arena);
 	return ec.error_head ? EXIT_FAILURE : EXIT_SUCCESS;
 }

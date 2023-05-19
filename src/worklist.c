@@ -153,7 +153,7 @@ wl_eq(WorkList *wl, WorkList *other)
 }
 
 void
-wl_destroy(WorkList *wl)
+wl_free(WorkList *wl)
 {
 	free(wl->sparse);
 	free(wl->dense);

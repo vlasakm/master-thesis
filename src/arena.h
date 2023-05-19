@@ -65,11 +65,11 @@
 // with the arena.
 typedef struct Arena Arena;
 
-// `arena_init` and `arena_destroy` are called on to initialize and deinitialize
+// `arena_init` and `arena_free` are called on to initialize and deinitialize
 // an Arena.
 
 void arena_init(Arena *arena);
-void arena_destroy(Arena *arena);
+void arena_free(Arena *arena);
 
 // `arena_alloc` allocates a piece of memory of particular `size`.
 void *arena_alloc(Arena *arena, size_t size);
@@ -94,7 +94,7 @@ void arena_restore(Arena *arena, size_t pos);
 typedef struct GArena GArena;
 
 void garena_init(GArena *arena);
-void garena_destroy(GArena *arena);
+void garena_free(GArena *arena);
 
 void *garena_alloc(GArena *arena, size_t size, size_t alignment);
 
