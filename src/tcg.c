@@ -2098,6 +2098,7 @@ print_inst(FILE *f, MFunction *mfunction, Inst *inst)
 		print_reg(f, IREG1(inst));
 		fprintf(f, ", ");
 		print_reg(f, IREG2(inst));
+		fprintf(f, ", ");
 		fprintf(f, "%"PRIi32, IIMM(inst));
 		break;
 	case M_CMI:
@@ -2338,7 +2339,7 @@ add_imul3(TranslationState *ts, Oper dest, Oper arg, Oper imm)
 	inst->mode = M_CrI;
 	inst->writes_flags = true;
 	IREG(inst) = dest;
-	IREG2(inst) = dest;
+	IREG2(inst) = arg;
 	IIMM(inst) = imm;
 }
 
