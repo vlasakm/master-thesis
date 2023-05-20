@@ -10,9 +10,11 @@ project(
 )
 
 cflags = [
+	'-Wdouble-promotion',
 	'-Wno-unused-parameter',
 	'-Wno-unused-function',
 	'-Wno-sign-compare',
+	'-Wno-sign-conversion',
 ]
 
 if get_option('buildtype') == 'debug'
