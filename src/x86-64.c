@@ -1,5 +1,34 @@
 #include "x86-64.h"
 
+void
+set_imm64(Inst *inst, u64 imm)
+{
+	inst->ops[1] = imm;
+	inst->ops[2] = imm >> 32;
+}
+
+u64
+get_imm64(Inst *inst)
+{
+	return ((u64) inst->ops[1]) | ((u64) inst->ops[2] << 32);
+}
+
+bool
+is_imm32(Inst *inst)
+{
+	return inst->ops[2] == 0 || inst->ops[2] == OPER_MAX;
+}
+
+bool
+pack_into_oper(i64 value, Oper *op)
+{
+	if (((i32) value) == value) {
+		*op = (u32) (i32) value;
+		return true;
+	}
+	return false;
+}
+
 static const char *reg_repr[] = {
 	"NONE",
 	"rax",
@@ -215,8 +244,8 @@ mode_has_memory(X86Mode m)
 	case M_rM:
 	case M_CM:
 	case M_Mr:
-	case M_MI:
-	case M_CMI:
+	case M_Mi:
+	case M_CMi:
 	case M_M:
 	case M_MCALL:
 	case M_ADM:
@@ -245,12 +274,12 @@ InsFormat formats[] = {
 	[M_rM]    = { 0, 0, 0, 3,  0, 0, none, none },
 	[M_CM]    = { 0, 1, 1, 3,  0, 0, none, none },
 	[M_Mr]    = { 0, 0, 0, 3,  0, 0, none, none },
-	[M_RI]    = { 0, 1, 0, 1,  0, 0, none, none },
-	[M_rI]    = { 0, 0, 0, 1,  0, 0, none, none },
+	[M_Ri]    = { 0, 1, 0, 1,  0, 0, none, none },
+	[M_ri]    = { 0, 0, 0, 1,  0, 0, none, none },
 	[M_CI]    = { 0, 1, 0, 0,  0, 0, none, none },
-	[M_MI]    = { 0, 0, 1, 3,  0, 0, none, none },
-	[M_CrI]   = { 0, 1, 1, 2,  0, 0, none, none },
-	[M_CMI]   = { 0, 1, 1, 3,  0, 0, none, none },
+	[M_Mi]    = { 0, 0, 1, 3,  0, 0, none, none },
+	[M_Cri]   = { 0, 1, 1, 2,  0, 0, none, none },
+	[M_CMi]   = { 0, 1, 1, 3,  0, 0, none, none },
 	[M_R]     = { 0, 1, 0, 1,  0, 0, none, none },
 	[M_r]     = { 0, 0, 0, 1,  0, 0, none, none },
 	[M_C]     = { 0, 1, 0, 0,  0, 0, none, none },
@@ -342,22 +371,27 @@ print_inst(FILE *f, MFunction *mfunction, Inst *inst)
 		fprintf(f, ", ");
 		print_reg(f, IREG(inst));
 		break;
-	case M_RI:
-	case M_rI:
-	case M_CI:
+	case M_Ri:
+	case M_ri:
 		fprintf(f, " ");
 		print_reg(f, IREG(inst));
 		fprintf(f, ", ");
 		fprintf(f, "%"PRIi32, IIMM(inst));
 		break;
-	case M_MI:
+	case M_CI:
+		fprintf(f, " ");
+		print_reg(f, IREG(inst));
+		fprintf(f, ", ");
+		fprintf(f, "%"PRIi64, get_imm64(inst));
+		break;
+	case M_Mi:
 		fprintf(f, " ");
 		fprintf(f, "qword ");
 		print_mem(f, mfunction, inst);
 		fprintf(f, ", ");
 		fprintf(f, "%"PRIi32, IIMM(inst));
 		break;
-	case M_CrI:
+	case M_Cri:
 		fprintf(f, " ");
 		print_reg(f, IREG1(inst));
 		fprintf(f, ", ");
@@ -365,7 +399,7 @@ print_inst(FILE *f, MFunction *mfunction, Inst *inst)
 		fprintf(f, ", ");
 		fprintf(f, "%"PRIi32, IIMM(inst));
 		break;
-	case M_CMI:
+	case M_CMi:
 		fprintf(f, " ");
 		print_reg(f, IREG(inst));
 		fprintf(f, ", ");

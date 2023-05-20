@@ -10,15 +10,20 @@
 #define IINDEX(inst) ((inst)->ops[2])
 #define ISCALE(inst) ((inst)->ops[3])
 #define IDISP(inst) ((inst)->ops[4])
-#define IIMM(inst) ((inst)->ops[5])
+#define IIMM(inst) (((inst)->ops[5]))
 #define IARG_CNT(inst) ((inst)->ops[5])
+
+void set_imm64(Inst *inst, u64 imm);
+u64 get_imm64(Inst *inst);
+bool pack_into_oper(i64 value, Oper *op);
 
 // R = RW register
 // r = R register
 // C = W register ("clobber")
 // n = no read or write (for xor rax, rax, where read dependency is undesirable)
 // M = memory (base R, index R, scale, displacement)
-// I = immediate
+// I = 64-bit immediate
+// i = 32-bit immediate
 // L = label
 // A = RW rax
 // D = RW rdx
@@ -31,12 +36,12 @@ typedef enum {
 	M_rM,
 	M_CM,
 	M_Mr,
-	M_RI,
-	M_rI,
+	M_Ri,
+	M_ri,
 	M_CI,
-	M_MI,
-	M_CrI,
-	M_CMI,
+	M_Mi,
+	M_Cri,
+	M_CMi,
 	M_R,
 	M_r,
 	M_C,
