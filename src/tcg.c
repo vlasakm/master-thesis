@@ -2502,7 +2502,7 @@ try_combine_memory(MFunction *mfunction, Inst *inst)
 		return false;
 	}
 	assert(IBASE(def));
-	if (mfunction->def_count[IBASE(def)] > 1) {
+	if (IBASE(def) != R_RBP && mfunction->def_count[IBASE(def)] > 1) {
 		return false;
 	}
 	if (IINDEX(inst)) {
