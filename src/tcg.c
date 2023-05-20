@@ -3045,6 +3045,31 @@ peephole(MFunction *mfunction, Arena *arena)
 				continue;
 			}
 
+			// mov t26, t18
+			// add t26, t34 ; W (no flags observed)
+			// =>
+			// lea t26, [t18+t34]
+			if (IK(inst) == IK_BINALU && IS(inst) == G1_ADD && (IM(inst) == M_Rr || IM(inst) == M_Ri) && IK(prev) == IK_MOV && IS(prev) == MOV && IM(prev) == M_Cr && IREG(prev) == IREG(inst) && def_cnt[IREG(inst)] == 2) {
+				use_cnt[IREG(inst)]--;
+				def_cnt[IREG(inst)]--;
+				defs[IREG(inst)] = prev;
+				IS(prev) = LEA;
+				IM(prev) = M_CM;
+				IBASE(prev) = IREG2(prev);
+				ISCALE(prev) = 0;
+				if (IM(inst) == M_Rr) {
+					IINDEX(prev) = IREG2(inst);
+					IDISP(prev) = 0;
+				} else {
+					IINDEX(prev) = R_NONE;
+					IDISP(prev) = IIMM(inst);
+				}
+				prev->next = inst->next;
+				inst->next->prev = prev;
+				inst = prev;
+				continue;
+			}
+
 		next:
 			inst = inst->next;
 		}
