@@ -141,11 +141,18 @@ block_add_pred_to_succs(Block *block)
 	}
 }
 
-#define FOR_EACH_BLOCK_PRED(block, pred) \
-	for (Block **pred = block_preds(block), **last = pred + block_pred_cnt(block); pred != last; pred++)
-
-#define FOR_EACH_BLOCK_SUCC(block, succ) \
-	for (Block **succ = block_succs(block), **last = succ + block_succ_cnt(block); succ != last; succ++)
+size_t
+block_index_of_pred(Block *succ, Block *pred)
+{
+	size_t i = 0;
+	FOR_EACH_BLOCK_PRED(succ, p) {
+		if (*p == pred) {
+			return i;
+		}
+		i++;
+	}
+	UNREACHABLE();
+}
 
 size_t
 value_arg_cnt(Value *value)

@@ -156,6 +156,16 @@ size_t block_succ_cnt(Block *block);
 
 void block_add_pred(Block *block, Block *pred);
 void block_add_pred_to_succs(Block *block);
+size_t block_index_of_pred(Block *succ, Block *pred);
+
+#define FOR_EACH_IN_BLOCK(block, v) \
+	for (Value *v = (block)->base.next; v != &(block)->base; v = v->next)
+
+#define FOR_EACH_IN_BLOCK_REV(block, v) \
+	for (Value *v = (block)->base.prev; v != &(block)->base; v = v->prev)
+
+#define FOR_EACH_PHI_IN_BLOCK(block, phi) \
+	for (Operation *phi = (Operation *) (block)->base.next; VK(phi) == VK_PHI; phi = (Operation *) phi->base.next)
 
 #define FOR_EACH_BLOCK_PRED(block, pred) \
 	for (Block **pred = block_preds(block), **last = pred + block_pred_cnt(block); pred != last; pred++)

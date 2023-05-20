@@ -594,37 +594,17 @@ translate_value(TranslationState *ts, Value *v)
 	case VK_JUMP: {
 		Block *current = ts->block->block;
 		Block *succ = (Block *) ((Operation *) v)->operands[0];
-		size_t pred_index;
-		Block **succ_preds = block_preds(succ);
-		size_t succ_pred_cnt = block_pred_cnt(succ);
-		for (size_t i = 0; i < succ_pred_cnt; i++) {
-			Block *pred = succ_preds[i];
-			if (pred == current) {
-				pred_index = i;
-				goto found;
-			}
-		}
-		UNREACHABLE();
-	found:;
+		size_t pred_index = block_index_of_pred(succ, current);
 		size_t i = 0;
-		for (Value *v = succ->base.next; v != &succ->base; v = v->next) {
-			if (VK(v) != VK_PHI) {
-				break;
-			}
-			Operation *phi = (void *) v;
+		FOR_EACH_PHI_IN_BLOCK(succ, phi) {
 			// TODO: save the phi operands somewhere else
 			translate_operand(tos, 9, &phi->operands[pred_index]);
 			add_copy(ts, ops[i++] = ts->index++, ops[9]);
 		}
 		i = 0;
-		for (Value *v = succ->base.next; v != &succ->base; v = v->next) {
-			if (VK(v) != VK_PHI) {
-				break;
-			}
-			Operation *phi = (void *) v;
+		FOR_EACH_PHI_IN_BLOCK(succ, phi) {
 			add_copy(ts, VINDEX(phi), ops[i++]);
 		}
-
 		add_jmp(ts, succ->base.index);
 		break;
 	}
@@ -1256,7 +1236,7 @@ get_uses(Function *function)
 	};
 	for (size_t b = 0; b < function->block_cnt; b++) {
 		Block *block = function->post_order[b];
-		for (Value *v = block->base.next; v != &block->base; v = v->next) {
+		FOR_EACH_IN_BLOCK(block, v) {
 			gus.current = v;
 			for_each_operand(v, add_uses, &gus);
 		}
@@ -1276,7 +1256,7 @@ void
 mem2reg(Function *function)
 {
 	Block *entry = function->entry;
-	for (Value *v = entry->base.next; v != &entry->base; v = v->next) {
+	FOR_EACH_IN_BLOCK(entry, v) {
 		if (v->kind != VK_ALLOCA) {
 			continue;
 		}
@@ -1436,7 +1416,7 @@ value_numbering(Arena *arena, Function *function)
 
 	for (size_t b = block_cnt; b--;) {
 		Block *block = function->post_order[b];
-		for (Value *v = block->base.next; v != &block->base; v = v->next) {
+		FOR_EACH_IN_BLOCK(block, v) {
 			switch (VK(v)) {
 			case VK_ALLOCA:
 				if (is_optimizable_alloca(v)) {
@@ -1518,7 +1498,7 @@ merge_simple_blocks(Arena *arena, Function *function)
 		// Successors of block are fixed up automatically, because they
 		// are taken implicitly from the terminator instruction.
 
-		for (Value *v = succ->base.next; v != &succ->base; v = v->next) {
+		FOR_EACH_IN_BLOCK(succ, v) {
 			v->parent = &block->base;
 		}
 
@@ -1828,7 +1808,7 @@ translate_function(Arena *arena, GArena *labels, Function *function)
 				add_copy(ts, ts->index++, saved[i]);
 			}
 		}
-		for (Value *v = block->base.next; v != &block->base; v = v->next) {
+		FOR_EACH_IN_BLOCK(block, v) {
 			translate_value(ts, v);
 		}
 	}
