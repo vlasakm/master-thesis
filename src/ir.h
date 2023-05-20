@@ -20,25 +20,32 @@ typedef struct MBlock MBlock;
 	OT(BLOCK, "block") \
 	OT(FUNCTION, "function") \
 	\
-	OP(ADD, "add", 2) \
-	OP(SUB, "sub", 2) \
-	OP(MUL, "mul", 2) \
-	OP(DIV, "div", 2) \
-	OP(MOD, "mod", 2) \
-	OP(AND, "and", 2) \
-	OP(OR,  "or",  2) \
-	OP(SHL, "shl", 2) \
-	OP(SHR, "shr", 2) \
+	OP(ADD,  "add",  2) \
+	OP(SUB,  "sub",  2) \
+	OP(MUL,  "mul",  2) \
+	OP(UDIV, "udiv", 2) \
+	OP(SDIV, "sdiv", 2) \
+	OP(UREM, "urem", 2) \
+	OP(SREM, "srem", 2) \
+	OP(AND,  "and",  2) \
+	OP(OR,   "or",   2) \
+	OP(SHL,  "shl",  2) \
+	OP(SAR,  "sar",  2) \
+	OP(SLR,  "slr",  2) \
 	\
-	OP(NEG, "neg", 1) \
-	OP(NOT, "not", 1) \
+	OP(NEG,  "neg",  1) \
+	OP(NOT,  "not",  1) \
 	\
-	OP(EQ,  "eq",  2)  \
-	OP(NEQ, "neq", 2) \
-	OP(LT,  "lt",  2) \
-	OP(LEQ, "leq", 2) \
-	OP(GT,  "gt",  2) \
-	OP(GEQ, "geq", 2) \
+	OP(EQ,   "eq",   2)  \
+	OP(NEQ,  "neq",  2) \
+	OP(ULT,  "ult",  2) \
+	OP(ULEQ, "uleq", 2) \
+	OP(UGT,  "ugt",  2) \
+	OP(UGEQ, "ugeq", 2) \
+	OP(SLT,  "slt",  2) \
+	OP(SLEQ, "sleq", 2) \
+	OP(SGT,  "sgt",  2) \
+	OP(SGEQ, "sgeq", 2) \
 	\
 	OP(IDENTITY, "identity", 1) \
 	OP(LOAD, "load", 1) \

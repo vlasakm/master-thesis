@@ -594,10 +594,10 @@ cmp(Parser *parser, CValue cleft, int rbp)
 	switch (tok) {
 	case TK_EQUAL_EQUAL:   kind = VK_EQ;  break;
 	case TK_BANG_EQUAL:    kind = VK_NEQ; break;
-	case TK_LESS:          kind = VK_LT;  break;
-	case TK_LESS_EQUAL:    kind = VK_LEQ; break;
-	case TK_GREATER:       kind = VK_GT;  break;
-	case TK_GREATER_EQUAL: kind = VK_GEQ; break;
+	case TK_LESS:          kind = VK_SLT;  break;
+	case TK_LESS_EQUAL:    kind = VK_SLEQ; break;
+	case TK_GREATER:       kind = VK_SGT;  break;
+	case TK_GREATER_EQUAL: kind = VK_SGEQ; break;
 	default: UNREACHABLE();
 	}
 	return rvalue(add_binary(parser, kind, &TYPE_INT, left, right));
@@ -615,8 +615,8 @@ binop(Parser *parser, CValue cleft, int rbp)
 	case TK_PLUS:     kind = VK_ADD; break;
 	case TK_MINUS:    kind = VK_SUB; break;
 	case TK_ASTERISK: kind = VK_MUL; break;
-	case TK_SLASH:    kind = VK_DIV; break;
-	case TK_PERCENT:  kind = VK_MOD; break;
+	case TK_SLASH:    kind = VK_SDIV; break;
+	case TK_PERCENT:  kind = VK_SREM; break;
 	default: UNREACHABLE();
 	}
 	return rvalue(add_binary(parser, kind, &TYPE_INT, left, right));
@@ -634,7 +634,7 @@ bitbinop(Parser *parser, CValue cleft, int rbp)
 	case TK_AMP:             kind = VK_AND; break;
 	case TK_BAR:             kind = VK_OR;  break;
 	case TK_LESS_LESS:       kind = VK_SHL; break;
-	case TK_GREATER_GREATER: kind = VK_SHR; break;
+	case TK_GREATER_GREATER: kind = VK_SAR; break;
 	default: UNREACHABLE();
 	}
 	return rvalue(add_binary(parser, kind, &TYPE_INT, left, right));

@@ -201,6 +201,7 @@ static const char *ik_repr[] = {
 	"push",
 	"pop",
 	"",
+	"cqo",
 	"; entry",
 };
 
@@ -234,6 +235,7 @@ static const char **is_repr[] = {
 	no_repr,
 	no_repr,
 	no_repr,
+	no_repr,
 };
 
 bool
@@ -258,6 +260,8 @@ mode_has_memory(X86Mode m)
 Oper none[] = { R_NONE };
 
 Oper rax_rdx[] = { R_RAX, R_RDX, R_NONE };
+Oper rax[] = { R_RAX, R_NONE };
+Oper rdx[] = { R_RDX, R_NONE };
 Oper callee_saved[] = { R_RBX, R_12, R_13, R_14, R_15, R_RBP, R_RSP, R_NONE };
 Oper saved[] = { R_RBX, R_12, R_13, R_14, R_15 };
 Oper caller_saved[] = { R_RAX, R_RCX, R_RDX, R_RSI, R_RDI, R_8, R_9, R_10, R_11, R_NONE };
@@ -294,6 +298,7 @@ InsFormat formats[] = {
 	[M_ENTRY] = { 0, 0, 0, 1,  0, 1, argument_regs, none },
 	[M_ADr]   = { 0, 0, 0, 1,  0, 0, rax_rdx, rax_rdx },
 	[M_ADM]   = { 0, 0, 1, 3,  0, 0, rax_rdx, rax_rdx },
+	[M_AD]    = { 0, 0, 0, 0,  0, 0, rdx, rax },
 };
 
 void

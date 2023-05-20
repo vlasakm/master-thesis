@@ -56,6 +56,7 @@ typedef enum {
 	M_ENTRY,
 	M_ADr,
 	M_ADM,
+	M_AD,
 } X86Mode;
 
 typedef enum {
@@ -187,6 +188,7 @@ typedef enum {
 	IK_PUSH,
 	IK_POP,
 	IK_INCDEC, // INC, DEC
+	IK_CQO, // sign extend RAX into RDX
 	IK_ENTRY,
 	IK__MAX,
 } InstKind;

@@ -275,6 +275,13 @@ add_entry(TranslationState *ts, Oper arg_cnt)
 }
 
 static void
+add_cqo(TranslationState *ts)
+{
+	Inst *inst = add_inst(ts, IK_CQO, 0);
+	inst->mode = M_AD;
+}
+
+static void
 translate_call(TranslationState *ts, Oper res, Oper fun, Oper *args, size_t arg_cnt)
 {
 	assert(arg_cnt < ARRAY_LEN(argument_regs) - 1);
@@ -332,18 +339,39 @@ translate_shift(TranslationState *ts, X86Group2 op, Oper res, Oper arg1, Oper ar
 	add_shift(ts, op, res, R_RCX);
 }
 
-static void
-translate_div(TranslationState *ts, Oper res, Oper arg1, Oper arg2, bool modulo)
-{
-	// TODO: cdq = sign extend RAX into RDX
-	add_set_zero(ts, R_RDX);
-	add_copy(ts, R_RAX, arg1);
+typedef enum {
+	SK_SIGNED,
+	SK_UNSIGNED,
+} SignednessKind;
 
-	Inst *inst = add_inst(ts, IK_MULDIV, G3_IDIV);
+typedef enum {
+	DR_QUOTIENT,
+	DR_REMAINDER,
+} DivisionResult;
+
+static void
+translate_div(TranslationState *ts, Oper res, Oper arg1, Oper arg2, SignednessKind sign, DivisionResult dr)
+{
+	// First copy 64-bit dividend into rax.
+	add_copy(ts, R_RAX, arg1);
+	Oper op;
+	if (sign == SK_SIGNED) {
+		op = G3_IDIV;
+		// If the division is signed, sign-extend rax into rdx.
+		add_cqo(ts);
+	} else {
+		op = G3_DIV;
+		// If the division is unsigned, zero-extend rax into rdx.
+		add_set_zero(ts, R_RDX);
+	}
+	// Perform division of 128-bit rdx:rax pair by the divisor in arbitrary
+	// register.
+	Inst *inst = add_inst(ts, IK_MULDIV, op);
 	inst->mode = M_ADr;
 	IREG(inst) = arg2;
 
-	Oper result = modulo ? R_RDX : R_RAX;
+	// Copy the wanted result into the result register.
+	Oper result = dr == DR_REMAINDER ? R_RDX : R_RAX;
 	add_copy(ts, res, result);
 }
 
@@ -472,11 +500,17 @@ translate_value(TranslationState *ts, Value *v)
 	case VK_MUL:
 		translate_binop(ts, G1_IMUL, res, ops[0], ops[1]);
 		break;
-	case VK_DIV:
-		translate_div(ts, res, ops[0], ops[1], false);
+	case VK_UDIV:
+		translate_div(ts, res, ops[0], ops[1], SK_UNSIGNED, DR_QUOTIENT);
 		break;
-	case VK_MOD:
-		translate_div(ts, res, ops[0], ops[1], true);
+	case VK_SDIV:
+		translate_div(ts, res, ops[0], ops[1], SK_SIGNED, DR_QUOTIENT);
+		break;
+	case VK_UREM:
+		translate_div(ts, res, ops[0], ops[1], SK_UNSIGNED, DR_REMAINDER);
+		break;
+	case VK_SREM:
+		translate_div(ts, res, ops[0], ops[1], SK_SIGNED, DR_REMAINDER);
 		break;
 	case VK_AND:
 		translate_binop(ts, G1_AND, res, ops[0], ops[1]);
@@ -485,10 +519,13 @@ translate_value(TranslationState *ts, Value *v)
 		translate_binop(ts, G1_OR, res, ops[0], ops[1]);
 		break;
 	case VK_SHL:
-		translate_shift(ts, G2_SAL, res, ops[0], ops[1]);
+		translate_shift(ts, G2_SHL, res, ops[0], ops[1]);
 		break;
-	case VK_SHR:
+	case VK_SAR:
 		translate_shift(ts, G2_SAR, res, ops[0], ops[1]);
+		break;
+	case VK_SLR:
+		translate_shift(ts, G2_SHR, res, ops[0], ops[1]);
 		break;
 	case VK_NEG:
 		translate_unop(ts, G3_NEG, res, ops[0]);
@@ -502,17 +539,29 @@ translate_value(TranslationState *ts, Value *v)
 	case VK_NEQ:
 		translate_cmpop(ts, CC_NE, res, ops[0], ops[1]);
 		break;
-	case VK_LT:
+	case VK_SLT:
 		translate_cmpop(ts, CC_L, res, ops[0], ops[1]);
 		break;
-	case VK_LEQ:
+	case VK_SLEQ:
 		translate_cmpop(ts, CC_LE, res, ops[0], ops[1]);
 		break;
-	case VK_GT:
+	case VK_SGT:
 		translate_cmpop(ts, CC_G, res, ops[0], ops[1]);
 		break;
-	case VK_GEQ:
+	case VK_SGEQ:
 		translate_cmpop(ts, CC_GE, res, ops[0], ops[1]);
+		break;
+	case VK_ULT:
+		translate_cmpop(ts, CC_B, res, ops[0], ops[1]);
+		break;
+	case VK_ULEQ:
+		translate_cmpop(ts, CC_BE, res, ops[0], ops[1]);
+		break;
+	case VK_UGT:
+		translate_cmpop(ts, CC_A, res, ops[0], ops[1]);
+		break;
+	case VK_UGEQ:
+		translate_cmpop(ts, CC_AE, res, ops[0], ops[1]);
 		break;
 
 	case VK_LOAD:
