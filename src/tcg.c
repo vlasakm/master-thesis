@@ -2983,6 +2983,32 @@ peephole(MFunction *mfunction, Arena *arena)
 				continue;
 			}
 
+			// lea t19, [t18+3]
+			// ...
+			// lea t20, [t19+4]
+			// =>
+			// lea t20, [t18+7]
+			if (IK(inst) == IK_MOV && IS(inst) == LEA && try_combine_memory(mfunction, inst)) {
+				continue;
+			}
+
+			// mov t18, 3
+			// lea 19, [t18+7]
+			// =>
+			// mov 19, 10
+			if (IK(inst) == IK_MOV && IS(inst) == LEA && try_replace_by_immediate(mfunction, inst, IBASE(inst))) {
+				IDISP(inst) += IIMM(inst);
+				IIMM(inst) = 0;
+				if (IINDEX(inst)) {
+					IBASE(inst) = IINDEX(inst);
+				} else {
+					IS(inst) = MOV;
+					IM(inst) = M_CI;
+					set_imm64(inst, IDISP(inst));
+				}
+				continue;
+			}
+
 			// lea t25, [rbp-24]
 			// ...
 			// mov t26, [t25]
@@ -2998,6 +3024,15 @@ peephole(MFunction *mfunction, Arena *arena)
 			// =>
 			// mov [rbp-24], t24
 			if (IK(inst) == IK_MOV && IS(inst) == MOV && (IM(inst) == M_Mr || IM(inst) == M_Mi) && try_combine_memory(mfunction, inst)) {
+				continue;
+			}
+
+			// lea t53, [rbp-32]
+			// ...
+			// add t35, [t53+8]
+			// =>
+			// add t35, [rbp-24]
+			if (((IK(inst) == IK_BINALU && (IM(inst) == M_RM || IM(inst) == M_Mr)) || (IK(inst) == IK_UNALU && IM(inst) == M_M)) && try_combine_memory(mfunction, inst)) {
 				continue;
 			}
 
