@@ -2516,7 +2516,7 @@ try_combine_memory(MFunction *mfunction, Inst *inst)
 		// Like above.
 		return false;
 	}
-	if (!pack_into_oper(IDISP(inst) + IDISP(def), &IDISP(inst))) {
+	if (!pack_into_oper((u64) IDISP(inst) + (u64) IDISP(def), &IDISP(inst))) {
 		return false;
 	}
 	IBASE(inst) = IBASE(def);

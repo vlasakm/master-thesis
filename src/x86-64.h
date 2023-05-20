@@ -15,7 +15,7 @@
 
 void set_imm64(Inst *inst, u64 imm);
 u64 get_imm64(Inst *inst);
-bool pack_into_oper(i64 value, Oper *op);
+bool pack_into_oper(u64 value, Oper *op);
 
 // R = RW register
 // r = R register

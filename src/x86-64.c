@@ -20,13 +20,13 @@ is_imm32(Inst *inst)
 }
 
 bool
-pack_into_oper(i64 value, Oper *op)
+pack_into_oper(u64 value, Oper *op)
 {
-	if (((i32) value) == value) {
-		*op = (u32) (i32) value;
-		return true;
+	if (value > UINT32_MAX) {
+		return false;
 	}
-	return false;
+	*op = (u32) value;
+	return true;
 }
 
 static const char *reg_repr[] = {
