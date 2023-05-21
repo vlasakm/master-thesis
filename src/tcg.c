@@ -2871,6 +2871,17 @@ peephole(MFunction *mfunction, Arena *arena)
 			skip:;
 			}
 
+			// mov t43, 4
+			// imul t43, t19 ; W
+			// =>
+			// mov t43, t19
+			// imul t43, 4
+			if (IK(inst) == IK_BINALU && g1_is_commutative(IS(inst)) && IM(inst) == M_Rr && IK(prev) == IK_MOV && IS(prev) == MOV && IM(prev) == M_CI && pack_into_oper(get_imm64(prev), &IIMM(inst))) {
+				IM(prev) = M_Cr;
+				IREG2(prev) = IREG2(inst);
+				IM(inst) = M_Ri;
+			}
+
 			// lea t14, [rbp-16]
 			// add t14, 8
 			// =>

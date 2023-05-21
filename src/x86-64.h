@@ -196,6 +196,7 @@ typedef enum {
 void print_reg(FILE *f, Oper reg);
 void print_inst(FILE *f, MFunction *mfunction, Inst *inst);
 bool mode_has_memory(X86Mode m);
+bool g1_is_commutative(X86Group1 g1);
 CondCode cc_invert(CondCode cc);
 
 extern Oper rax_rdx[];
