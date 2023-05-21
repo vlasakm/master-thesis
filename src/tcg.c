@@ -790,6 +790,9 @@ print_mfunction(FILE *f, MFunction *mfunction)
 	fprintf(f, ":\n");
 	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
 		MBlock *mblock = mfunction->mblocks[b];
+		if (!mblock) {
+			continue;
+		}
 		fprintf(f, ".BB%zu:\n", mblock->block->base.index);
 		for (Inst *inst = mblock->insts.next; inst != &mblock->insts; inst = inst->next) {
 			fprintf(f, "\t");
@@ -1252,6 +1255,9 @@ rewrite_program(RegAllocState *ras)
 	print_mfunction(stderr, mfunction);
 	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
 		MBlock *mblock = mfunction->mblocks[b];
+		if (!mblock) {
+			continue;
+		}
 		for (Inst *inst = mblock->insts.next; inst != &mblock->insts; inst = inst->next) {
 			ss->inst = inst;
 			fprintf(stderr, "\n");
@@ -1301,6 +1307,9 @@ apply_reg_assignment(RegAllocState *ras)
 	MFunction *mfunction = ras->mfunction;
 	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
 		MBlock *mblock = mfunction->mblocks[b];
+		if (!mblock) {
+			continue;
+		}
 		for (Inst *inst = mblock->insts.next; inst != &mblock->insts; inst = inst->next) {
 			// TODO: different number of register slots per target
 			// TODO: store number of registers in mode
@@ -1816,6 +1825,9 @@ calculate_spill_cost(RegAllocState *ras)
 
 	for (Oper b = 0; b < mfunction->mblock_cnt; b++) {
 		MBlock *mblock = mfunction->mblocks[b];
+		if (!mblock) {
+			continue;
+		}
 		Block *block = mblock->block;
 		get_live_out(ras, block, live_set);
 		// We currently can't make unspillable those vregs whose live
@@ -1898,6 +1910,9 @@ liveness_analysis(RegAllocState *ras)
 	Oper b;
 	while (wl_take(&ras->block_work_list, &b)) {
 		MBlock *mblock = mfunction->mblocks[b];
+		if (!mblock) {
+			continue;
+		}
 		Block *block = mblock->block;
 		get_live_out(ras, block, live_set);
 		fprintf(stderr, "Live out %zu: ", mblock->block->base.index);
@@ -1930,6 +1945,9 @@ build_interference_graph(RegAllocState *ras)
 
 	for (Oper b = 0; b < mfunction->mblock_cnt; b++) {
 		MBlock *mblock = mfunction->mblocks[b];
+		if (!mblock) {
+			continue;
+		}
 		Block *block = mblock->block;
 		get_live_out(ras, block, live_set);
 		for (Inst *inst = mblock->insts.prev; inst != &mblock->insts; inst = inst->prev) {
@@ -2543,9 +2561,16 @@ calculate_def_use_info(MFunction *mfunction)
 	ZERO_ARRAY(mfunction->def_count, mfunction->vreg_cnt);
 	ZERO_ARRAY(mfunction->use_count, mfunction->vreg_cnt);
 	ZERO_ARRAY(mfunction->only_def, mfunction->vreg_cnt);
+
+	GROW_ARRAY(mfunction->block_use_count, mfunction->func->block_cap);
+	ZERO_ARRAY(mfunction->block_use_count, mfunction->func->block_cap);
+
 	LastDefState lds = { .only_def = mfunction->only_def, .def_cnt = mfunction->def_count };
 	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
 		MBlock *mblock = mfunction->mblocks[b];
+		if (!mblock) {
+			continue;
+		}
 		bool flags_needed = false;
 		for (Inst *inst = mblock->insts.prev; inst != &mblock->insts; inst = inst->prev) {
 			lds.inst = inst;
@@ -2559,6 +2584,10 @@ calculate_def_use_info(MFunction *mfunction)
 			if (inst->reads_flags) {
 				flags_needed = true;
 			}
+
+			if (IM(inst) == M_L) {
+				mfunction->block_use_count[ILABEL(inst)]++;
+			}
 		}
 	}
 }
@@ -2569,6 +2598,8 @@ mfunction_free(MFunction *mfunction)
 	FREE_ARRAY(mfunction->def_count, mfunction->vreg_cnt);
 	FREE_ARRAY(mfunction->use_count, mfunction->vreg_cnt);
 	FREE_ARRAY(mfunction->only_def, mfunction->vreg_cnt);
+
+	FREE_ARRAY(mfunction->block_use_count, mfunction->mblock_cnt);
 }
 
 bool
@@ -2658,10 +2689,14 @@ peephole(MFunction *mfunction, Arena *arena)
 	u8 *use_cnt = mfunction->use_count;
 	u8 *def_cnt = mfunction->def_count;
 	Inst **defs = mfunction->only_def;
+	u8 *block_use_cnt = mfunction->block_use_count;
 	print_str(stderr, mfunction->func->name);
 	fprintf(stderr, "\n");
 	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
 		MBlock *mblock = mfunction->mblocks[b];
+		if (!mblock) {
+			continue;
+		}
 		Inst *inst = mblock->insts.next;
 		while (inst != &mblock->insts) {
 			print_inst(stderr, mfunction, inst);
@@ -3203,7 +3238,19 @@ peephole(MFunction *mfunction, Arena *arena)
 			break;
 		}
 
-		Oper next_block_index = mfunction->mblocks[b + 1]->block->base.index;
+		Oper next_block_index;
+		MBlock *next = NULL;
+		size_t i;
+		for (i = b + 1; i < mfunction->mblock_cnt; i++) {
+			next = mfunction->mblocks[i];
+			if (next) {
+				next_block_index = next->block->base.index;
+				break;
+			}
+		}
+		if (!next) {
+			continue;
+		}
 		Inst *last = mblock->insts.prev;
 		Inst *prev = last->prev;
 
@@ -3213,22 +3260,39 @@ peephole(MFunction *mfunction, Arena *arena)
 		// =>
 		//     jl .BB4
 		// .BB3:
-		if (IK(last) == IK_JUMP && IK(prev) == IK_JCC && ILABEL(prev) == next_block_index) {
+		if (IK(last) == IK_JUMP && IK(prev) == IK_JCC && ILABEL(prev) == next->block->base.index) {
 			IS(prev) = cc_invert(IS(prev));
 			ILABEL(prev) = ILABEL(last);
 			last->prev->next = last->next;
 			last->next->prev = last->prev;
-			continue;
+			block_use_cnt[next_block_index]--;
+			last = last->prev;
 		}
 
 		//     jmp .BB5
 		// .BB5:
 		// =>
 		// .BB5:
-		if (IK(last) == IK_JUMP && ILABEL(last) == next_block_index) {
+		if (IK(last) == IK_JUMP && ILABEL(last) == next->block->base.index) {
 			last->prev->next = last->next;
 			last->next->prev = last->prev;
-			continue;
+			block_use_cnt[next_block_index]--;
+			last = last->prev;
+		}
+
+		if (block_use_cnt[next->block->base.index] == 0) {
+			// If there is no reference to the next block (as
+			// label), we can just merge it into the current one.
+			// assert(next);
+			// mfunction->mblocks[b + 1] = NULL;
+			mfunction->mblocks[i] = NULL;
+			assert(last->next== &mblock->insts);
+			last->next = next->insts.next;
+			next->insts.next->prev = last;
+			next->insts.prev->next = &mblock->insts;
+			mblock->insts.prev = next->insts.prev;
+			inst = last;
+			goto next;
 		}
 	}
 }

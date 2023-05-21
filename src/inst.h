@@ -58,4 +58,5 @@ struct MFunction {
 	Inst **only_def; // Inst * with the only definition of a vreg, if applicable
 	u8 *def_count;
 	u8 *use_count;
+	u8 *block_use_count;
 };
