@@ -341,28 +341,28 @@ translate_prologue(TranslationState *ts)
 	add_push(ts, R_RBP);
 	add_copy(ts, R_RBP, R_RSP);
 
-        // Add instruction to make stack space, since we may spill we don't know
-        // how much stack space to reserve yet, we will replace the dummy '0'
-        // with proper stack space requirement after register allocation. Note
-        // that due to constraints of encoding of this instruction, we can't
-        // address stack frame larger than 2 GiB (32 bit signed relative
-        // offfset). On the x86-64 this is much bigger than the entire available
-        // stack, but on other architectures where immediate offsets are
+	// Add instruction to make stack space, since we may spill we don't know
+	// how much stack space to reserve yet, we will replace the dummy '0'
+	// with proper stack space requirement after register allocation. Note
+	// that due to constraints of encoding of this instruction, we can't
+	// address stack frame larger than 2 GiB (32 bit signed relative
+	// offfset). On the x86-64 this is much bigger than the entire available
+	// stack, but on other architectures where immediate offsets are
 	// smaller, this may need more consideration.
-        ts->make_stack_space = add_inst(ts, IK_BINALU, G1_SUB);
+	ts->make_stack_space = add_inst(ts, IK_BINALU, G1_SUB);
 	Inst *inst = ts->make_stack_space;
 	inst->mode = M_Ri;
 	inst->writes_flags = true;
 	IREG(inst) = R_RSP;
 	IIMM(inst) = 0;
 
-        // Save callee saved registers to temporaries. That way the registers
-        // don't automatically intefere with everything (since they will be
-        // "read" by the return instruction). If it makes sense to use the
-        // callee saved registers, they will be used, if not, due to coalescing
-        // these temporaries will likely be coalesced with the registers and the
-        // copies eliminated.
-        ts->callee_saved_reg_start = ts->index;
+	// Save callee saved registers to temporaries. That way the registers
+	// don't automatically intefere with everything (since they will be
+	// "read" by the return instruction). If it makes sense to use the
+	// callee saved registers, they will be used, if not, due to coalescing
+	// these temporaries will likely be coalesced with the registers and the
+	// copies eliminated.
+	ts->callee_saved_reg_start = ts->index;
 	for (size_t i = 0; i < ARRAY_LEN(saved); i++) {
 		add_copy(ts, ts->index++, saved[i]);
 	}
@@ -2613,11 +2613,11 @@ try_combine_memory(MFunction *mfunction, Inst *inst)
 		return false;
 	}
 	if (IINDEX(inst)) {
-                // We could try harder to support some combinations, but we
-                // currently don't. E.g. if only has one index or both have same
-                // index and both scales are 1 (making the combined scale 2),
-                // etc.
-                return false;
+		// We could try harder to support some combinations, but we
+		// currently don't. E.g. if only has one index or both have same
+		// index and both scales are 1 (making the combined scale 2),
+		// etc.
+		return false;
 	}
 	if (ISCALE(inst) != 0) {
 		// Like above.
