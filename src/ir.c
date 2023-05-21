@@ -341,6 +341,16 @@ validate_function(Function *function)
 }
 
 void
+print_index_type_value(FILE *f, Value *v)
+{
+	print_index(f, 0, &v);
+	fprintf(f, ": ");
+	print_type(f, v->type);
+	fprintf(f, " = ");
+	print_value(f, v);
+}
+
+void
 print_function(FILE *f, Function *function)
 {
 	print_str(f, function->name);
@@ -349,9 +359,7 @@ print_function(FILE *f, Function *function)
 	for (size_t i = 0; i < param_cnt; i++) {
 		Value *arg = &function->args[i].base;
 		fprintf(f, "\t");
-		print_index(f, 0, &arg);
-		fprintf(f, " = ");
-		print_value(f, arg);
+		print_index_type_value(f, arg);
 	}
 	//for (size_t i = function->block_cnt; i--;) {
 	for (size_t j = function->block_cnt; j--;) {
@@ -369,8 +377,8 @@ print_function(FILE *f, Function *function)
 		fprintf(f, "\n");
 
 		FOR_EACH_IN_BLOCK(block, v) {
-			fprintf(f, "\tv%zu = ", v->index);
-			print_value(f, v);
+			fprintf(f, "\t");
+			print_index_type_value(f, v);
 		}
 	}
 	validate_function(function);

@@ -73,3 +73,5 @@ size_t type_function_param_cnt(Type *type);
 Type *type_struct(Arena *arena, Field *fields, size_t field_cnt);
 
 bool types_compatible(Type *a, Type *b);
+
+void print_type(FILE *f, Type *type);

@@ -758,7 +758,7 @@ assign(Parser *parser, CValue cleft, int rbp)
 	if (!types_compatible(pointer_child(left->type), right->type)) {
 		parser_error(parser, equal, false, "Assigned value has incorrect type");
 	}
-	add_binary(parser, VK_STORE, right->type, left, right);
+	add_binary(parser, VK_STORE, &TYPE_VOID, left, right);
 	return lvalue(left);
 }
 
@@ -963,7 +963,7 @@ statement(Parser *parser)
 			if (value->type != return_type) {
 				parser_error(parser, tok, false, "Type of 'return'ed value does not match nominal type");
 			}
-			add_unary(parser, VK_RET, return_type, value);
+			add_unary(parser, VK_RET, &TYPE_VOID, value);
 		} else if (return_type == &TYPE_VOID) {
 			add_operation(parser, VK_RETVOID, &TYPE_VOID, 0);
 		} else {

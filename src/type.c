@@ -124,3 +124,44 @@ types_compatible(Type *a, Type *b)
 	}
 	return false;
 }
+
+void
+print_type(FILE *f, Type *type)
+{
+	switch (type->kind) {
+	case TY_VOID:
+		fprintf(f, "void");
+		break;
+	case TY_INT:
+		fprintf(f, "int");
+		break;
+	case TY_POINTER:
+		fprintf(f, "*");
+		print_type(f, pointer_child(type));
+		break;
+	case TY_FUNCTION: {
+		FunctionType *ft = type_as_function(type);
+		fprintf(f, "(");
+		for (size_t i = 0; i < ft->param_cnt; i++) {
+			if (i != 0) {
+				fprintf(f, ", ");
+			}
+			print_type(f, ft->params[i].type);
+		}
+		fprintf(f, ") -> ");
+		print_type(f, ft->ret_type);
+		break;
+	}
+	case TY_STRUCT: {
+		fprintf(f, "{");
+		StructType *st = (StructType *) type;
+		for (size_t i = 0; i < st->field_cnt; i++) {
+			if (i != 0) {
+				fprintf(f, ", ");
+			}
+			print_type(f, st->fields[i].type);
+		}
+		fprintf(f, " }");
+	}
+	}
+}
