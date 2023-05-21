@@ -2851,8 +2851,8 @@ peephole(MFunction *mfunction, Arena *arena)
 			if (IK(inst) == IK_BINALU && IM(inst) == M_Ri && IK(prev) == IK_MOV && IS(prev) == MOV && IM(prev) == M_CI && IREG(inst) == IREG(prev)) {
 				def_cnt[IREG(inst)]--;
 				use_cnt[IREG(inst)]--;
-				i64 value = get_imm64(prev);
-				i64 right = IIMM(inst);
+				u64 value = get_imm64(prev);
+				u64 right = IIMM(inst);
 				// Let's just say that any kind of overflow is
 				// undefined behaviour and not complicate this
 				// piece of code.
