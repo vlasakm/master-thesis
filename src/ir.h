@@ -131,8 +131,9 @@ void remove_value(Value *v);
 
 Operation *create_operation(Arena *arena, Block *block, ValueKind kind, Type *type, size_t operand_cnt);
 
-
 Value *create_unary(Arena *arena, Block *block, ValueKind kind, Type *type, Value *arg);
+
+Operation *insert_phi(Arena *arena, Block *block, Type *type);
 
 
 struct Block {

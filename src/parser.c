@@ -730,7 +730,41 @@ found:;
 static CValue
 shortcirc(Parser *parser, CValue cleft, int rbp)
 {
-	UNREACHABLE();
+	TokenKind tok = discard(parser).kind;
+	Value *left = as_rvalue(parser, cleft);
+	Block *left_block = parser->current_block;
+	Block *right_block = add_block(parser);
+	Block *after_block = add_block(parser);
+	switch (tok) {
+	case TK_AMP_AMP:
+		add_cond_jump(parser, left, right_block, after_block);
+		break;
+	case TK_BAR_BAR:
+		add_cond_jump(parser, left, after_block, right_block);
+		break;
+	default:
+		UNREACHABLE();
+	}
+
+	// Compile the right hand side in its own conditionally executed block
+	switch_to_block(parser, right_block);
+	CValue cright = expression_bp(parser, rbp);
+	Value *right = as_rvalue(parser, cright);
+	add_jump(parser, after_block);
+
+	if (left->type != right->type) {
+		parser_error(parser, parser->lookahead, false, "Expected both sides of short circuiting operation to have the same type");
+	}
+
+	// Merge both branches
+	switch_to_block(parser, after_block);
+	assert(block_pred_cnt(after_block) == 2);
+	assert(block_preds(after_block)[0] == left_block);
+	assert(block_preds(after_block)[1] == right_block);
+	Operation *phi = insert_phi(parser->arena, after_block, left->type);
+	phi->operands[0] = left;
+	phi->operands[1] = right;
+	return rvalue(&phi->base);
 }
 
 static CValue

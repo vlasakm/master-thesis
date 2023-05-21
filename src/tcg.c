@@ -1393,23 +1393,6 @@ typedef struct {
 	Value **canonical;
 } ValueNumberingState;
 
-Operation *
-insert_phi(Arena *arena, Block *block, Type *type)
-{
-	Value *non_phi;
-	for (non_phi = block->base.next; non_phi != &block->base; non_phi = non_phi->next) {
-		if (VK(non_phi) != VK_PHI) {
-			break;
-		}
-	}
-	Operation *phi = arena_alloc(arena, sizeof(*phi) + sizeof(phi->operands[0]) * block_pred_cnt(block));
-	value_init(&phi->base, VK_PHI, type);
-	phi->base.index = ((Function *) block->base.parent)->value_cnt++;
-	phi->base.parent = &block->base;
-	prepend_value(non_phi, &phi->base);
-	return phi;
-}
-
 Value *read_variable(ValueNumberingState *vns, Block *block, Value *variable);
 
 void
