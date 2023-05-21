@@ -996,6 +996,8 @@ function_declaration(Parser *parser, Str fun_name, FunctionType *fun_type)
 	*function = (Function) {0};
 	function->name = fun_name;
 	value_init(&function->base, VK_FUNCTION, (Type *) fun_type);
+
+	// Prepare for the arguments and function body.
 	env_define(&parser->env, fun_name, &function->base);
 	eat(parser, TK_LBRACE);
 	parser->current_function = function;
@@ -1007,21 +1009,24 @@ function_declaration(Parser *parser, Str fun_name, FunctionType *fun_type)
 
 	env_push(&parser->env);
 
-	// Process arguments
-	// (Can't use Arena for args, not stack like.)
-	Value **args = calloc(param_cnt, sizeof(args[0]));
+	// Prepare arguments
+	Argument *args = arena_alloc(parser->arena, param_cnt * sizeof(args[0]));
 	for (size_t i = 0; i < param_cnt; i++) {
-		args[i] = add_argument(parser, params[i].type, i);
+		Argument *arg = &args[i];
+		value_init(&arg->base, VK_ARGUMENT, params[i].type);
 	}
 	for (size_t i = 0; i < param_cnt; i++) {
-		Value *arg = args[i];
+		Value *arg = &args[i].base;
 		Value *addr = add_alloca(parser, params[i].type);
 		add_binary(parser, VK_STORE, params[i].type, addr, arg);
 		env_define(&parser->env, params[i].name, addr);
 	}
-	free(args);
+	function->args = args;
 
+	// Parse function body
 	statements(parser);
+
+	// Complete the function
 	compute_preorder(function);
 	function->base.index = garena_cnt(&parser->functions, Function *);
 	garena_push_value(&parser->functions, Function *, function);

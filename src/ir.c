@@ -222,15 +222,20 @@ print_index(void *user_data, size_t i, Value **operand_)
 size_t
 number_values(Function *function, size_t start_index)
 {
-	size_t i = start_index;
+	size_t index = start_index;
+	size_t param_cnt = type_function_param_cnt(function->base.type);
+	for (size_t i = 0; i < param_cnt; i++) {
+		function->args[i].base.index = index++;
+		function->args[i].index = i;
+	}
 	for (size_t b = function->block_cnt; b--;) {
 		Block *block = function->post_order[b];
-		for (Value *v = block->base.next; v != &block->base; v = v->next) {
-			v->index = i++;
+		FOR_EACH_IN_BLOCK(block, v) {
+			v->index = index++;
 		}
 	}
-	function->value_cnt = i;
-	return i;
+	function->value_cnt = index;
+	return index;
 }
 
 void
@@ -324,7 +329,7 @@ validate_function(Function *function)
 		}
 		succ_ok:;
 
-		for (Value *v = block->base.next; v != &block->base; v = v->next) {
+		FOR_EACH_IN_BLOCK(block, v) {
 			assert(v->prev);
 			assert(v->next);
 			assert(v->prev->next == v);
@@ -340,6 +345,14 @@ print_function(FILE *f, Function *function)
 {
 	print_str(f, function->name);
 	fprintf(f, ":\n");
+	size_t param_cnt = type_function_param_cnt(function->base.type);
+	for (size_t i = 0; i < param_cnt; i++) {
+		Value *arg = &function->args[i].base;
+		fprintf(f, "\t");
+		print_index(f, 0, &arg);
+		fprintf(f, " = ");
+		print_value(f, arg);
+	}
 	//for (size_t i = function->block_cnt; i--;) {
 	for (size_t j = function->block_cnt; j--;) {
 		Block *block = function->post_order[j];
@@ -355,7 +368,7 @@ print_function(FILE *f, Function *function)
 		}
 		fprintf(f, "\n");
 
-		for (Value *v = block->base.next; v != &block->base; v = v->next) {
+		FOR_EACH_IN_BLOCK(block, v) {
 			fprintf(f, "\tv%zu = ", v->index);
 			print_value(f, v);
 		}

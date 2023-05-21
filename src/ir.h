@@ -110,6 +110,7 @@ typedef struct {
 
 #define VK(v) (((Value *) (v))->kind)
 #define VINDEX(v) (((Value *) (v))->index)
+#define VTYPE(v) (((Value *) (v))->type)
 #define STORE_ADDR(v) (((Operation *) (v))->operands[0])
 #define STORE_VALUE(v) (((Operation *) (v))->operands[1])
 #define LOAD_ADDR(v) (((Operation *) (v))->operands[0])
@@ -183,6 +184,7 @@ size_t block_index_of_pred(Block *succ, Block *pred);
 struct Function {
 	Value base;
 	Str name;
+	Argument *args;
 	Block *entry;
 	Block **blocks;
 	Block **post_order;
