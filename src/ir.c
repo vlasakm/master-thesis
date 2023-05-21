@@ -431,4 +431,3 @@ get_member(Value *value)
 	size_t member_index = ((Constant *)operation->operands[1])->k;
 	return &struct_type->fields[member_index];
 }
-
