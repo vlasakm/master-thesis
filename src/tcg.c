@@ -32,11 +32,13 @@ arena_vaprintf(Arena *arena, const char *fmt, va_list ap)
 
 	size_t available = arena->current->size - arena->current->pos;
 	void *mem = ((u8 *) arena->current) + arena->current->pos;
+	ASAN_UNPOISON_MEMORY_REGION(mem, available);
 	int len = vsnprintf(mem, available, fmt, ap);
 	assert(len >= 0);
 	len += 1; // terminating null
 	if ((size_t) len <= available) {
 		arena->current->pos += (size_t) len;
+		ASAN_POISON_MEMORY_REGION(((unsigned char *) arena->current) + arena->current->pos, available - len);
 	} else {
 		mem = arena_alloc(arena, (size_t) len);
 		vsnprintf(mem, (size_t) len, fmt, ap_orig);
