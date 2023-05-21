@@ -3098,6 +3098,7 @@ peephole(MFunction *mfunction, Arena *arena)
 			}
 
 			// mov t18, 3
+			// ...
 			// lea 19, [t18+7]
 			// =>
 			// mov 19, 10
@@ -3112,6 +3113,16 @@ peephole(MFunction *mfunction, Arena *arena)
 					set_imm64(inst, IDISP(inst));
 				}
 				continue;
+			}
+
+			// mov t25, 1
+			// ...
+			// push t25
+			// =>
+			// push 1
+			if (IK(inst) == IK_PUSH && IM(inst) == M_r && try_replace_by_immediate(mfunction, inst, IREG(inst))) {
+				IM(inst) = M_I;
+
 			}
 
 			// lea t25, [rbp-24]
