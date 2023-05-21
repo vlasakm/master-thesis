@@ -172,20 +172,18 @@ switch_to_block(Parser *parser, Block *new_block)
 }
 
 static void
-add_jump(Parser *parser, Block *destination, Block *new_block)
+add_jump(Parser *parser, Block *destination)
 {
 	add_unary(parser, VK_JUMP, &TYPE_VOID, &destination->base);
-	switch_to_block(parser, new_block);
 }
 
 static void
-add_cond_jump(Parser *parser, Value *cond, Block *true_block, Block *false_block, Block *new_block)
+add_cond_jump(Parser *parser, Value *cond, Block *true_block, Block *false_block)
 {
 	Operation *op = add_operation(parser, VK_BRANCH, &TYPE_VOID, 3);
 	op->operands[0] = cond;
 	op->operands[1] = &true_block->base;
 	op->operands[2] = &false_block->base;
-	switch_to_block(parser, new_block);
 }
 
 static Value *
@@ -814,23 +812,28 @@ statement(Parser *parser)
 		Block *true_block = add_block(parser);
 		Block *false_block = add_block(parser);
 		Block *after_block = add_block(parser);
+		add_jump(parser, cond_block);
 
-		add_jump(parser, cond_block, cond_block);
-
+		// Parse condition
+		switch_to_block(parser, cond_block);
 		eat(parser, TK_LPAREN);
 		Value *cond = condition(parser);
 		eat(parser, TK_RPAREN);
+		add_cond_jump(parser, cond, true_block, false_block);
 
-		add_cond_jump(parser, cond, true_block, false_block, true_block);
-
+		// Parse the true branch
+		switch_to_block(parser, true_block);
 		statement(parser);
-		add_jump(parser, after_block, false_block);
+		add_jump(parser, after_block);
 
+		// Parse the (optional) false branch
+		switch_to_block(parser, false_block);
 		if (try_eat(parser, TK_ELSE)) {
 			statement(parser);
 		}
-		add_jump(parser, after_block, after_block);
+		add_jump(parser, after_block);
 
+		switch_to_block(parser, after_block);
 		break;
 	}
 	case TK_SWITCH: {
@@ -842,18 +845,21 @@ statement(Parser *parser)
 		Block *cond_block = add_block(parser);
 		Block *body_block = add_block(parser);
 		Block *after_block = add_block(parser);
+		add_jump(parser, cond_block);
 
-		add_jump(parser, cond_block, cond_block);
-
+		// Parse the condition
+		switch_to_block(parser, cond_block);
 		eat(parser, TK_LPAREN);
 		Value *cond = condition(parser);
 		eat(parser, TK_RPAREN);
+		add_cond_jump(parser, cond, body_block, after_block);
 
-		add_cond_jump(parser, cond, body_block, after_block, body_block);
-
+		// Parse the loop body
+		switch_to_block(parser, body_block);
 		loop_body(parser, cond_block, after_block);
+		add_jump(parser, cond_block);
 
-		add_jump(parser, cond_block, after_block);
+		switch_to_block(parser, after_block);
 		break;
 	}
 	case TK_DO: {
@@ -861,20 +867,23 @@ statement(Parser *parser)
 		Block *body_block = add_block(parser);
 		Block *cond_block = add_block(parser);
 		Block *after_block = add_block(parser);
+		add_jump(parser, body_block);
 
-		add_jump(parser, body_block, body_block);
-
+		// Parse the loop body
+		switch_to_block(parser, body_block);
 		loop_body(parser, cond_block, after_block);
+		add_jump(parser, cond_block);
 
-		add_jump(parser, cond_block, cond_block);
-
+		// Parse the condition
+		switch_to_block(parser, cond_block);
 		eat(parser, TK_WHILE);
 		eat(parser, TK_LPAREN);
 		Value *cond = condition(parser);
 		eat(parser, TK_RPAREN);
 		eat(parser, TK_SEMICOLON);
+		add_cond_jump(parser, cond, body_block, after_block);
 
-		add_cond_jump(parser, cond, body_block, after_block, after_block);
+		switch_to_block(parser, after_block);
 		break;
 	}
 	case TK_FOR: {
@@ -885,54 +894,64 @@ statement(Parser *parser)
 		Block *body_block = add_block(parser);
 		Block *incr_block = add_block(parser);
 		Block *after_block = add_block(parser);
+		add_jump(parser, init_block);
 
-		add_jump(parser, init_block, init_block);
-
+		// Parse the (optional) initializer
+		switch_to_block(parser, init_block);
 		if (peek(parser) != TK_SEMICOLON) {
 			expression_or_variable_declaration(parser);
 		}
 		eat(parser, TK_SEMICOLON);
+		add_jump(parser, cond_block);
 
-		add_jump(parser, cond_block, cond_block);
-
+		// Parse the (optional) condition
+		switch_to_block(parser, cond_block);
 		if (peek(parser) != TK_SEMICOLON) {
 			Value *cond = condition(parser);
-			add_cond_jump(parser, cond, body_block, after_block, incr_block);
+			add_cond_jump(parser, cond, body_block, after_block);
 		} else {
-			add_jump(parser, body_block, incr_block);
+			add_jump(parser, body_block);
 		}
 		eat(parser, TK_SEMICOLON);
 
+		// Parse the (optional) "increment" expression
+		switch_to_block(parser, incr_block);
 		if (peek(parser) != TK_RPAREN) {
 			expression(parser);
 		}
 		eat(parser, TK_RPAREN);
+		add_jump(parser, cond_block);
 
-		add_jump(parser, cond_block, body_block);
-
+		// Parse the loop body
+		switch_to_block(parser, body_block);
 		loop_body(parser, incr_block, after_block);
+		add_jump(parser, incr_block);
 
-		add_jump(parser, incr_block, after_block);
+		switch_to_block(parser, after_block);
 		break;
 	}
 	case TK_BREAK: {
 		Token tok = discard(parser);
 		if (parser->break_block) {
-			add_jump(parser, parser->break_block, NULL);
+			add_jump(parser, parser->break_block);
 		} else {
 			parser_error(parser, tok, true, "'break' outside of loop or switch");
 		}
 		eat(parser, TK_SEMICOLON);
+		// Following code is unreachable.
+		switch_to_block(parser, NULL);
 		break;
 	}
 	case TK_CONTINUE: {
 		Token tok = discard(parser);
 		if (parser->continue_block) {
-			add_jump(parser, parser->continue_block, NULL);
+			add_jump(parser, parser->continue_block);
 		} else {
 			parser_error(parser, tok, true, "'continue' outside of loop");
 		}
 		eat(parser, TK_SEMICOLON);
+		// Following code is unreachable.
+		switch_to_block(parser, NULL);
 		break;
 	}
 	case TK_RETURN: {
@@ -949,13 +968,13 @@ statement(Parser *parser)
 		} else {
 			parser_error(parser, tok, false, "Expected some value to be 'return'ed");
 		}
-		// Following code is unreachable. Let's not add it by unsetting
-		// the current block.
-		switch_to_block(parser, NULL);
 		eat(parser, TK_SEMICOLON);
+		// Following code is unreachable.
+		switch_to_block(parser, NULL);
 		break;
 	}
 	case TK_SEMICOLON: {
+		// An empty statement consisting of only semicolon.
 		eat(parser, TK_SEMICOLON);
 		break;
 	}
