@@ -664,7 +664,7 @@ call(Parser *parser, CValue cleft, int rbp)
 	}
 	FunctionType *fun_type = type_as_function(left->type);
 	size_t argument_cnt = fun_type->param_cnt;
-	Operation *call = add_operation(parser, VK_CALL, fun_type->ret_type, 1 + argument_cnt);
+	Operation *call = create_operation(parser->arena, parser->current_block, VK_CALL, fun_type->ret_type, 1 + argument_cnt);
 
 	size_t i = 0;
 	call->operands[i++] = left;
@@ -685,6 +685,7 @@ call(Parser *parser, CValue cleft, int rbp)
 	if (i - 1 != argument_cnt) {
 		parser_error(parser, parser->lookahead, false, "Invalid number of arguments: expected %zu, got %zu", argument_cnt, i);
 	}
+	append_to_block(parser->current_block, &call->base);
 	return rvalue(&call->base);
 }
 
