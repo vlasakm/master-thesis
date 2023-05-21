@@ -1073,9 +1073,9 @@ void
 remove_from_set(void *user_data, Oper *oper)
 {
 	WorkList *live_set = user_data;
-	//fprintf(stderr, "Removing from live ");
-	//print_reg(stderr, *oper);
-	//fprintf(stderr, "\n");
+	fprintf(stderr, "Removing from live ");
+	print_reg(stderr, *oper);
+	fprintf(stderr, "\n");
 	wl_remove(live_set, *oper);
 }
 
@@ -1083,18 +1083,18 @@ void
 add_to_set(void *user_data, Oper *oper)
 {
 	WorkList *live_set = user_data;
-	//fprintf(stderr, "Adding to live ");
-	//print_reg(stderr, *oper);
-	//fprintf(stderr, "\n");
+	fprintf(stderr, "Adding to live ");
+	print_reg(stderr, *oper);
+	fprintf(stderr, "\n");
 	wl_add(live_set, *oper);
 }
 
 void
-live_step(WorkList *live_set, Inst *inst)
+live_step(WorkList *live_set, MFunction *mfunction, Inst *inst)
 {
-	//fprintf(stderr, "Live step at\t");
-	//print_inst(stderr, inst);
-	//fprintf(stderr, "\n");
+	fprintf(stderr, "Live step at\t");
+	print_inst(stderr, mfunction, inst);
+	fprintf(stderr, "\n");
 	// Remove definitions from live.
 	for_each_def(inst, remove_from_set, live_set);
 	// Add uses to live.
@@ -1900,10 +1900,16 @@ liveness_analysis(RegAllocState *ras)
 		MBlock *mblock = mfunction->mblocks[b];
 		Block *block = mblock->block;
 		get_live_out(ras, block, live_set);
+		fprintf(stderr, "Live out %zu: ", mblock->block->base.index);
+		FOR_EACH_WL_INDEX(live_set, i) {
+			print_reg(stderr, live_set->dense[i]);
+			fprintf(stderr, ", ");
+		}
+		fprintf(stderr, "\n");
 		// process the block back to front, updating live_set in the
 		// process
 		for (Inst *inst = mblock->insts.prev; inst != &mblock->insts; inst = inst->prev) {
-			live_step(live_set, inst);
+			live_step(live_set, mfunction, inst);
 		}
 		if (!wl_eq(live_set, &ras->live_in[b])) {
 			WorkList tmp = ras->live_in[b];
@@ -1928,7 +1934,7 @@ build_interference_graph(RegAllocState *ras)
 		get_live_out(ras, block, live_set);
 		for (Inst *inst = mblock->insts.prev; inst != &mblock->insts; inst = inst->prev) {
 			interference_step(ras, live_set, inst);
-			live_step(live_set, inst);
+			live_step(live_set, mfunction, inst);
 		}
 	}
 
