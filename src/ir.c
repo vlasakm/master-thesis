@@ -343,10 +343,12 @@ validate_function(Function *function)
 void
 print_index_type_value(FILE *f, Value *v)
 {
-	print_index(f, 0, &v);
-	fprintf(f, ": ");
-	print_type(f, v->type);
-	fprintf(f, " = ");
+	if (v->type->kind != TY_VOID) {
+		print_index(f, 0, &v);
+		fprintf(f, ": ");
+		print_type(f, v->type);
+		fprintf(f, " = ");
+	}
 	print_value(f, v);
 }
 
