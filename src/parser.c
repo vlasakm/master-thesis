@@ -985,7 +985,11 @@ function_declaration(Parser *parser, Str fun_name, FunctionType *fun_type)
 	// Can't use `switch_to_block` here, because this is the first block and
 	// we have to get the thing going somehow.
 	parser->current_block = function->entry;
+
 	env_push(&parser->env);
+
+	// Process arguments
+	// (Can't use Arena for args, not stack like.)
 	Value **args = calloc(param_cnt, sizeof(args[0]));
 	for (size_t i = 0; i < param_cnt; i++) {
 		args[i] = add_argument(parser, params[i].type, i);
@@ -997,6 +1001,7 @@ function_declaration(Parser *parser, Str fun_name, FunctionType *fun_type)
 		env_define(&parser->env, params[i].name, addr);
 	}
 	free(args);
+
 	statements(parser);
 	compute_preorder(function);
 	function->base.index = garena_cnt(&parser->functions, Function *);
