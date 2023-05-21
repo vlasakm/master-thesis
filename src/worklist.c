@@ -48,7 +48,12 @@ wl_init_all_reverse(WorkList *wl, Oper op)
 bool
 wl_has(WorkList *wl, Oper op)
 {
-	return wl->sparse[op] >= wl->head && wl->sparse[op] < wl->tail && wl->dense[wl->sparse[op]] == op;
+	if (wl->head <= wl->tail) {
+		return wl->sparse[op] >= wl->head && wl->sparse[op] < wl->tail && wl->dense[wl->sparse[op]] == op;
+	} else {
+		return (wl->sparse[op] >= wl->head || wl->sparse[op] < wl->tail) && wl->dense[wl->sparse[op]] == op;
+	}
+	//return wl->sparse[op] >= wl->head && wl->sparse[op] < wl->tail && wl->dense[wl->sparse[op]] == op;
 }
 
 bool

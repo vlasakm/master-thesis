@@ -2098,12 +2098,12 @@ decrement_degree(RegAllocState *ras, Oper op)
 	if (is_trivially_colorable(ras, op)) {
 		fprintf(stderr, "%zu %zu\n", (size_t) op, (size_t) R__MAX);
 		assert(op >= R__MAX);
-		fprintf(stderr, "Move from spill to %s ", is_move_related(ras, op) ? "freeze" : "simplify");
-		print_reg(stderr, op);
-		fprintf(stderr, "\n");
 		enable_moves_for_one(ras, op);
 		for_each_adjacent(ras, op, enable_moves_for_one);
 		wl_remove(&ras->spill_wl, op);
+		//fprintf(stderr, "Move from spill to %s ", is_move_related(ras, op) ? "freeze" : "simplify");
+		//print_reg(stderr, op);
+		//fprintf(stderr, "\n");
 		if (is_move_related(ras, op)) {
 			wl_add(&ras->freeze_wl, op);
 		} else {
