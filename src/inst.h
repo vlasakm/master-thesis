@@ -40,7 +40,9 @@ typedef struct {
 struct MBlock {
 	Block *block;
 	size_t index;
-	Inst insts;
+        // `insts.next` and `insts.prev` are respectively the head and tail of
+        // circular doubly linked list of instructions
+        Inst insts;
 };
 
 struct MFunction {
