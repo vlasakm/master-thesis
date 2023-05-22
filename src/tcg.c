@@ -2684,7 +2684,7 @@ try_combine_label(MFunction *mfunction, Inst *inst)
 }
 
 void
-peephole(MFunction *mfunction, Arena *arena)
+peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 {
 	u8 *use_cnt = mfunction->use_count;
 	u8 *def_cnt = mfunction->def_count;
@@ -3280,7 +3280,7 @@ peephole(MFunction *mfunction, Arena *arena)
 			last = last->prev;
 		}
 
-		if (block_use_cnt[next->block->base.index] == 0) {
+		if (last_pass && block_use_cnt[next->block->base.index] == 0) {
 			// If there is no reference to the next block (as
 			// label), we can just merge it into the current one.
 			mfunction->mblocks[i] = NULL;
@@ -3455,12 +3455,12 @@ main(int argc, char **argv)
 		translate_function(arena, &labels, functions[i]);
 		calculate_def_use_info(functions[i]->mfunc);
 		print_mfunction(stderr, functions[i]->mfunc);
-		peephole(functions[i]->mfunc, arena);
+		peephole(functions[i]->mfunc, arena, false);
 		print_mfunction(stderr, functions[i]->mfunc);
 		reg_alloc_function(&ras, functions[i]->mfunc);
 		print_mfunction(stderr, functions[i]->mfunc);
 		calculate_def_use_info(functions[i]->mfunc);
-		peephole(functions[i]->mfunc, arena);
+		peephole(functions[i]->mfunc, arena, true);
 		print_mfunction(stderr, functions[i]->mfunc);
 		//*/
 		//peephole(functions[i]->mfunc, arena);
