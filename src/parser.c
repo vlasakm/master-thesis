@@ -746,7 +746,7 @@ shortcirc(Parser *parser, CValue cleft, int rbp)
 		UNREACHABLE();
 	}
 
-	// Compile the right hand side in its own conditionally executed block
+	// Compile the right hand side into its own conditionally executed block
 	switch_to_block(parser, right_block);
 	CValue cright = expression_bp(parser, rbp);
 	Value *right = as_rvalue(parser, cright);
