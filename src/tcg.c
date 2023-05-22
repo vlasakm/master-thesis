@@ -3283,10 +3283,7 @@ peephole(MFunction *mfunction, Arena *arena)
 		if (block_use_cnt[next->block->base.index] == 0) {
 			// If there is no reference to the next block (as
 			// label), we can just merge it into the current one.
-			// assert(next);
-			// mfunction->mblocks[b + 1] = NULL;
 			mfunction->mblocks[i] = NULL;
-			assert(last->next== &mblock->insts);
 			last->next = next->insts.next;
 			next->insts.next->prev = last;
 			next->insts.prev->next = &mblock->insts;
