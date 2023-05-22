@@ -428,7 +428,7 @@ translate_return(TranslationState *ts, Oper *ret_val)
 static void
 translate_unop(TranslationState *ts, X86Group3 op, Oper res, Oper arg)
 {
-	add_copy(ts, res, op);
+	add_copy(ts, res, arg);
 	add_unop(ts, op, res);
 }
 
