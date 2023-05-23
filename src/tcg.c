@@ -2571,7 +2571,9 @@ reg_alloc_function(RegAllocState *ras, MFunction *mfunction)
 	}
 
 	// Fixup stack space amount reserved at the start of the function
-	IIMM(mfunction->make_stack_space) = mfunction->stack_space;
+	if (mfunction->make_stack_space) {
+		IIMM(mfunction->make_stack_space) = mfunction->stack_space;
+	}
 	apply_reg_assignment(ras);
 }
 
