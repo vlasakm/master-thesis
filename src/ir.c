@@ -182,7 +182,7 @@ append_to_block(Block *block, Value *new)
 }
 
 size_t
-value_arg_cnt(Value *value)
+value_operand_cnt(Value *value)
 {
 	switch (value->kind) {
 	case VK_CALL: {
@@ -198,10 +198,18 @@ value_arg_cnt(Value *value)
 	UNREACHABLE();
 }
 
+Value **
+value_operands(Value *value)
+{
+	return ((Operation *) value)->operands;
+}
+
+
+
 void
 for_each_operand(Value *value, void (*fun)(void *user_data, size_t i, Value **operand), void *user_data)
 {
-	size_t operand_cnt = value_arg_cnt(value);
+	size_t operand_cnt = value_operand_cnt(value);
 	if (operand_cnt == 0) {
 	     return;
 	}

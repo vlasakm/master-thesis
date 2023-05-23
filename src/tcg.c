@@ -1385,35 +1385,25 @@ apply_reg_assignment(RegAllocState *ras)
 	}
 }
 
-typedef struct {
-	GArena *uses;
-	Value *current;
-} GetUsesState;
-
-void
-add_uses(void *user_data, size_t i, Value **operand_)
-{
-	GetUsesState *gus = user_data;
-	Value *operand = *operand_;
-	if (operand->index == 0) {
-		return;
-	}
-	garena_push_value(&gus->uses[operand->index], Value *, gus->current);
-}
-
 void
 get_uses(Function *function)
 {
 	GROW_ARRAY(function->uses, function->value_cnt);
 	ZERO_ARRAY(function->uses, function->value_cnt);
-	GetUsesState gus = {
-		.uses = function->uses,
-	};
 	for (size_t b = 0; b < function->block_cnt; b++) {
 		Block *block = function->post_order[b];
 		FOR_EACH_IN_BLOCK(block, v) {
-			gus.current = v;
-			for_each_operand(v, add_uses, &gus);
+			FOR_EACH_OPERAND(v, operand_) {
+				Value *operand = *operand_;
+				// Skip getting uses of things like functions,
+				// constants, etc.
+				if (operand->index == 0) {
+					continue;
+				}
+				// Add to `operand`'s uses the use in `v`.
+				GArena *uses = &function->uses[operand->index];
+				garena_push_value(uses, Value *, v);
+			}
 		}
 	}
 }
@@ -1527,16 +1517,6 @@ read_variable(ValueNumberingState *vns, Block *block, Value *variable)
 }
 
 void
-canonicalize(void *user_data, size_t i, Value **operand)
-{
-	ValueNumberingState *vns = user_data;
-	Value *canonical = vns->canonical[VINDEX(*operand)];
-	if (canonical) {
-		*operand = canonical;
-	}
-}
-
-void
 seal_block(ValueNumberingState *vns, Block *block)
 {
 	size_t incomplete_phi_cnt = garena_cnt(&block->incomplete_phis, IncompletePhi);
@@ -1599,7 +1579,12 @@ value_numbering(Arena *arena, Function *function)
 			default:
 				break;
 			}
-			for_each_operand(v, canonicalize, vns);
+			FOR_EACH_OPERAND(v, operand) {
+				Value *canonical = vns->canonical[VINDEX(*operand)];
+				if (canonical) {
+					*operand = canonical;
+				}
+			}
 		}
 
 		FOR_EACH_BLOCK_SUCC(block, succ) {
