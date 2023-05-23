@@ -3643,11 +3643,13 @@ main(int argc, char **argv)
 	printf("\tsection .bss\n");
 	for (size_t i = 0; i < module->global_cnt; i++) {
 		Global *global = module->globals[i];
+		Oper size = type_size(pointer_child(global->base.type));
+		Oper count = size / type_size(&TYPE_INT);
 		if (!global->init) {
 			//printf("\talign 8\n");
 			print_str(stdout, global->name);
 			printf(":\n");
-			printf("\tresq\t1\n");
+			printf("\tresq\t%"PRIu32"\n", count);
 		}
 	}
 	printf("\n");
