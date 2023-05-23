@@ -2904,6 +2904,26 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 			skip:;
 			}
 
+			// mov rcx, 5
+			// neg rcx ; W
+			// =>
+			// mov rcx, -5
+			if (IK(inst) == IK_UNALU && IM(inst) == M_R && IK(prev) == IK_MOV && IS(prev) == MOV && IM(prev) == M_CI && IREG(inst) == IREG(prev)) {
+				def_cnt[IREG(inst)]--;
+				use_cnt[IREG(inst)]--;
+				u64 value = get_imm64(prev);
+				switch (IS(inst)) {
+				case G3_NEG: value = -value; break;
+				case G3_NOT: value = ~value; break;
+				default: UNREACHABLE();
+				}
+				set_imm64(prev, value);
+				prev->next = inst->next;
+				inst->next->prev = prev;
+				inst = prev;
+				continue;
+			}
+
 			// mov t43, 4
 			// imul t43, t19 ; W
 			// =>
