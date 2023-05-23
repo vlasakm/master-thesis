@@ -809,7 +809,12 @@ print_mfunction(FILE *f, MFunction *mfunction)
 
 struct RegAllocState {
 	Arena *arena;
+
+	// Current function for which we are allocating registers.
 	MFunction *mfunction;
+	// Current block, for some notion of current (used by some iterators).
+	MBlock *mblock;
+
 	size_t vreg_capacity;
 	size_t block_capacity;
 	size_t move_capacity;
@@ -824,9 +829,9 @@ struct RegAllocState {
 	Oper *alias;
 
 	// Spill cost related
-	u8 *def_count;
-	u8 *use_count;
-	u8 *unspillable;
+	u16 *def_cost;
+	u16 *use_cost;
+	u8 *unspillable; // true/false for each vreg
 
 	// Degrees of nodes.
 	u32 *degree;
@@ -891,8 +896,8 @@ reg_alloc_state_reset(RegAllocState *ras)
 		GROW_ARRAY(ras->reg_assignment, ras->vreg_capacity);
 		GROW_ARRAY(ras->to_spill, ras->vreg_capacity);
 		GROW_ARRAY(ras->alias, ras->vreg_capacity);
-		GROW_ARRAY(ras->def_count, ras->vreg_capacity);
-		GROW_ARRAY(ras->use_count, ras->vreg_capacity);
+		GROW_ARRAY(ras->def_cost, ras->vreg_capacity);
+		GROW_ARRAY(ras->use_cost, ras->vreg_capacity);
 		GROW_ARRAY(ras->unspillable, ras->vreg_capacity);
 		GROW_ARRAY(ras->degree, ras->vreg_capacity);
 		ig_grow(&ras->ig, old_vreg_capacity, ras->vreg_capacity);
@@ -918,8 +923,8 @@ reg_alloc_state_reset(RegAllocState *ras)
 	for (size_t i = 0; i < ras->mfunction->vreg_cnt; i++) {
 		ras->alias[i] = i;
 	}
-	ZERO_ARRAY(ras->def_count, ras->mfunction->vreg_cnt);
-	ZERO_ARRAY(ras->use_count, ras->mfunction->vreg_cnt);
+	ZERO_ARRAY(ras->def_cost, ras->mfunction->vreg_cnt);
+	ZERO_ARRAY(ras->use_cost, ras->mfunction->vreg_cnt);
 	ZERO_ARRAY(ras->unspillable, ras->mfunction->vreg_cnt);
 	ZERO_ARRAY(ras->degree, ras->mfunction->vreg_cnt);
 	ig_reset(&ras->ig, ras->mfunction->vreg_cnt);
@@ -948,8 +953,8 @@ reg_alloc_state_free(RegAllocState *ras)
 	FREE_ARRAY(ras->reg_assignment, ras->vreg_capacity);
 	FREE_ARRAY(ras->to_spill, ras->vreg_capacity);
 	FREE_ARRAY(ras->alias, ras->vreg_capacity);
-	FREE_ARRAY(ras->def_count, ras->vreg_capacity);
-	FREE_ARRAY(ras->use_count, ras->vreg_capacity);
+	FREE_ARRAY(ras->def_cost, ras->vreg_capacity);
+	FREE_ARRAY(ras->use_cost, ras->vreg_capacity);
 	FREE_ARRAY(ras->unspillable, ras->vreg_capacity);
 	FREE_ARRAY(ras->degree, ras->vreg_capacity);
 	ig_free(&ras->ig, ras->vreg_capacity);
@@ -1830,8 +1835,9 @@ mark_defs_with_uninterrupted_uses_unspillable(void *user_data, Oper *def_)
 			fprintf(stderr, " as unspillable\n");
 		}
 	}
-	// Update def count.
-	ras->def_count[def] += 1;
+	// Update def cost by the depth of the current block, which is zero
+	// based, so we offset by one to not have zero cost in the top level.
+	ras->def_cost[def] += 1 << (3 * (ras->mblock->block->depth + 1));
 	// Update liveness.
 	wl_remove(&ras->live_set, def);
 }
@@ -1857,7 +1863,7 @@ add_live(void *user_data, Oper *use_)
 	RegAllocState *ras = user_data;
 	Oper use = *use_;
 	// Update use count.
-	ras->use_count[use] += 1;
+	ras->use_cost[use] += 1 << (3 * (ras->mblock->block->depth + 1));
 	// Update liveness and add note that this use is uninterrupted for now.
 	wl_add(&ras->live_set, use);
 	wl_add(&ras->uninterrupted, use);
@@ -1874,6 +1880,7 @@ calculate_spill_cost(RegAllocState *ras)
 		if (!mblock) {
 			continue;
 		}
+		ras->mblock = mblock;
 		Block *block = mblock->block;
 		get_live_out(ras, block, live_set);
 		// We currently can't make unspillable those vregs whose live
@@ -2130,13 +2137,14 @@ initialize_worklists(RegAllocState *ras)
 double
 spill_metric(RegAllocState *ras, Oper i)
 {
-	fprintf(stderr, "Spill cost for ");
-	print_reg(stderr, i);
-	fprintf(stderr, " degree: %"PRIu32", defs: %zu, uses: %zu, unspillable: %d\n", ras->degree[i], (size_t) ras->def_count[i], (size_t) ras->use_count[i], (int) ras->unspillable[i]);
 	if (ras->unspillable[i]) {
 		return 0.0;
 	}
-	return (double) ras->degree[i] / (ras->def_count[i] + ras->use_count[i]);
+	double cost = (double) ras->degree[i] / (ras->def_cost[i] + ras->use_cost[i]);
+	fprintf(stderr, "Spill cost for ");
+	print_reg(stderr, i);
+	fprintf(stderr, " degree: %"PRIu32", defs: %zu, uses: %zu, unspillable: %d, cost: %f\n", ras->degree[i], (size_t) ras->def_cost[i], (size_t) ras->use_cost[i], (int) ras->unspillable[i], cost);
+	return cost;
 }
 
 void

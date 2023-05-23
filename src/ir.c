@@ -86,6 +86,8 @@ create_block(Arena *arena, Function *function)
 	block->pred_cnt_ = 0;
 	block->pred_cap_ = 0;
 	block->base.index = function->block_cap;
+	// 1 is reasonable default if not overriden by the caller
+	block->depth = 1;
 	// Functions grow in powers of two.
 	if (!(function->block_cap & (function->block_cap - 1))) {
 		GROW_ARRAY(function->blocks, function->block_cap ? function->block_cap * 2 : 4);

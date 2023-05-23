@@ -41,6 +41,7 @@ typedef struct {
 	Block *current_block;
 	Block *continue_block;
 	Block *break_block;
+	size_t loop_nesting_depth;
 } Parser;
 
 typedef struct {
@@ -121,7 +122,9 @@ eat_identifier(Parser *parser)
 static Block *
 add_block(Parser *parser)
 {
-	return create_block(parser->arena, parser->current_function);
+	Block *block = create_block(parser->arena, parser->current_function);
+	block->depth = parser->loop_nesting_depth;
+	return block;
 }
 
 static Operation *
@@ -812,7 +815,9 @@ loop_body(Parser *parser, Block *continue_block, Block *break_block)
 	Block *saved_continue_block = parser->continue_block;
 	parser->break_block = break_block;
 	parser->continue_block = continue_block;
+	parser->loop_nesting_depth++;
 	statement(parser);
+	parser->loop_nesting_depth--;
 	parser->break_block = saved_break_block;
 	parser->continue_block = saved_continue_block;
 }
@@ -881,6 +886,9 @@ statement(Parser *parser)
 		loop_body(parser, cond_block, after_block);
 		add_jump(parser, cond_block);
 
+		cond_block->depth++;
+		body_block->depth++;
+
 		switch_to_block(parser, after_block);
 		break;
 	}
@@ -904,6 +912,9 @@ statement(Parser *parser)
 		eat(parser, TK_RPAREN);
 		eat(parser, TK_SEMICOLON);
 		add_cond_jump(parser, cond, body_block, after_block);
+
+		cond_block->depth++;
+		body_block->depth++;
 
 		switch_to_block(parser, after_block);
 		break;
@@ -948,6 +959,10 @@ statement(Parser *parser)
 		switch_to_block(parser, body_block);
 		loop_body(parser, incr_block, after_block);
 		add_jump(parser, incr_block);
+
+		cond_block->depth++;
+		incr_block->depth++;
+		body_block->depth++;
 
 		switch_to_block(parser, after_block);
 		break;
@@ -1226,6 +1241,7 @@ parse(Arena *arena, GArena *scratch, Str source, void (*error_callback)(void *us
 		.had_error = false,
 		.panic_mode = false,
 		.env = {0},
+		.loop_nesting_depth = 0,
 	};
 	discard(&parser);
 
