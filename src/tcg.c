@@ -1569,21 +1569,23 @@ value_numbering(Arena *arena, Function *function)
 			case VK_ALLOCA:
 				if (is_optimizable_alloca(v)) {
 					remove_value(v);
+					continue;
 				}
-				continue;
+				break;
 			case VK_LOAD:
 				if (is_optimizable_alloca(LOAD_ADDR(v))) {
 					Value *val = read_variable(vns, block, LOAD_ADDR(v));
 					vns->canonical[VINDEX(v)] = val;
 					remove_value(v);
+					continue;
 				}
-				continue;
+				break;
 			case VK_STORE:
 				if (is_optimizable_alloca(STORE_ADDR(v))) {
 					write_variable(vns, block, STORE_ADDR(v), STORE_VALUE(v));
 					remove_value(v);
+					continue;
 				}
-				continue;
 			default:
 				break;
 			}
