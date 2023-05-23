@@ -1160,14 +1160,29 @@ typedef struct {
 	Oper spill_start;
 } SpillState;
 
+Oper
+get_fresh_vreg_for_spill(RegAllocState *ras)
+{
+	Oper vreg = ras->mfunction->vreg_cnt++;
+	// If we get out of capacity, reserve 3 times that much in the spill
+	// array, just so we can progress. The rest of the data structures are
+	// only needed in the second reg alloc try, which resets and reallocates
+	// them. This still doesn' guarantee, that we won't get out of vregs,
+	// because we don't bump the capacity, but at that point, there should
+	// be a better solution altogether.
+	if (vreg == ras->vreg_capacity) {
+		GROW_ARRAY(ras->to_spill, ras->vreg_capacity * 4);
+	}
+	assert(vreg != 4 * ras->vreg_capacity);
+	return vreg;
+}
+
 bool
 is_to_be_spilled(SpillState *ss, Oper t)
 {
-	// Newly introduced temporaries (>= `ss->spill_start`) are:
-	// 1) Not spilled.
-	// 2) Out of bounds for `to_spill`.
-	// So it is important the we check that first.
-	return t < ss->spill_start && ss->ras->to_spill[t];
+	// NOTE: We make sure that even `to_spill` is in bounds even for vregs
+	// introduced for spill code, see `get_fresh_vreg_for_spill` above.
+	return ss->ras->to_spill[t];
 }
 
 void
@@ -1180,7 +1195,8 @@ insert_loads_of_spilled(void *user_data, Oper *src)
 	}
 	Inst *inst = ss->inst;
 
-	Oper temp = ras->mfunction->vreg_cnt++;
+	Oper temp = get_fresh_vreg_for_spill(ras);
+	ras->to_spill[temp] = ras->to_spill[*src];
 	fprintf(stderr, "load ");
 	print_reg(stderr, *src);
 	fprintf(stderr, " through ");
@@ -1198,14 +1214,6 @@ insert_loads_of_spilled(void *user_data, Oper *src)
 	inst->prev = load;
 
 	*src = temp;
-
-	// No longer needed
-	//ras->to_spill[temp] = ras->to_spill[src];
-	//for (size_t j = 0; j < desc->dest_cnt; j++) {
-	//	if (inst->ops[j] == src) {
-	//		inst->ops[j] = temp;
-	//	}
-	//}
 }
 
 void
@@ -1218,13 +1226,59 @@ insert_stores_of_spilled(void *user_data, Oper *dest)
 	}
 	Inst *inst = ss->inst;
 
-	Oper temp = ras->mfunction->vreg_cnt++;
+	// If the "to be spilled" register has actually been introduced only
+	// after we started spilling (i.e. it is bigger than `spill_start`, then
+	// we actually have a definition of a use in this same instruction.
+	// Think:
+	//
+	//    add t20, t21
+	//
+	// If use of t20 has been spilled through t30, and we have:
+	//
+	//    mov t30, [rbp+t20]
+	//    add t30, t21
+	//
+	// Then we need to store t30 and not introduce a new vreg:
+	//
+	//    mov t30, [rbp+t20]
+	//    add t30, t21
+	//    mov [rbp+t20], t30
+	//
+	// Of course at that point we could also have:
+	//
+	//    add [rbp+t20], t21
+	//
+	// But:
+	//  1) that is the business of the instruction selection,
+	//  2) it may be actually worse, depending on the surrounding code.
+	//
+	// For example if we originally had:
+	//
+	//    mov t20, t22
+	//    add t20, t21
+	//
+	// Then we don't want store followed immediately by a load:
+	//
+	//    mov [rbp+t20], t22
+	//    add [rbp+t20], t21
+	//
+	// But instead we would want:
+	//
+	//    mov t30, t22
+	//    add t30, t21
+	//    mov [rbp+t20], t30
+	//
+	Oper temp;
+	if (*dest >= ss->spill_start) {
+		temp = *dest;
+	} else {
+		temp = get_fresh_vreg_for_spill(ras);
+	}
 	fprintf(stderr, "store ");
 	print_reg(stderr, *dest);
 	fprintf(stderr, " through ");
 	print_reg(stderr, temp);
 	fprintf(stderr, "\n");
-	// NOTE: Three address code would need something different
 
 	//Inst *store = make_inst(ras->arena, OP_MOV_MCR, R_RBP, temp, 8 + ras->to_spill[dest]);
 	Inst *store = create_inst(ras->arena, IK_MOV, MOV);
@@ -2603,6 +2657,12 @@ mfunction_free(MFunction *mfunction)
 }
 
 bool
+is_memory_same(Inst *a, Inst *b)
+{
+	return ISCALE(a) == ISCALE(b) && IINDEX(a) == IINDEX(b) && IBASE(a) == IBASE(b) && IDISP(a) == IDISP(b);
+}
+
+bool
 try_replace_by_immediate(MFunction *mfunction, Inst *inst, Oper o)
 {
 	Inst *def = mfunction->only_def[o];
@@ -3062,13 +3122,40 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 				continue;
 			}
 
+			Inst *ppprev = pprev->prev;
+
+			// mov [rbp-16], t18
+			// mov t21, [rbp-16]
+			// add t21, t19 ; W
+			// mov [rbp-16], t21
+			// => (due to a previous optimization)
+        		// mov [rbp-16], t18
+        		// mov t21, t18
+        		// add t21, t19 ; W
+        		// mov [rbp-16], t21
+			// =>
+			// mov t21, t18
+			// add t21, t19 ; W
+			// mov [rbp-16], t21
+			if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_Mr && IK(prev) == IK_BINALU && IM(prev) == M_Rr && IREG(prev) == IREG(inst) && IK(pprev) == IK_MOV && IS(pprev) == MOV && IM(pprev) == M_Cr && IREG(pprev) == IREG(inst) && IK(ppprev) == IK_MOV && IS(ppprev) == MOV && IM(ppprev) == M_Mr && IREG(ppprev) == IREG2(pprev) && is_memory_same(inst, ppprev)) {
+				ppprev->prev->next = pprev;
+				pprev->prev = ppprev->prev;
+				inst = pprev;
+				continue;
+			}
+
 			// mov rax, [rbp-24]
 			// add rax, 1
 			// mov [rbp-24], rax
 			// =>
 			// add [rbp-24], 1
-			if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_Mr && ((IK(prev) == IK_BINALU && IM(prev) == M_Ri) || (IK(prev) == IK_UNALU && IM(prev) == M_R)) && IK(pprev) == IK_MOV && IS(pprev) == MOV && IM(pprev) == M_CM && IREG(prev) == IREG(pprev) && IREG(inst) == IREG(prev) && ISCALE(pprev) == ISCALE(inst) && IINDEX(pprev) == IINDEX(inst) && IBASE(pprev) == IBASE(inst) && IDISP(pprev) == IDISP(inst)) {
-				IM(prev) = IM(prev) == M_Ri ? M_Mi : M_M;
+			if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_Mr && ((IK(prev) == IK_BINALU && (IM(prev) == M_Ri || IM(prev) == M_Rr)) || (IK(prev) == IK_UNALU && IM(prev) == M_R)) && IK(pprev) == IK_MOV && IS(pprev) == MOV && IM(pprev) == M_CM && IREG(prev) == IREG(pprev) && IREG(inst) == IREG(prev) && is_memory_same(pprev, inst)) {
+				switch (IM(prev)) {
+				case M_Ri: IM(prev) = M_Mi; break;
+				case M_Rr: IM(prev) = M_Mr; break;
+				case M_R:  IM(prev) = M_M;  break;
+				default: UNREACHABLE();
+				}
 				ISCALE(prev) = ISCALE(inst);
 				IINDEX(prev) = IINDEX(inst);
 				IBASE(prev) = IBASE(inst);
@@ -3080,7 +3167,6 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 				inst = prev;
 				continue;
 			}
-
 
 			// imul t36, t44 ; W
 			// test t36, t36 ; WO
