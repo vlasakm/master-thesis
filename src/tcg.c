@@ -2,7 +2,6 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <stdint.h>
 #include <inttypes.h>
 #include <stdarg.h>
 #include <stdbool.h>
