@@ -490,8 +490,7 @@ cast(Parser *parser)
 	Value *value = as_rvalue(parser, cvalue);
 	eat(parser, TK_RPAREN);
 	if (new_type == &TYPE_VOID) {
-		// TODO
-		UNREACHABLE();
+		return rvalue(&NOP);
 	}
 	if (new_type->kind == TY_POINTER && value->type->kind == TY_POINTER) {
 		value->type = new_type;
