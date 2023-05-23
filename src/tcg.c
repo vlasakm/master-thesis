@@ -501,11 +501,6 @@ translate_cmpop(TranslationState *ts, CondCode cc, Oper res, Oper arg1, Oper arg
 	add_setcc(ts, cc, res);
 }
 
-typedef struct {
-	TranslationState *ts;
-	Oper opers[10];
-} TranslateOperandState;
-
 size_t
 add_label(GArena *labels, Value *value)
 {
@@ -520,12 +515,9 @@ add_label(GArena *labels, Value *value)
 	return index;
 }
 
-void
-translate_operand(void *user_data, size_t i, Value **operand_)
+Oper
+translate_operand(TranslationState *ts, Value *operand)
 {
-	TranslateOperandState *tos = user_data;
-	TranslationState *ts = tos->ts;
-	Value *operand = *operand_;
 	Oper res;
 	switch (operand->kind) {
 	case VK_BLOCK:
@@ -534,53 +526,58 @@ translate_operand(void *user_data, size_t i, Value **operand_)
 	case VK_FUNCTION: {
 		//Function *function = (void*) operand;
 		size_t label_index = add_label(ts->labels, operand);
-		res = tos->ts->index++;
-		add_lea_label(tos->ts, res, label_index);
+		res = ts->index++;
+		add_lea_label(ts, res, label_index);
 		break;
 	}
 	case VK_GLOBAL: {
 		//Global *global = (void*) operand;
-		res = tos->ts->index++;
+		res = ts->index++;
 		size_t label_index = add_label(ts->labels, operand);
-		add_lea_label(tos->ts, res, label_index);
+		add_lea_label(ts, res, label_index);
 		break;
 	}
 	case VK_CONSTANT: {
 		Constant *k = (void*) operand;
-		res = tos->ts->index++;
-		add_mov_imm(tos->ts, res, k->k);
+		res = ts->index++;
+		add_mov_imm(ts, res, k->k);
 		break;
 	}
 	case VK_ALLOCA: {
 		Alloca *alloca = (Alloca *) operand;
-		res = tos->ts->index++;
-		add_lea(tos->ts, res, R_RBP, - 8 - alloca->size);
+		res = ts->index++;
+		add_lea(ts, res, R_RBP, - 8 - alloca->size);
 		break;
 	}
 	default:
 		res = operand->index;
 		break;
 	}
-	tos->opers[i] = res;
+	return res;
 }
 
 void
 translate_value(TranslationState *ts, Value *v)
 {
-	TranslateOperandState tos_;
-	TranslateOperandState *tos = &tos_;
-	tos->ts = ts;
 	if (v->kind == VK_PHI) {
 		// Don't translate phi nor its operands -- they are handled in
 		// the predecessors.
 		return;
 	}
+
 	fprintf(stderr, "Translating: ");
 	print_value(stderr, v);
-	for_each_operand(v, translate_operand, tos);
-	Oper *ops = &tos->opers[0];
-	//Oper res = ts->index++;
+
+	Oper ops[10];
+	Value **operands = value_operands(v);
+	size_t operand_cnt = value_operand_cnt(v);
+	assert(operand_cnt < ARRAY_LEN(ops));
+	for (size_t i = 0; i < operand_cnt; i++) {
+		ops[i] = translate_operand(ts, operands[i]);
+	}
+
 	Oper res = v->index;
+
 	switch (v->kind) {
 	case VK_NOP:
 	case VK_UNDEFINED:
@@ -709,9 +706,8 @@ translate_value(TranslationState *ts, Value *v)
 		size_t pred_index = block_index_of_pred(succ, current);
 		size_t i = 0;
 		FOR_EACH_PHI_IN_BLOCK(succ, phi) {
-			// TODO: save the phi operands somewhere else
-			translate_operand(tos, 9, &phi->operands[pred_index]);
-			add_copy(ts, ops[i++] = ts->index++, ops[9]);
+			Oper t = translate_operand(ts, phi->operands[pred_index]);
+			add_copy(ts, ops[i++] = ts->index++, t);
 		}
 		i = 0;
 		FOR_EACH_PHI_IN_BLOCK(succ, phi) {
