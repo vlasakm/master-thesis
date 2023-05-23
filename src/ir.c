@@ -207,10 +207,8 @@ value_operands(Value *value)
 }
 
 void
-print_index(void *user_data, size_t i, Value **operand_)
+print_operand(FILE *f, Value *operand)
 {
-	FILE *f = user_data;
-	Value *operand = *operand_;
 	switch (operand->kind) {
 	case VK_BLOCK:
 		fprintf(f, "block");
@@ -306,7 +304,7 @@ print_value(FILE *f, Value *v)
 	case VK_GET_MEMBER_PTR: {
 		Operation *operation = (void *) v;
 		fprintf(f, "get_member_ptr ");
-		print_index(f, 0, &operation->operands[0]);
+		print_operand(f, operation->operands[0]);
 		Field *field = get_member(v);
 		fprintf(f, " %.*s\n", (int) field->name.len, field->name.str);
 		break;
@@ -318,7 +316,8 @@ print_value(FILE *f, Value *v)
 			if (i != 0) {
 				fprintf(f, ", ");
 			}
-			print_index(f, i, operand);
+			print_operand(f, *operand);
+			i++;
 		}
 		fprintf(f, "\n");
 		break;
@@ -369,7 +368,7 @@ void
 print_index_type_value(FILE *f, Value *v)
 {
 	if (v->type->kind != TY_VOID) {
-		print_index(f, 0, &v);
+		print_operand(f, v);
 		fprintf(f, ": ");
 		print_type(f, v->type);
 		fprintf(f, " = ");
