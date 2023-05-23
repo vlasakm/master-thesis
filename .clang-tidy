@@ -1,0 +1,2 @@
+---
+Checks: '-*,-clang-analyzer-*,portability-*,readability-braces-around-statements,readability-duplicate-include,readability-else-after-return,readability-misleading-indentation,readability-redundant-*,readability-simplify-boolean-expr,bugprone-,linuxkernel-*'

@@ -7,9 +7,11 @@
 # Unignore all dirs
 !*/
 
+/.cache/
+/build/
+
 *.o
 *.E
-.cache
 a.out
 *.fls
 *.ref
