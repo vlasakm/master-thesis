@@ -159,6 +159,7 @@ size_t block_succ_cnt(Block *block);
 void block_add_pred(Block *block, Block *pred);
 void block_add_pred_to_succs(Block *block);
 size_t block_index_of_pred(Block *succ, Block *pred);
+void append_to_block(Block *block, Value *new);
 
 #define FOR_EACH_IN_BLOCK(block, v) \
 	for (Value *v = (block)->base.next; v != &(block)->base; v = v->next)

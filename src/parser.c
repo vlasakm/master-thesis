@@ -124,18 +124,6 @@ add_block(Parser *parser)
 	return create_block(parser->arena, parser->current_function);
 }
 
-void prepend_value(Value *pos, Value *new);
-
-static void
-append_to_block(Block *block, Value *new)
-{
-	if (!block) {
-		return;
-	}
-	prepend_value(&block->base, new);
-	new->parent = &block->base;
-}
-
 static Operation *
 add_operation(Parser *parser, ValueKind kind, Type *type, size_t operand_cnt)
 {

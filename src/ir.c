@@ -171,6 +171,16 @@ block_index_of_pred(Block *succ, Block *pred)
 	UNREACHABLE();
 }
 
+void
+append_to_block(Block *block, Value *new)
+{
+	if (!block) {
+		return;
+	}
+	prepend_value(&block->base, new);
+	new->parent = &block->base;
+}
+
 size_t
 value_arg_cnt(Value *value)
 {
