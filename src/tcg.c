@@ -1378,7 +1378,7 @@ mem2reg(Function *function)
 		print_value(stderr, v);
 		for (size_t i = 0; i < use_cnt; i++) {
 			Value *use = uses[i];
-			if (VK(use) == VK_STORE && STORE_ADDR(use) == v) {
+			if (VK(use) == VK_STORE && STORE_ADDR(use) == v && STORE_VALUE(use) != v) {
 				continue;
 			}
 			if (VK(use) == VK_LOAD && LOAD_ADDR(use) == v) {
