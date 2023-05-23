@@ -145,6 +145,16 @@ add_lea(TranslationState *ts, Oper dest, Oper base, Oper disp)
 }
 
 static void
+add_lea_label(TranslationState *ts, Oper dest, Oper label)
+{
+	Inst *inst = add_inst(ts, IK_MOV, LEA);
+	inst->mode = M_CM;
+	IREG(inst) = dest;
+	IBASE(inst) = R_NONE;
+	ILABEL(inst) = label;
+}
+
+static void
 add_mov_imm(TranslationState *ts, Oper dest, u64 imm)
 {
 	Inst *inst = add_inst(ts, IK_MOV, MOV);
@@ -525,14 +535,14 @@ translate_operand(void *user_data, size_t i, Value **operand_)
 		//Function *function = (void*) operand;
 		size_t label_index = add_label(ts->labels, operand);
 		res = tos->ts->index++;
-		add_lea(tos->ts, res, R_NONE, label_index);
+		add_lea_label(tos->ts, res, label_index);
 		break;
 	}
 	case VK_GLOBAL: {
 		//Global *global = (void*) operand;
 		res = tos->ts->index++;
 		size_t label_index = add_label(ts->labels, operand);
-		add_lea(tos->ts, res, R_NONE, label_index);
+		add_lea_label(tos->ts, res, label_index);
 		break;
 	}
 	case VK_CONSTANT: {
@@ -2660,9 +2670,32 @@ mfunction_free(MFunction *mfunction)
 }
 
 bool
+is_rip_relative(Inst *inst)
+{
+	return IBASE(inst) == R_NONE;
+}
+
+bool
 is_memory_same(Inst *a, Inst *b)
 {
 	return ISCALE(a) == ISCALE(b) && IINDEX(a) == IINDEX(b) && IBASE(a) == IBASE(b) && IDISP(a) == IDISP(b);
+}
+
+void
+copy_memory(Inst *dest, Inst *src)
+{
+	// This copies normal x86-64 addressing mode:
+	//     [base+scale*index+disp]
+	ISCALE(dest) = ISCALE(src);
+	IINDEX(dest) = IINDEX(src);
+	IBASE(dest) = IBASE(src);
+	IDISP(dest) = IDISP(src);
+        // The other addressing mode is:
+        //     [rip+disp]
+        // It uses IBASE(inst) = R_NONE and the displacement is actually
+        // label+displacement, which are encoded using ILABEL(inst) and
+        // IDISP(inst). Since we copy IBASE IDISP above and ILABEL aliases with
+        // ISCALE, which we also copied above, it works for both cases.
 }
 
 bool
@@ -2695,11 +2728,12 @@ try_combine_memory(MFunction *mfunction, Inst *inst)
 		return false;
 	}
 	assert(mfunction->def_count[IBASE(inst)] == 1);
-	if (!(IK(def) == IK_MOV && IS(def) == LEA)) {
+	if (IK(def) != IK_MOV || IS(def) != LEA) {
 		return false;
 	}
-	assert(IBASE(def));
-	if (IBASE(def) != R_RBP && mfunction->def_count[IBASE(def)] > 1) {
+	// If this isn't RIP-relative addressing, and base isn't RBP, then we
+	// bail out, if the definition may be ambigous.
+	if (IBASE(def) != R_NONE && IBASE(def) != R_RBP && mfunction->def_count[IBASE(def)] > 1) {
 		return false;
 	}
 	if (IINDEX(inst)) {
@@ -2709,14 +2743,23 @@ try_combine_memory(MFunction *mfunction, Inst *inst)
 		// etc.
 		return false;
 	}
-	if (ISCALE(inst) != 0) {
-		// Like above.
+	if (IBASE(def) == R_NONE) {
+		// Assert that RIP-relative addressing doesn't have an index.
+		assert(IINDEX(def) == R_NONE);
+	}
+	// If the current instruction is RIP-relative or it has a scale, then we
+	// also don't do anything currently.
+	if (IBASE(inst) == R_NONE || ISCALE(inst) != 0) {
 		return false;
 	}
+	// Try to add together the displacements. If they don't fit into 32
+	// bits, then we bail out.
 	if (!pack_into_oper((u64) IDISP(inst) + (u64) IDISP(def), &IDISP(inst))) {
 		return false;
 	}
 	IBASE(inst) = IBASE(def);
+	// NOTE: ISCALE essentially copies ILABEL in case of rip relative
+	// addressing
 	ISCALE(inst) = ISCALE(def);
 	IINDEX(inst) = IINDEX(def);
 	if (--mfunction->use_count[IREG(def)] == 0) {
@@ -2735,10 +2778,13 @@ try_combine_label(MFunction *mfunction, Inst *inst)
 		return false;
 	}
 	assert(mfunction->def_count[IREG(inst)] == 1);
-	if (!(IK(def) == IK_MOV && IS(def) == LEA && IBASE(def) == R_NONE)) {
+	// We are looking for rip relative addressing (i.e. IBASE == R_NONE),
+	// but also without any other displacement other than the label (i.e.
+	// IDISP == 0).
+	if (IK(def) != IK_MOV || IS(def) != LEA || IBASE(def) != R_NONE || IDISP(def) != 0) {
 		return false;
 	}
-	ILABEL(inst) = IDISP(def);
+	ILABEL(inst) = ILABEL(def);
 	if (--mfunction->use_count[IREG(def)] == 0) {
 		def->prev->next = def->next;
 		def->next->prev = def->prev;
@@ -3018,7 +3064,7 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 			// =>
 			// mov [G], t27
 			// mov t28, t27
-			if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_CM && IK(prev) == IK_MOV && IS(prev) == MOV && IM(prev) == M_Mr && IBASE(inst) == IBASE(prev) && ISCALE(inst) == ISCALE(prev) && IINDEX(inst) == IINDEX(prev) && IDISP(inst) == IDISP(prev)) {
+			if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_CM && IK(prev) == IK_MOV && IS(prev) == MOV && IM(prev) == M_Mr && is_memory_same(inst, prev)) {
 				use_cnt[IREG(prev)]++;
 				IM(inst) = M_Cr;
 				IREG2(inst) = IREG(prev);
@@ -3115,7 +3161,7 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 			// lea t32, [t18+t50]
 			// =>
 			// lea t32, [t18+8*t50]
-			if (mode_has_memory(IM(inst)) && IINDEX(inst) != R_NONE && IK(prev) == IK_IMUL3 && IM(prev) == M_Cri && IREG(prev) == IINDEX(inst) && IIMM(prev) == 8 && ISCALE(inst) == 0 && use_cnt[IREG(prev)] == 1) {
+			if (mode_has_memory(IM(inst)) && !is_rip_relative(inst) && IINDEX(inst) != R_NONE && IK(prev) == IK_IMUL3 && IM(prev) == M_Cri && IREG(prev) == IINDEX(inst) && IIMM(prev) == 8 && ISCALE(inst) == 0 && use_cnt[IREG(prev)] == 1) {
 				use_cnt[IREG(prev)]--;
 				ISCALE(inst) = 3;
 				IINDEX(inst) = IREG2(prev);
@@ -3159,10 +3205,7 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 				case M_R:  IM(prev) = M_M;  break;
 				default: UNREACHABLE();
 				}
-				ISCALE(prev) = ISCALE(inst);
-				IINDEX(prev) = IINDEX(inst);
-				IBASE(prev) = IBASE(inst);
-				IDISP(prev) = IDISP(inst);
+				copy_memory(prev, inst);
 				prev->prev = pprev->prev;
 				pprev->prev->next = prev;
 				prev->next = inst->next;
@@ -3256,9 +3299,12 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 			// =>
 			// mov 19, 10
 			if (IK(inst) == IK_MOV && IS(inst) == LEA && try_replace_by_immediate(mfunction, inst, IBASE(inst))) {
+				// At this point we know that this isn't
+				// RIP-relative addressing, since IBASE was
+				// found to have unique definition to immediate.
 				IDISP(inst) += IIMM(inst);
 				IIMM(inst) = 0;
-				if (IINDEX(inst)) {
+				if (IINDEX(inst) != R_NONE) {
 					IBASE(inst) = IINDEX(inst);
 				} else {
 					IS(inst) = MOV;

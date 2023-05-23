@@ -330,7 +330,7 @@ print_mem(FILE *f, MFunction *mfunction, Inst *inst)
 {
 	fprintf(f, "[");
 	if (IBASE(inst) == R_NONE) {
-		Value *value = garena_array(mfunction->labels, Value *)[IDISP(inst)];
+		Value *value = garena_array(mfunction->labels, Value *)[ILABEL(inst)];
 		print_value(f, value);
 	} else {
 		print_reg(f, IBASE(inst));
@@ -341,9 +341,9 @@ print_mem(FILE *f, MFunction *mfunction, Inst *inst)
 			}
 			print_reg(f, IINDEX(inst));
 		}
-		if (IDISP(inst)) {
-			fprintf(f, "%+"PRIi32, IDISP(inst));
-		}
+	}
+	if (IDISP(inst)) {
+		fprintf(f, "%+"PRIi32, IDISP(inst));
 	}
 	fprintf(f, "]");
 }
