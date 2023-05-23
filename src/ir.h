@@ -125,8 +125,6 @@ size_t value_operand_cnt(Value *value);
 #define FOR_EACH_OPERAND(value, op) \
 	for (Value **op = value_operands(value), **last = op + value_operand_cnt(value); op != last; op++)
 
-void for_each_operand(Value *value, void (*fun)(void *user_data, size_t i, Value **operand), void *user_data);
-
 void print_value(FILE *f, Value *v);
 
 void prepend_value(Value *pos, Value *new);

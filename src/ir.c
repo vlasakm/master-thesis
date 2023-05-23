@@ -204,29 +204,11 @@ value_operands(Value *value)
 	return ((Operation *) value)->operands;
 }
 
-
-
-void
-for_each_operand(Value *value, void (*fun)(void *user_data, size_t i, Value **operand), void *user_data)
-{
-	size_t operand_cnt = value_operand_cnt(value);
-	if (operand_cnt == 0) {
-	     return;
-	}
-	Operation *op = (void *) value;
-	for (size_t i = 0; i < operand_cnt; i++) {
-		fun(user_data, i, &op->operands[i]);
-	}
-}
-
 void
 print_index(void *user_data, size_t i, Value **operand_)
 {
 	FILE *f = user_data;
 	Value *operand = *operand_;
-	if (i != 0) {
-		fprintf(f, ", ");
-	}
 	switch (operand->kind) {
 	case VK_BLOCK:
 		fprintf(f, "block");
@@ -329,7 +311,13 @@ print_value(FILE *f, Value *v)
 	}
 	default: {
 		fprintf(f, "%s ", value_kind_repr[v->kind]);
-		for_each_operand(v, print_index, f);
+		size_t i = 0;
+		FOR_EACH_OPERAND(v, operand) {
+			if (i != 0) {
+				fprintf(f, ", ");
+			}
+			print_index(f, i, operand);
+		}
 		fprintf(f, "\n");
 		break;
 	}
