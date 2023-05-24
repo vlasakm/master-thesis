@@ -72,20 +72,23 @@ typedef struct {
 Inst *
 create_inst(Arena *arena, InstKind kind, u8 subkind, X86Mode mode)
 {
-	//InstDesc *desc = &inst_desc[op];
-	//size_t operand_cnt = desc->label_cnt;
-	//Inst *inst = arena_alloc(arena, sizeof(*inst) + operand_cnt * sizeof(inst->ops[0]));
-	Inst *inst = arena_alloc(arena, sizeof(*inst) + 6 * sizeof(inst->ops[0]));
+	// On x86-64 we use uniform representation which always with 6 operands.
+	// The operands have different meanings depending on the mode and some
+	// modes use as little as 0 of those operands, but we as of now, prefer
+	// uniform allocation - this allows to completely change instruction
+	// from one mode to another without worrying about the allocation being
+	// too small. It also allows the allocations to be reused simply with
+	// free list, though this is currently not employed.
+	size_t operand_cnt = 6;
+
+	Inst *inst = arena_alloc(arena, sizeof(*inst) + operand_cnt * sizeof(inst->ops[0]));
 	inst->kind = kind;
 	inst->subkind = subkind;
 	inst->mode = mode;
 	inst->flags_observed = false; // Redefined later by analysis.
 	inst->writes_flags = false; // Default is no flags.
 	inst->reads_flags = false; // Default is no flags.
-	memset(&inst->ops[0], 0, 6 * sizeof(inst->ops[0]));
-	//for (size_t i = 0; i < 6; i++) {
-	//	inst->ops[i] = va_arg(ap, Oper);
-	//}
+	memset(&inst->ops[0], 0, operand_cnt * sizeof(inst->ops[0]));
 	return inst;
 }
 
