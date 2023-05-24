@@ -1389,8 +1389,8 @@ apply_reg_assignment(RegAllocState *ras)
 void
 get_uses(Function *function)
 {
-	GROW_ARRAY(function->uses, function->value_cnt);
-	ZERO_ARRAY(function->uses, function->value_cnt);
+	GROW_ARRAY(function->uses, 2 * function->value_cnt);
+	ZERO_ARRAY(function->uses, 2 * function->value_cnt);
 	for (size_t b = 0; b < function->block_cnt; b++) {
 		Block *block = function->post_order[b];
 		FOR_EACH_IN_BLOCK(block, v) {
@@ -1459,12 +1459,104 @@ typedef struct {
 Value *read_variable(ValueNumberingState *vns, Block *block, Value *variable);
 
 void
+add_use(Function *function, Value *what, Value *where)
+{
+	GArena *uses = &function->uses[what->index];
+	garena_push_value(uses, Value *, where);
+}
+
+void
+remove_use(Function *function, Value *what, Value *where)
+{
+	if (what->index == 0) {
+		return;
+	}
+	GArena *guses = &function->uses[what->index];
+	size_t use_cnt = garena_cnt(guses, Value *);
+	assert(use_cnt > 0);
+	Value **uses = garena_array(guses, Value *);
+	for (size_t i = 0; i < use_cnt; i++) {
+		if (uses[i] == where) {
+			use_cnt--;
+			Value *last = uses[use_cnt];
+			uses[i] = last;
+			break;
+		}
+	}
+	guses->pos -= sizeof(Value *);
+}
+
+void
+replace_by(Function *function, Value *old, Value *new)
+{
+	GArena *guses = &function->uses[old->index];
+	size_t use_cnt = garena_cnt(guses, Value *);
+	Value **uses = garena_array(guses, Value *);
+	for (size_t i = 0; i < use_cnt; i++) {
+		Value *use = uses[i];
+		FOR_EACH_OPERAND(use, operand) {
+			if (*operand == old) {
+				*operand = new;
+			}
+		}
+		add_use(function, new, use);
+	}
+}
+
+void
+remove_value_and_uses_of_operands(Function *function, Value *where)
+{
+	FOR_EACH_OPERAND(where, operand) {
+		remove_use(function, *operand, where);
+	}
+	remove_value(where);
+}
+
+
+void
+try_remove_trivial_phi(Arena *arena, Function *function, Operation *phi)
+{
+	Value *same = NULL;
+	size_t operand_cnt = value_operand_cnt(&phi->base);
+	for (size_t i = 0; i < operand_cnt; i++) {
+		Value *op = phi->operands[i];
+		if (op == same || op == &phi->base) {
+			continue;
+		}
+		if (same) {
+			return;
+		}
+		same = op;
+	}
+	if (!same) {
+		Operation *undefined = create_operation(arena, (Block *) phi->base.parent, VK_UNDEFINED, phi->base.type, 0);
+		same = &undefined->base;
+	}
+	assert(same);
+	remove_use(function, &phi->base, &phi->base);
+	replace_by(function, &phi->base, same);
+	GArena *guses = &function->uses[phi->base.index];
+	size_t use_cnt = garena_cnt(guses, Value *);
+	Value **uses = garena_array(guses, Value *);
+	for (size_t i = 0; i < use_cnt; i++) {
+		Value *use = uses[i];
+		if (VK(use) == VK_PHI) {
+			try_remove_trivial_phi(arena, function, (Operation*) use);
+		}
+	}
+	remove_value(&phi->base);
+}
+
+void
 add_phi_operands(ValueNumberingState *vns, Operation *phi, Block *block, Value *variable)
 {
 	size_t i = 0;
 	FOR_EACH_BLOCK_PRED(block, pred) {
-		phi->operands[i++] = read_variable(vns, *pred, variable);
+		Value *value = read_variable(vns, *pred, variable);
+		phi->operands[i++] = value;
+		add_use(vns->function, value, &phi->base);
 	}
+	try_remove_trivial_phi(vns->arena, vns->function, phi);
 }
 
 typedef struct {
@@ -1533,7 +1625,9 @@ void
 value_numbering(Arena *arena, Function *function)
 {
 	size_t block_cnt = function->block_cnt;
-	size_t value_cnt = function->value_cnt;
+	// Overallocate, so we can store information also for newly introduced
+	// phi nodes.
+	size_t value_cnt = 2 * function->value_cnt;
 
 	ValueNumberingState vns_ = {
 		.arena = arena,
@@ -1567,14 +1661,14 @@ value_numbering(Arena *arena, Function *function)
 				if (is_optimizable_alloca(LOAD_ADDR(v))) {
 					Value *val = read_variable(vns, block, LOAD_ADDR(v));
 					vns->canonical[VINDEX(v)] = val;
-					remove_value(v);
+					remove_value_and_uses_of_operands(function, v);
 					continue;
 				}
 				break;
 			case VK_STORE:
 				if (is_optimizable_alloca(STORE_ADDR(v))) {
 					write_variable(vns, block, STORE_ADDR(v), STORE_VALUE(v));
-					remove_value(v);
+					remove_value_and_uses_of_operands(function, v);
 					continue;
 				}
 			default:
@@ -1583,7 +1677,10 @@ value_numbering(Arena *arena, Function *function)
 			FOR_EACH_OPERAND(v, operand) {
 				Value *canonical = vns->canonical[VINDEX(*operand)];
 				if (canonical) {
+					Value *old_operand = *operand;
 					*operand = canonical;
+					remove_use(function, old_operand, v);
+					add_use(function, canonical, v);
 				}
 			}
 		}
@@ -3586,8 +3683,8 @@ main(int argc, char **argv)
 		print_function(stderr, functions[i]);
 		get_uses(functions[i]);
 		mem2reg(functions[i]);
-		free_uses(functions[i]);
 		value_numbering(arena, functions[i]);
+		free_uses(functions[i]);
 		print_function(stderr, functions[i]);
 		thread_jumps(arena, functions[i]);
 		print_function(stderr, functions[i]);

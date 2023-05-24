@@ -21,6 +21,32 @@ value_init(Value *value, ValueKind kind, Type *type)
 	*value = (Value) { .kind = kind, .type = type };
 }
 
+void
+prepend_value(Value *pos, Value *new)
+{
+	Value *prev = pos->prev;
+	new->prev = prev;
+	new->next = pos;
+	prev->next = new;
+	pos->prev = new;
+}
+
+void
+remove_value(Value *v)
+{
+	v->prev->next = v->next;
+	v->next->prev = v->prev;
+}
+
+void
+replace_value(Value *old, Value *new)
+{
+	old->prev->next = new;
+	old->next->prev = new;
+	new->next = old->next;
+	new->prev = old->prev;
+}
+
 bool
 value_is_terminator(Value *value)
 {
@@ -55,6 +81,8 @@ create_unary(Arena *arena, Block *block, ValueKind kind, Type *type, Value *arg)
 	return &op->base;
 }
 
+static Value NOP = { .type = &TYPE_VOID, .kind = VK_NOP };
+
 Operation *
 insert_phi(Arena *arena, Block *block, Type *type)
 {
@@ -65,6 +93,9 @@ insert_phi(Arena *arena, Block *block, Type *type)
 		}
 	}
 	Operation *phi = arena_alloc(arena, sizeof(*phi) + sizeof(phi->operands[0]) * block_pred_cnt(block));
+	for (size_t i = 0; i < block_pred_cnt(block); i++) {
+	     phi->operands[i] = &NOP;
+	}
 	value_init(&phi->base, VK_PHI, type);
 	phi->base.index = ((Function *) block->base.parent)->value_cnt++;
 	phi->base.parent = &block->base;
@@ -253,23 +284,6 @@ number_values(Function *function, size_t start_index)
 	}
 	function->value_cnt = index;
 	return index;
-}
-
-void
-prepend_value(Value *pos, Value *new)
-{
-	Value *prev = pos->prev;
-	new->prev = prev;
-	new->next = pos;
-	prev->next = new;
-	pos->prev = new;
-}
-
-void
-remove_value(Value *v)
-{
-	v->prev->next = v->next;
-	v->next->prev = v->prev;
 }
 
 void
