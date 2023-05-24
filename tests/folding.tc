@@ -1,0 +1,8 @@
+// vim: ft=c et sw=4
+
+int main() {
+    int a = 1 + 2; // 3
+    int b = 1 - 2; // -1
+    int c = -5 * -4; // -20
+    return a == 3 && b == -1 && c == -20;
+}
