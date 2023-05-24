@@ -60,3 +60,7 @@ struct MFunction {
 	u8 *use_count;
 	u8 *block_use_count;
 };
+
+
+void for_each_def(Inst *inst, void (*fun)(void *user_data, Oper *def), void *user_data);
+void for_each_use(Inst *inst, void (*fun)(void *user_data, Oper *use), void *user_data);
