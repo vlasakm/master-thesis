@@ -1534,7 +1534,7 @@ try_remove_trivial_phi(Arena *arena, Function *function, Operation *phi)
 		Operation *undefined = create_operation(arena, (Block *) phi->base.parent, VK_UNDEFINED, phi->base.type, 0);
 		same = &undefined->base;
 	}
-	remove_use(function, &phi->base, &phi->base, false);
+	remove_value_and_uses_of_operands(function, &phi->base);
 	replace_by(function, &phi->base, same);
 	GArena *guses = &function->uses[phi->base.index];
 	size_t use_cnt = garena_cnt(guses, Value *);
@@ -1545,7 +1545,6 @@ try_remove_trivial_phi(Arena *arena, Function *function, Operation *phi)
 			try_remove_trivial_phi(arena, function, (Operation*) use);
 		}
 	}
-	remove_value(&phi->base);
 }
 
 void
