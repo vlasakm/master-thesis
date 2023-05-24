@@ -798,7 +798,7 @@ print_mfunction(FILE *f, MFunction *mfunction)
 		if (!mblock) {
 			continue;
 		}
-		fprintf(f, ".BB%zu:\n", mblock->block->base.index);
+		fprintf(f, ".L%zu:\n", mblock->block->base.index);
 		for (Inst *inst = mblock->insts.next; inst != &mblock->insts; inst = inst->next) {
 			fprintf(f, "\t");
 			print_inst(f, mfunction, inst);

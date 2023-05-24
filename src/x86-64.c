@@ -435,7 +435,7 @@ print_inst(FILE *f, MFunction *mfunction, Inst *inst)
 		break;
 	case M_L:
 		fprintf(f, " ");
-		fprintf(f, ".BB%"PRIi32, ILABEL(inst));
+		fprintf(f, ".L%"PRIi32, ILABEL(inst));
 		break;
 	case M_LCALL: {
 		fprintf(f, " ");
