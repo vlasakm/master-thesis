@@ -399,7 +399,7 @@ is_to_be_spilled(SpillState *ss, Oper t)
 	return ss->ras->to_spill[t];
 }
 
-Inst *create_inst(Arena *arena, InstKind kind, int subkind);
+Inst *create_inst(Arena *arena, InstKind kind, u8 subkind, X86Mode mode);
 
 void
 insert_loads_of_spilled(void *user_data, Oper *src)
@@ -417,9 +417,8 @@ insert_loads_of_spilled(void *user_data, Oper *src)
 	print_reg(stderr, *src);
 	fprintf(stderr, " through ");
 	print_reg(stderr, temp);
-	Inst *load = create_inst(ras->arena, IK_MOV, MOV);
+	Inst *load = create_inst(ras->arena, IK_MOV, MOV, M_CM);
 	//Inst *load = make_inst(ras->arena, OP_MOV_RMC, temp, R_RBP, 8 + ras->to_spill[src]);
-	load->mode = M_CM;
 	load->prev = inst->prev;
 	load->next = inst;
 	IREG(load) = temp;
@@ -497,8 +496,7 @@ insert_stores_of_spilled(void *user_data, Oper *dest)
 	fprintf(stderr, "\n");
 
 	//Inst *store = make_inst(ras->arena, OP_MOV_MCR, R_RBP, temp, 8 + ras->to_spill[dest]);
-	Inst *store = create_inst(ras->arena, IK_MOV, MOV);
-	store->mode = M_Mr;
+	Inst *store = create_inst(ras->arena, IK_MOV, MOV, M_Mr);
 	store->prev = inst;
 	store->next = inst->next;
 	IREG(store) = temp;

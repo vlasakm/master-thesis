@@ -70,7 +70,7 @@ typedef struct {
 } TranslationState;
 
 Inst *
-create_inst(Arena *arena, InstKind kind, int subkind)
+create_inst(Arena *arena, InstKind kind, u8 subkind, X86Mode mode)
 {
 	//InstDesc *desc = &inst_desc[op];
 	//size_t operand_cnt = desc->label_cnt;
@@ -78,6 +78,7 @@ create_inst(Arena *arena, InstKind kind, int subkind)
 	Inst *inst = arena_alloc(arena, sizeof(*inst) + 6 * sizeof(inst->ops[0]));
 	inst->kind = kind;
 	inst->subkind = subkind;
+	inst->mode = mode;
 	inst->flags_observed = false; // Redefined later by analysis.
 	inst->writes_flags = false; // Default is no flags.
 	inst->reads_flags = false; // Default is no flags.
@@ -101,9 +102,9 @@ add_inst_(TranslationState *ts, Inst *new)
 
 
 static Inst *
-add_inst(TranslationState *ts, InstKind kind, int subkind)
+add_inst(TranslationState *ts, InstKind kind, u8 subkind, X86Mode mode)
 {
-	Inst *new = create_inst(ts->arena, kind, subkind);
+	Inst *new = create_inst(ts->arena, kind, subkind, mode);
 	add_inst_(ts, new);
 	return new;
 }
@@ -111,8 +112,7 @@ add_inst(TranslationState *ts, InstKind kind, int subkind)
 static void
 add_copy(TranslationState *ts, Oper dest, Oper src)
 {
-	Inst *inst = add_inst(ts, IK_MOV, MOV);
-	inst->mode = M_Cr;
+	Inst *inst = add_inst(ts, IK_MOV, MOV, M_Cr);
 	IREG1(inst) = dest;
 	IREG2(inst) = src;
 }
@@ -120,8 +120,7 @@ add_copy(TranslationState *ts, Oper dest, Oper src)
 static void
 add_load(TranslationState *ts, Oper dest, Oper addr)
 {
-	Inst *inst = add_inst(ts, IK_MOV, MOV);
-	inst->mode = M_CM;
+	Inst *inst = add_inst(ts, IK_MOV, MOV, M_CM);
 	IREG(inst) = dest;
 	IBASE(inst) = addr;
 }
@@ -129,8 +128,7 @@ add_load(TranslationState *ts, Oper dest, Oper addr)
 static void
 add_store(TranslationState *ts, Oper addr, Oper value)
 {
-	Inst *inst = add_inst(ts, IK_MOV, MOV);
-	inst->mode = M_Mr;
+	Inst *inst = add_inst(ts, IK_MOV, MOV, M_Mr);
 	IREG(inst) = value;
 	IBASE(inst) = addr;
 }
@@ -138,8 +136,7 @@ add_store(TranslationState *ts, Oper addr, Oper value)
 static void
 add_lea(TranslationState *ts, Oper dest, Oper base, Oper disp)
 {
-	Inst *inst = add_inst(ts, IK_MOV, LEA);
-	inst->mode = M_CM;
+	Inst *inst = add_inst(ts, IK_MOV, LEA, M_CM);
 	IREG(inst) = dest;
 	IBASE(inst) = base;
 	IDISP(inst) = disp;
@@ -148,8 +145,7 @@ add_lea(TranslationState *ts, Oper dest, Oper base, Oper disp)
 static void
 add_lea_label(TranslationState *ts, Oper dest, Oper label)
 {
-	Inst *inst = add_inst(ts, IK_MOV, LEA);
-	inst->mode = M_CM;
+	Inst *inst = add_inst(ts, IK_MOV, LEA, M_CM);
 	IREG(inst) = dest;
 	IBASE(inst) = R_NONE;
 	ILABEL(inst) = label;
@@ -158,8 +154,7 @@ add_lea_label(TranslationState *ts, Oper dest, Oper label)
 static void
 add_mov_imm(TranslationState *ts, Oper dest, u64 imm)
 {
-	Inst *inst = add_inst(ts, IK_MOV, MOV);
-	inst->mode = M_CI;
+	Inst *inst = add_inst(ts, IK_MOV, MOV, M_CI);
 	IREG(inst) = dest;
 	set_imm64(inst, imm);
 }
@@ -170,8 +165,7 @@ add_set_zero(TranslationState *ts, Oper oper)
 	// Set zero with `mov` so that we don't introduce additional constraints
 	// on the register through XOR register uses.
 	// TODO: xor oper, oper
-	Inst *inst = add_inst(ts, IK_MOV, MOV);
-	inst->mode = M_CI;
+	Inst *inst = add_inst(ts, IK_MOV, MOV, M_CI);
 	IREG(inst) = oper;
 	set_imm64(inst, 0);
 }
@@ -179,8 +173,7 @@ add_set_zero(TranslationState *ts, Oper oper)
 static void
 add_unop(TranslationState *ts, X86Group3 op, Oper op1)
 {
-	Inst *inst = add_inst(ts, IK_UNALU, op);
-	inst->mode = M_R;
+	Inst *inst = add_inst(ts, IK_UNALU, op, M_R);
 	inst->writes_flags = true;
 	IREG(inst) = op1;
 }
@@ -188,8 +181,7 @@ add_unop(TranslationState *ts, X86Group3 op, Oper op1)
 static void
 add_binop(TranslationState *ts, X86Group1 op, Oper op1, Oper op2)
 {
-	Inst *inst = add_inst(ts, IK_BINALU, op);
-	inst->mode = M_Rr;
+	Inst *inst = add_inst(ts, IK_BINALU, op, M_Rr);
 	inst->writes_flags = true;
 	IREG1(inst) = op1;
 	IREG2(inst) = op2;
@@ -198,8 +190,7 @@ add_binop(TranslationState *ts, X86Group1 op, Oper op1, Oper op2)
 static void
 add_cmp(TranslationState *ts, X86Group1 op, Oper op1, Oper op2)
 {
-	Inst *inst = add_inst(ts, IK_BINALU, op);
-	inst->mode = M_rr;
+	Inst *inst = add_inst(ts, IK_BINALU, op, M_rr);
 	inst->writes_flags = true;
 	IREG1(inst) = op1;
 	IREG2(inst) = op2;
@@ -208,8 +199,7 @@ add_cmp(TranslationState *ts, X86Group1 op, Oper op1, Oper op2)
 static void
 add_shift(TranslationState *ts, X86Group2 op, Oper op1, Oper op2)
 {
-	Inst *inst = add_inst(ts, IK_SHIFT, op);
-	inst->mode = M_Rr;
+	Inst *inst = add_inst(ts, IK_SHIFT, op, M_Rr);
 	inst->writes_flags = true;
 	IREG1(inst) = op1;
 	IREG2(inst) = op2;
@@ -219,24 +209,26 @@ add_shift(TranslationState *ts, X86Group2 op, Oper op1, Oper op2)
 static void
 add_push(TranslationState *ts, Oper oper)
 {
-	Inst *inst = add_inst(ts, IK_PUSH, 0);
-	inst->mode = M_r;
+	Inst *inst = add_inst(ts, IK_PUSH, 0, M_r);
 	IREG(inst) = oper;
 }
 
 static void
 add_pop(TranslationState *ts, Oper oper)
 {
-	Inst *inst = add_inst(ts, IK_POP, 0);
-	inst->mode = M_C;
+	Inst *inst = add_inst(ts, IK_POP, 0, M_C);
 	IREG(inst) = oper;
 }
 
 static void
 add_setcc(TranslationState *ts, CondCode cc, Oper oper)
 {
-	Inst *inst = add_inst(ts, IK_SETCC, cc);
-	inst->mode = M_R; // partial register read
+	// NOTE: We model setcc with a read/write mode, since only part of the
+	// register is written, so the previous value is observed as well. In
+	// particular we often zero out the register before using setcc on it,
+	// so by reading here we ensure that the zeroing out is not optimized
+	// away.
+	Inst *inst = add_inst(ts, IK_SETCC, cc, M_R);
 	inst->reads_flags = true;
 	IREG(inst) = oper;
 }
@@ -244,8 +236,7 @@ add_setcc(TranslationState *ts, CondCode cc, Oper oper)
 static void
 add_imul3(TranslationState *ts, Oper dest, Oper arg, Oper imm)
 {
-	Inst *inst = add_inst(ts, IK_IMUL3, 0);
-	inst->mode = M_Cri;
+	Inst *inst = add_inst(ts, IK_IMUL3, 0, M_Cri);
 	inst->writes_flags = true;
 	IREG(inst) = dest;
 	IREG2(inst) = arg;
@@ -255,16 +246,14 @@ add_imul3(TranslationState *ts, Oper dest, Oper arg, Oper imm)
 static void
 add_jmp(TranslationState *ts, Oper block_index)
 {
-	Inst *inst = add_inst(ts, IK_JUMP, 0);
-	inst->mode = M_L;
+	Inst *inst = add_inst(ts, IK_JUMP, 0, M_L);
 	ILABEL(inst) = block_index;
 }
 
 static void
 add_jcc(TranslationState *ts, CondCode cc, Oper block_index)
 {
-	Inst *inst = add_inst(ts, IK_JCC, cc);
-	inst->mode = M_L;
+	Inst *inst = add_inst(ts, IK_JCC, cc, M_L);
 	inst->reads_flags = true;
 	ILABEL(inst) = block_index;
 }
@@ -272,8 +261,7 @@ add_jcc(TranslationState *ts, CondCode cc, Oper block_index)
 static void
 add_call(TranslationState *ts, Oper function_reg, Oper arg_cnt)
 {
-	Inst *inst = add_inst(ts, IK_CALL, 0);
-	inst->mode = M_rCALL;
+	Inst *inst = add_inst(ts, IK_CALL, 0, M_rCALL);
 	IREG(inst) = function_reg;
 	IARG_CNT(inst) = arg_cnt;
 }
@@ -281,8 +269,7 @@ add_call(TranslationState *ts, Oper function_reg, Oper arg_cnt)
 static Inst *
 add_entry(TranslationState *ts, Oper arg_cnt)
 {
-	Inst *inst = add_inst(ts, IK_ENTRY, 0);
-	inst->mode = M_ENTRY;
+	Inst *inst = add_inst(ts, IK_ENTRY, 0, M_ENTRY);
 	IARG_CNT(inst) = arg_cnt;
 	return inst;
 }
@@ -290,8 +277,7 @@ add_entry(TranslationState *ts, Oper arg_cnt)
 static void
 add_cqo(TranslationState *ts)
 {
-	Inst *inst = add_inst(ts, IK_CQO, 0);
-	inst->mode = M_AD;
+	add_inst(ts, IK_CQO, 0, M_AD);
 }
 
 static void
@@ -313,7 +299,7 @@ translate_call(TranslationState *ts, Oper res, Oper fun, Oper *args, size_t arg_
 static Inst *
 add_load_with_disp(TranslationState *ts, Oper dest, Oper addr, Oper disp)
 {
-	Inst *inst = add_inst(ts, IK_MOV, MOV);
+	Inst *inst = add_inst(ts, IK_MOV, MOV, M_CM);
 	inst->mode = M_CM;
 	IREG(inst) = dest;
 	IBASE(inst) = addr;
@@ -324,8 +310,7 @@ add_load_with_disp(TranslationState *ts, Oper dest, Oper addr, Oper disp)
 static Inst *
 create_store_with_disp(TranslationState *ts, Oper dest, Oper addr, Oper disp)
 {
-	Inst *inst = add_inst(ts, IK_MOV, MOV);
-	inst->mode = M_Mr;
+	Inst *inst = add_inst(ts, IK_MOV, MOV, M_Mr);
 	IREG(inst) = dest;
 	IBASE(inst) = addr;
 	IDISP(inst) = disp;
@@ -359,9 +344,8 @@ translate_prologue(TranslationState *ts)
 	// offfset). On the x86-64 this is much bigger than the entire available
 	// stack, but on other architectures where immediate offsets are
 	// smaller, this may need more consideration.
-	ts->make_stack_space = add_inst(ts, IK_BINALU, G1_SUB);
+	ts->make_stack_space = add_inst(ts, IK_BINALU, G1_SUB, M_Ri);
 	Inst *inst = ts->make_stack_space;
-	inst->mode = M_Ri;
 	inst->writes_flags = true;
 	IREG(inst) = R_RSP;
 	IIMM(inst) = 0;
@@ -423,9 +407,7 @@ translate_return(TranslationState *ts, Oper *ret_val)
 	}
 	add_copy(ts, R_RSP, R_RBP);
 	add_pop(ts, R_RBP);
-	// TODO: ret "reads" return value callee saved registers
-	Inst *ret = add_inst(ts, IK_RET, 0); // TODO: subkind = calling convention?
-	ret->mode = M_RET;
+	Inst *ret = add_inst(ts, IK_RET, 0, M_RET);
 	if (ret_val) {
 		// Make return instruction read the returned value.
 		// NOTE: This has to be updated when multiple return registers
@@ -484,8 +466,7 @@ translate_div(TranslationState *ts, Oper res, Oper arg1, Oper arg2, SignednessKi
 	}
 	// Perform division of 128-bit rdx:rax pair by the divisor in arbitrary
 	// register.
-	Inst *inst = add_inst(ts, IK_MULDIV, op);
-	inst->mode = M_ADr;
+	Inst *inst = add_inst(ts, IK_MULDIV, op, M_ADr);
 	IREG(inst) = arg2;
 
 	// Copy the wanted result into the result register.
