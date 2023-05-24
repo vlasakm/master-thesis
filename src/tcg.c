@@ -2604,10 +2604,12 @@ assign_registers(RegAllocState *ras)
 			Inst *move = moves[move_list[m]];
 			Oper op1 = get_alias(ras, move->ops[0]);
 			Oper op2 = get_alias(ras, move->ops[1]);
-			assert(op1 != op2);
 			assert(u == op1 || u == op2);
 			Oper v = op1 != u ? op1 : op2;
 			Oper v_reg = ras->reg_assignment[v];
+			// This check for "has already been assigned" also
+			// handles (skips) coalesced moves, i.e.
+			//     mov t27, t27
 			if (v_reg && (used & (1 << (v_reg - 1))) == 0) {
 				fprintf(stderr, "Preferring ");
 				print_reg(stderr, v_reg);
