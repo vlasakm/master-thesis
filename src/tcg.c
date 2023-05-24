@@ -734,60 +734,6 @@ translate_value(TranslationState *ts, Value *v)
 	}
 }
 
-typedef struct RegAllocState RegAllocState;
-
-typedef struct {
-	size_t n;
-	size_t N;
-	u8 *matrix;
-
-	GArena *adj_list;
-} InterferenceGraph;
-
-void
-ig_grow(InterferenceGraph *ig, size_t old_capacity, size_t new_capacity)
-{
-	if (old_capacity >= new_capacity) {
-		return;
-	}
-	GROW_ARRAY(ig->matrix, new_capacity * new_capacity);
-	GROW_ARRAY(ig->adj_list, new_capacity);
-	ZERO_ARRAY(&ig->adj_list[old_capacity], new_capacity - old_capacity);
-}
-
-void
-ig_reset(InterferenceGraph *ig, size_t size)
-{
-	ig->n = size;
-	ig->N = size * size;
-	ZERO_ARRAY(ig->matrix, ig->N);
-	for (size_t i = 0; i < size; i++) {
-		garena_restore(&ig->adj_list[i], 0);
-	}
-}
-
-void
-ig_free(InterferenceGraph *ig, size_t capacity)
-{
-	FREE_ARRAY(ig->matrix, capacity * capacity);
-	for (size_t i = 0; i < capacity; i++) {
-		garena_free(&ig->adj_list[i]);
-	}
-	FREE_ARRAY(ig->adj_list, capacity);
-}
-
-bool
-ig_interfere(InterferenceGraph *ig, Oper op1, Oper op2)
-{
-	if (op1 == R_NONE || op2 == R_NONE) {
-		return true;
-	}
-	u8 one = ig->matrix[op1 * ig->n + op2];
-	u8 two = ig->matrix[op2 * ig->n + op1];
-	assert(one == two);
-	return one;
-}
-
 void
 print_mfunction(FILE *f, MFunction *mfunction)
 {
@@ -807,13 +753,19 @@ print_mfunction(FILE *f, MFunction *mfunction)
 	}
 }
 
-struct RegAllocState {
+typedef struct {
 	Arena *arena;
 
 	// Current function for which we are allocating registers.
 	MFunction *mfunction;
 	// Current block, for some notion of current (used by some iterators).
 	MBlock *mblock;
+	// vreg_cnt stored duplicitly for convenience, but function could also
+	// get out of sync with it's `mfunction->vreg_cnt` - but that doesn't
+	// reflect vreg_cnt reserved for `RegAllocState`, which is given by n
+	size_t n;
+	// vreg_cnt * vreg_cnt
+	size_t N;
 
 	size_t vreg_capacity;
 	size_t block_capacity;
@@ -836,7 +788,10 @@ struct RegAllocState {
 	// Degrees of nodes.
 	u32 *degree;
 
-	InterferenceGraph ig;
+	// Interference Graph
+	u8 *matrix; // bit map (u8/bool per vreg)
+	GArena *adj_list;
+
 	WorkList live_set;
 	WorkList uninterrupted;
 	u8 *ever_interrupted;
@@ -853,7 +808,7 @@ struct RegAllocState {
 
 	GArena gmoves; // Array of Inst *
 	GArena *move_list; // Array of GArena of Oper
-};
+} RegAllocState;
 
 void
 reg_alloc_state_init(RegAllocState *ras, Arena *arena)
@@ -868,6 +823,8 @@ void
 reg_alloc_state_reset(RegAllocState *ras)
 {
 	assert(ras->mfunction->vreg_cnt > 0);
+	ras->n = ras->mfunction->vreg_cnt;
+	ras->N = ras->n * ras->n;
 	size_t old_vreg_capacity = ras->vreg_capacity;
 	if (ras->vreg_capacity == 0) {
 		ras->vreg_capacity = 64;
@@ -900,7 +857,9 @@ reg_alloc_state_reset(RegAllocState *ras)
 		GROW_ARRAY(ras->use_cost, ras->vreg_capacity);
 		GROW_ARRAY(ras->unspillable, ras->vreg_capacity);
 		GROW_ARRAY(ras->degree, ras->vreg_capacity);
-		ig_grow(&ras->ig, old_vreg_capacity, ras->vreg_capacity);
+		GROW_ARRAY(ras->matrix, ras->vreg_capacity * ras->vreg_capacity);
+		GROW_ARRAY(ras->adj_list, ras->vreg_capacity);
+		ZERO_ARRAY(&ras->adj_list[old_vreg_capacity], ras->vreg_capacity - old_vreg_capacity);
 		wl_grow(&ras->live_set, ras->vreg_capacity);
 		wl_grow(&ras->uninterrupted, ras->vreg_capacity);
 		GROW_ARRAY(ras->ever_interrupted, ras->vreg_capacity);
@@ -927,7 +886,10 @@ reg_alloc_state_reset(RegAllocState *ras)
 	ZERO_ARRAY(ras->use_cost, ras->mfunction->vreg_cnt);
 	ZERO_ARRAY(ras->unspillable, ras->mfunction->vreg_cnt);
 	ZERO_ARRAY(ras->degree, ras->mfunction->vreg_cnt);
-	ig_reset(&ras->ig, ras->mfunction->vreg_cnt);
+	ZERO_ARRAY(ras->matrix, ras->N);
+	for (size_t i = 0; i < ras->mfunction->vreg_cnt; i++) {
+		garena_restore(&ras->adj_list[i], 0);
+	}
 	wl_reset(&ras->live_set);
 	wl_reset(&ras->uninterrupted);
 	ZERO_ARRAY(ras->ever_interrupted, ras->vreg_capacity);
@@ -957,7 +919,11 @@ reg_alloc_state_free(RegAllocState *ras)
 	FREE_ARRAY(ras->use_cost, ras->vreg_capacity);
 	FREE_ARRAY(ras->unspillable, ras->vreg_capacity);
 	FREE_ARRAY(ras->degree, ras->vreg_capacity);
-	ig_free(&ras->ig, ras->vreg_capacity);
+	FREE_ARRAY(ras->matrix, ras->vreg_capacity);
+	for (size_t i = 0; i < ras->vreg_capacity; i++) {
+		garena_free(&ras->adj_list[i]);
+	}
+	FREE_ARRAY(ras->adj_list, ras->vreg_capacity);
 	wl_free(&ras->live_set);
 	wl_free(&ras->uninterrupted);
 	FREE_ARRAY(ras->ever_interrupted, ras->vreg_capacity);
@@ -984,6 +950,8 @@ void
 reg_alloc_state_init_for_function(RegAllocState *ras, MFunction *mfunction)
 {
 	ras->mfunction = mfunction;
+	// Don't need to reset for function, since each iteration of reg alloc
+	// needs reset anyways.
 	//reg_alloc_state_reset(ras);
 }
 
@@ -1002,33 +970,54 @@ get_alias(RegAllocState *ras, Oper u)
 	return u;
 }
 
-void
-ig_add(InterferenceGraph *ig, Oper op1, Oper op2)
+bool
+are_interfering(RegAllocState *ras, Oper u, Oper v)
 {
-	assert(op1 < ig->n);
-	assert(op2 < ig->n);
-	if (op1 == op2 || ig_interfere(ig, op1, op2)) {
+	// R_NONE (0) is a special case - it is used as a place holder of "no
+	// register used currently, but the slot could be occupied by a
+	// register." We don't need to store any interferences related to it,
+	// and instead we treat it as if it interfered with everything
+	// automatically.
+	if (u == R_NONE || v == R_NONE) {
+		return true;
+	}
+	u8 one = ras->matrix[u * ras->n + v];
+	u8 two = ras->matrix[v * ras->n + u];
+	assert(one == two);
+	return one;
+}
+
+void
+add_interference(RegAllocState *ras, Oper u, Oper v)
+{
+	assert(u < ras->mfunction->vreg_cnt);
+	assert(v < ras->mfunction->vreg_cnt);
+	if (u == v || are_interfering(ras, u, v)) {
 		return;
 	}
 	fprintf(stderr, "Adding interference ");
-	print_reg(stderr, op1);
+	print_reg(stderr, u);
 	fprintf(stderr, " ");
-	print_reg(stderr, op2);
+	print_reg(stderr, v);
 	fprintf(stderr, "\n");
-	assert(ig->matrix[op1 * ig->n + op2] == 0);
-	assert(ig->matrix[op2 * ig->n + op1] == 0);
-	ig->matrix[op1 * ig->n + op2] = 1;
-	ig->matrix[op2 * ig->n + op1] = 1;
-	if (op1 >= R__MAX) {
-		garena_push_value(&ig->adj_list[op1], Oper, op2);
+	assert(ras->matrix[u * ras->n + v] == 0);
+	assert(ras->matrix[v * ras->n + u] == 0);
+	ras->matrix[u * ras->n + v] = 1;
+	ras->matrix[v * ras->n + u] = 1;
+	// Only populate adjacency lists for vregs. Adjacency lists for physical
+	// regs would be too large. We don't actually need them - color
+	// assigning needs only neighbours of vregs (since we have to choose a
+	// color distinct from neighbours), and for coalescing heuristic we use
+	// George's test, which doesn't use adjacency lists, unlike Briggs'
+	// test (which we use for vregs).
+	if (u >= R__MAX) {
+		garena_push_value(&ras->adj_list[u], Oper, v);
 	}
-	if (op2 >= R__MAX) {
-		garena_push_value(&ig->adj_list[op2], Oper, op1);
+	if (v >= R__MAX) {
+		garena_push_value(&ras->adj_list[v], Oper, u);
 	}
-	// TODO: Restructure Interefrence graph and Register allocation state.
-	RegAllocState *ras = container_of(ig, RegAllocState, ig);
-	ras->degree[op1]++;
-	ras->degree[op2]++;
+	ras->degree[u]++;
+	ras->degree[v]++;
 }
 
 
@@ -1115,7 +1104,7 @@ live_step(WorkList *live_set, MFunction *mfunction, Inst *inst)
 }
 
 typedef struct {
-	InterferenceGraph *ig;
+	RegAllocState *ras;
 	Oper live;
 } InterferenceState;
 
@@ -1123,14 +1112,12 @@ void
 add_interference_with(void *user_data, Oper *oper)
 {
 	InterferenceState *is = user_data;
-	ig_add(is->ig, *oper, is->live);
+	add_interference(is->ras, *oper, is->live);
 }
 
 void
 interference_step(RegAllocState *ras, WorkList *live_set, Inst *inst)
 {
-	InterferenceGraph *ig = &ras->ig;
-
 	// Special handling of moves:
 	// 1) We don't want to introduce interference between move source and
 	//    destination.
@@ -1157,7 +1144,7 @@ interference_step(RegAllocState *ras, WorkList *live_set, Inst *inst)
 	for_each_def(inst, add_to_set, live_set);
 
 	// Add interferences of all definitions with all live.
-	InterferenceState is = { .ig = ig };
+	InterferenceState is = { .ras = ras };
 	FOR_EACH_WL_INDEX(live_set, j) {
 		is.live = live_set->dense[j];
 		for_each_def(inst, add_interference_with, &is);
@@ -2143,7 +2130,7 @@ void
 for_each_adjacent(RegAllocState *ras, Oper op, void (*fun)(RegAllocState *ras, Oper neighbour))
 {
 	assert(op >= R__MAX);
-	GArena *gadj_list = &ras->ig.adj_list[op];
+	GArena *gadj_list = &ras->adj_list[op];
 	Oper *adj_list = garena_array(gadj_list, Oper);
 	size_t adj_cnt = garena_cnt(gadj_list, Oper);
 	for (size_t i = 0; i < adj_cnt; i++) {
@@ -2209,7 +2196,7 @@ initialize_worklists(RegAllocState *ras)
 
 	size_t vreg_cnt = ras->mfunction->vreg_cnt;
 	for (size_t i = R__MAX; i < vreg_cnt; i++) {
-		GArena *gadj_list = &ras->ig.adj_list[i];
+		GArena *gadj_list = &ras->adj_list[i];
 		size_t adj_cnt = garena_cnt(gadj_list, Oper);
 		assert(adj_cnt == ras->degree[i]);
 		if (is_significant(ras, i)) {
@@ -2398,7 +2385,7 @@ significant_neighbour_cnt(RegAllocState *ras, Oper op)
 {
 	size_t n = 0;
 	assert(op >= R__MAX);
-	GArena *gadj_list = &ras->ig.adj_list[op];
+	GArena *gadj_list = &ras->adj_list[op];
 	Oper *adj_list = garena_array(gadj_list, Oper);
 	size_t adj_cnt = garena_cnt(gadj_list, Oper);
 	for (size_t j = 0; j < adj_cnt; j++) {
@@ -2414,14 +2401,14 @@ significant_neighbour_cnt(RegAllocState *ras, Oper op)
 bool
 ok(RegAllocState *ras, Oper t, Oper r)
 {
-	return is_trivially_colorable(ras, t) || is_precolored(ras, t) || ig_interfere(&ras->ig, t, r);
+	return is_trivially_colorable(ras, t) || is_precolored(ras, t) || are_interfering(ras, t, r);
 }
 
 bool
 precolored_coalesce_heuristic(RegAllocState *ras, Oper u, Oper v)
 {
 	assert(v >= R__MAX);
-	GArena *gadj_list = &ras->ig.adj_list[v];
+	GArena *gadj_list = &ras->adj_list[v];
 	Oper *adj_list = garena_array(gadj_list, Oper);
 	size_t adj_cnt = garena_cnt(gadj_list, Oper);
 	for (size_t j = 0; j < adj_cnt; j++) {
@@ -2481,7 +2468,7 @@ combine(RegAllocState *ras, Oper u, Oper v)
 	}
 
 	// Add edges of `v` to `u`.
-	GArena *gadj_list = &ras->ig.adj_list[v];
+	GArena *gadj_list = &ras->adj_list[v];
 	Oper *adj_list = garena_array(gadj_list, Oper);
 	size_t adj_cnt = garena_cnt(gadj_list, Oper);
 	for (size_t i = 0; i < adj_cnt; i++) {
@@ -2490,7 +2477,7 @@ combine(RegAllocState *ras, Oper u, Oper v)
 			continue;
 		}
 		// Add `u` as a neighbour to `v`'s neighbour `t`.
-		ig_add(&ras->ig, u, t);
+		add_interference(ras, u, t);
 		// Since we coalesce `u` and `v`, we should remove `v` as a
 		// neighbour. The important thing that we want to achieve is
 		// actually decrement of `t`'s degree, which might make it
@@ -2537,7 +2524,7 @@ coalesce_move(RegAllocState *ras, Oper m)
 		print_inst(stderr, mfunction, move);
 		fprintf(stderr, "\n");
 		add_to_worklist(ras, u);
-	} else if (v < R__MAX || ig_interfere(&ras->ig, u, v)) {
+	} else if (v < R__MAX || are_interfering(ras, u, v)) {
 		// constrained
 		fprintf(stderr, "Constrained: \t");
 		print_inst(stderr, mfunction, move);
@@ -2583,7 +2570,7 @@ assign_registers(RegAllocState *ras)
 		// has already color allocated (i.e. not on the
 		// the stack) and it is not spilled (i.e. not R_NONE), make sure we
 		// don't use the same register.
-		GArena *gadj_list = &ras->ig.adj_list[u];
+		GArena *gadj_list = &ras->adj_list[u];
 		Oper *adj_list = garena_array(gadj_list, Oper);
 		size_t adj_cnt = garena_cnt(gadj_list, Oper);
 		for (size_t j = 0; j < adj_cnt; j++) {
