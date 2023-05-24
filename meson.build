@@ -15,6 +15,7 @@ cflags = [
 	'-Wno-unused-function',
 	'-Wno-sign-compare',
 	'-Wno-sign-conversion',
+	'-Wno-self-assign',
 ]
 
 if get_option('buildtype') == 'debug'
