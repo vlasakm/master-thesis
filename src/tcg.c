@@ -2294,14 +2294,17 @@ freeze_move(RegAllocState *ras, Oper u, Oper m, Inst *move)
 	print_inst(stderr, ras->mfunction, move);
 	fprintf(stderr, "\n");
 	if (!wl_remove(&ras->active_moves_wl, m)) {
-		wl_remove(&ras->moves_wl, m);
+		assert(wl_remove(&ras->moves_wl, m));
 	}
-	Oper v = move->ops[0] != u ? move->ops[0] : move->ops[1];
+	Oper op1 = get_alias(ras, move->ops[0]);
+	Oper op2 = get_alias(ras, move->ops[1]);
+	assert(u == op1 || u == op2);
+	Oper v = op1 != u ? op1 : op2;
 	if (!is_move_related(ras, v) && is_trivially_colorable(ras, v)) {
 		fprintf(stderr, "Move from freeze to simplify in freeze ");
 		print_reg(stderr, v);
 		fprintf(stderr, "\n");
-		wl_remove(&ras->freeze_wl, v);
+		assert(wl_remove(&ras->freeze_wl, v));
 		wl_add(&ras->simplify_wl, v);
 	}
 }
@@ -2332,6 +2335,7 @@ freeze_one(RegAllocState *ras, Oper i)
 void
 simplify_one(RegAllocState *ras, Oper i)
 {
+	assert(!is_alias(ras, i));
 	fprintf(stderr, "Pushing ");
 	print_reg(stderr, i);
 	fprintf(stderr, "\n");
@@ -2462,6 +2466,7 @@ combine(RegAllocState *ras, Oper u, Oper v)
 	if (!wl_remove(&ras->freeze_wl, v)) {
 		assert(wl_remove(&ras->spill_wl, v));
 	}
+	assert(!wl_has(&ras->simplify_wl, v));
 
 	// Set `v` as alias of `u`. Caller should already pass canonical `u`
 	// and `v`, which are not aliases themselves.
