@@ -1466,24 +1466,26 @@ add_use(Function *function, Value *what, Value *where)
 }
 
 void
-remove_use(Function *function, Value *what, Value *where)
+remove_use(Function *function, Value *what, Value *where, bool assert)
 {
 	if (what->index == 0) {
 		return;
 	}
 	GArena *guses = &function->uses[what->index];
 	size_t use_cnt = garena_cnt(guses, Value *);
-	assert(use_cnt > 0);
 	Value **uses = garena_array(guses, Value *);
 	for (size_t i = 0; i < use_cnt; i++) {
 		if (uses[i] == where) {
 			use_cnt--;
 			Value *last = uses[use_cnt];
 			uses[i] = last;
-			break;
+			guses->pos -= sizeof(Value *);
+			return;
 		}
 	}
-	guses->pos -= sizeof(Value *);
+	if (assert) {
+		UNREACHABLE();
+	}
 }
 
 void
@@ -1507,7 +1509,7 @@ void
 remove_value_and_uses_of_operands(Function *function, Value *where)
 {
 	FOR_EACH_OPERAND(where, operand) {
-		remove_use(function, *operand, where);
+		remove_use(function, *operand, where, true);
 	}
 	remove_value(where);
 }
@@ -1532,8 +1534,7 @@ try_remove_trivial_phi(Arena *arena, Function *function, Operation *phi)
 		Operation *undefined = create_operation(arena, (Block *) phi->base.parent, VK_UNDEFINED, phi->base.type, 0);
 		same = &undefined->base;
 	}
-	assert(same);
-	remove_use(function, &phi->base, &phi->base);
+	remove_use(function, &phi->base, &phi->base, false);
 	replace_by(function, &phi->base, same);
 	GArena *guses = &function->uses[phi->base.index];
 	size_t use_cnt = garena_cnt(guses, Value *);
@@ -1679,7 +1680,7 @@ value_numbering(Arena *arena, Function *function)
 				if (canonical) {
 					Value *old_operand = *operand;
 					*operand = canonical;
-					remove_use(function, old_operand, v);
+					remove_use(function, old_operand, v, true);
 					add_use(function, canonical, v);
 				}
 			}
