@@ -1,3 +1,5 @@
+#pragma once
+
 #include "table.h"
 #include "ir.h"
 
