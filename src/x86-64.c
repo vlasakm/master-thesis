@@ -1,34 +1,5 @@
 #include "x86-64.h"
 
-void
-set_imm64(Inst *inst, u64 imm)
-{
-	inst->ops[1] = imm;
-	inst->ops[2] = imm >> 32;
-}
-
-u64
-get_imm64(Inst *inst)
-{
-	return ((u64) inst->ops[1]) | ((u64) inst->ops[2] << 32);
-}
-
-bool
-is_imm32(Inst *inst)
-{
-	return inst->ops[2] == 0 || inst->ops[2] == OPER_MAX;
-}
-
-bool
-pack_into_oper(u64 value, Oper *op)
-{
-	if (value > UINT32_MAX) {
-		return false;
-	}
-	*op = (u32) value;
-	return true;
-}
-
 static const char *reg_repr[] = {
 	"NONE",
 	"rax",
@@ -300,6 +271,65 @@ InsFormat formats[] = {
 	[M_ADM]   = { 0, 0, 1, 3,  0, 0, rax_rdx, rax_rdx },
 	[M_AD]    = { 0, 0, 0, 0,  0, 0, rdx, rax },
 };
+
+void
+set_imm64(Inst *inst, u64 imm)
+{
+	inst->ops[1] = imm;
+	inst->ops[2] = imm >> 32;
+}
+
+u64
+get_imm64(Inst *inst)
+{
+	return ((u64) inst->ops[1]) | ((u64) inst->ops[2] << 32);
+}
+
+bool
+is_imm32(Inst *inst)
+{
+	return inst->ops[2] == 0 || inst->ops[2] == OPER_MAX;
+}
+
+bool
+pack_into_oper(u64 value, Oper *op)
+{
+	if (value > UINT32_MAX) {
+		return false;
+	}
+	*op = (u32) value;
+	return true;
+}
+
+
+bool
+is_rip_relative(Inst *inst)
+{
+	return IBASE(inst) == R_NONE;
+}
+
+bool
+is_memory_same(Inst *a, Inst *b)
+{
+	return ISCALE(a) == ISCALE(b) && IINDEX(a) == IINDEX(b) && IBASE(a) == IBASE(b) && IDISP(a) == IDISP(b);
+}
+
+void
+copy_memory(Inst *dest, Inst *src)
+{
+	// This copies normal x86-64 addressing mode:
+	//     [base+scale*index+disp]
+	ISCALE(dest) = ISCALE(src);
+	IINDEX(dest) = IINDEX(src);
+	IBASE(dest) = IBASE(src);
+	IDISP(dest) = IDISP(src);
+	// The other addressing mode is:
+	//     [rip+disp]
+	// It uses IBASE(inst) = R_NONE and the displacement is actually
+	// label+displacement, which are encoded using ILABEL(inst) and
+	// IDISP(inst). Since we copy IBASE IDISP above and ILABEL aliases with
+	// ISCALE, which we also copied above, it works for both cases.
+}
 
 void
 print_reg(FILE *f, Oper reg)

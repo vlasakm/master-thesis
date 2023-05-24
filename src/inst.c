@@ -2,6 +2,16 @@
 #include "x86-64.h"
 
 void
+mfunction_free(MFunction *mfunction)
+{
+	FREE_ARRAY(mfunction->def_count, mfunction->vreg_cnt);
+	FREE_ARRAY(mfunction->use_count, mfunction->vreg_cnt);
+	FREE_ARRAY(mfunction->only_def, mfunction->vreg_cnt);
+
+	FREE_ARRAY(mfunction->block_use_count, mfunction->mblock_cnt);
+}
+
+void
 for_each_def(Inst *inst, void (*fun)(void *user_data, Oper *def), void *user_data)
 {
 	InsFormat *mode = &formats[inst->mode];

@@ -1407,45 +1407,6 @@ calculate_def_use_info(MFunction *mfunction)
 	}
 }
 
-void
-mfunction_free(MFunction *mfunction)
-{
-	FREE_ARRAY(mfunction->def_count, mfunction->vreg_cnt);
-	FREE_ARRAY(mfunction->use_count, mfunction->vreg_cnt);
-	FREE_ARRAY(mfunction->only_def, mfunction->vreg_cnt);
-
-	FREE_ARRAY(mfunction->block_use_count, mfunction->mblock_cnt);
-}
-
-bool
-is_rip_relative(Inst *inst)
-{
-	return IBASE(inst) == R_NONE;
-}
-
-bool
-is_memory_same(Inst *a, Inst *b)
-{
-	return ISCALE(a) == ISCALE(b) && IINDEX(a) == IINDEX(b) && IBASE(a) == IBASE(b) && IDISP(a) == IDISP(b);
-}
-
-void
-copy_memory(Inst *dest, Inst *src)
-{
-	// This copies normal x86-64 addressing mode:
-	//     [base+scale*index+disp]
-	ISCALE(dest) = ISCALE(src);
-	IINDEX(dest) = IINDEX(src);
-	IBASE(dest) = IBASE(src);
-	IDISP(dest) = IDISP(src);
-        // The other addressing mode is:
-        //     [rip+disp]
-        // It uses IBASE(inst) = R_NONE and the displacement is actually
-        // label+displacement, which are encoded using ILABEL(inst) and
-        // IDISP(inst). Since we copy IBASE IDISP above and ILABEL aliases with
-        // ISCALE, which we also copied above, it works for both cases.
-}
-
 bool
 try_replace_by_immediate(MFunction *mfunction, Inst *inst, Oper o)
 {

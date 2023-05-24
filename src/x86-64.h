@@ -17,6 +17,10 @@ void set_imm64(Inst *inst, u64 imm);
 u64 get_imm64(Inst *inst);
 bool pack_into_oper(u64 value, Oper *op);
 
+bool is_rip_relative(Inst *inst);
+bool is_memory_same(Inst *a, Inst *b);
+void copy_memory(Inst *dest, Inst *src);
+
 // R = RW register
 // r = R register
 // C = W register ("clobber")
