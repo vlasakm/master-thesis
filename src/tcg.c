@@ -2572,18 +2572,18 @@ assign_registers(RegAllocState *ras)
 		ras->reg_assignment[i] = i;
 	}
 
-	Oper i;
-	while (wl_take_back(&ras->stack, &i)) {
-		assert(i >= R__MAX);
+	Oper u;
+	while (wl_take_back(&ras->stack, &u)) {
+		assert(u >= R__MAX);
 		fprintf(stderr, "Popping ");
-		print_reg(stderr, i);
+		print_reg(stderr, u);
 		fprintf(stderr, "\n");
 		Oper used = 0;
 		// If this one neighbours with some node that
 		// has already color allocated (i.e. not on the
 		// the stack) and it is not spilled (i.e. not R_NONE), make sure we
 		// don't use the same register.
-		GArena *gadj_list = &ras->ig.adj_list[i];
+		GArena *gadj_list = &ras->ig.adj_list[u];
 		Oper *adj_list = garena_array(gadj_list, Oper);
 		size_t adj_cnt = garena_cnt(gadj_list, Oper);
 		for (size_t j = 0; j < adj_cnt; j++) {
@@ -2592,7 +2592,35 @@ assign_registers(RegAllocState *ras)
 				used |= 1 << (ras->reg_assignment[neighbour] - 1);
 			}
 		}
+
+
+		Inst **moves = garena_array(&ras->gmoves, Inst *);
+		GArena *gmove_list = &ras->move_list[u];
+		Oper *move_list = garena_array(gmove_list, Oper);
+		size_t move_cnt = garena_cnt(gmove_list, Oper);
+
 		Oper reg = 0;
+		for (size_t m = 0; m < move_cnt; m++) {
+			Inst *move = moves[move_list[m]];
+			Oper op1 = get_alias(ras, move->ops[0]);
+			Oper op2 = get_alias(ras, move->ops[1]);
+			assert(op1 != op2);
+			assert(u == op1 || u == op2);
+			Oper v = op1 != u ? op1 : op2;
+			Oper v_reg = ras->reg_assignment[v];
+			if (v_reg && (used & (1 << (v_reg - 1))) == 0) {
+				fprintf(stderr, "Preferring ");
+				print_reg(stderr, v_reg);
+				fprintf(stderr, " for ");
+				print_reg(stderr, u);
+				fprintf(stderr, " due to ");
+				print_reg(stderr, v);
+				fprintf(stderr, "\n");
+				reg = v_reg;
+				goto done;
+			}
+		}
+
 		for (size_t ri = 1; ri <= ras->reg_avail; ri++) {
 			size_t mask = 1 << (ri - 1);
 			if ((used & mask) == 0) {
@@ -2602,16 +2630,17 @@ assign_registers(RegAllocState *ras)
 		}
 		if (reg == 0) {
 			fprintf(stderr, "Out of registers at ");
-			print_reg(stderr, i);
+			print_reg(stderr, u);
 			fprintf(stderr, "\n");
-			ras->to_spill[i] = mfunction->stack_space;
+			ras->to_spill[u] = mfunction->stack_space;
 			assert(mfunction->stack_space < 240);
 			mfunction->stack_space += 8;
 			have_spill = true;
 		}
-		ras->reg_assignment[i] = reg;
+		done:
+		ras->reg_assignment[u] = reg;
 		fprintf(stderr, "allocated ");
-		print_reg(stderr, i);
+		print_reg(stderr, u);
 		fprintf(stderr, " to ");
 		print_reg(stderr, reg);
 		fprintf(stderr, "\n");
