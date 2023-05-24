@@ -1,6 +1,43 @@
 #include "inst.h"
 #include "x86-64.h"
 
+MFunction *
+mfunction_create(Arena *arena, Function *function, GArena *labels)
+{
+	MFunction *mfunction = arena_alloc(arena, sizeof(*mfunction));
+	*mfunction = (MFunction) {
+		.func = function,
+		.labels = labels,
+		.mblocks = arena_alloc(arena, function->block_cnt * sizeof(mfunction->mblocks[0])),
+		.mblock_cnt = function->block_cnt,
+	};
+
+	function->mfunction = mfunction;
+
+	return mfunction;
+}
+
+MBlock *
+mblock_create(Arena *arena, Block *block)
+{
+	MBlock *mblock = arena_alloc(arena, sizeof(*mblock));
+	*mblock = (MBlock) {
+		.block = block,
+		// head of the linked list of instructions
+		.insts = (Inst) {
+			.kind = IK_BLOCK,
+			.subkind = 0,
+			.mode = M_NONE,
+			.next = &mblock->insts,
+			.prev = &mblock->insts,
+		},
+	};
+
+	block->mblock = mblock;
+
+	return mblock;
+}
+
 void
 mfunction_free(MFunction *mfunction)
 {
@@ -9,6 +46,25 @@ mfunction_free(MFunction *mfunction)
 	FREE_ARRAY(mfunction->only_def, mfunction->vreg_cnt);
 
 	FREE_ARRAY(mfunction->block_use_count, mfunction->mblock_cnt);
+}
+
+void
+print_mfunction(FILE *f, MFunction *mfunction)
+{
+	print_str(f, mfunction->func->name);
+	fprintf(f, ":\n");
+	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
+		MBlock *mblock = mfunction->mblocks[b];
+		if (!mblock) {
+			continue;
+		}
+		fprintf(f, ".L%zu:\n", mblock->block->base.index);
+		for (Inst *inst = mblock->insts.next; inst != &mblock->insts; inst = inst->next) {
+			fprintf(f, "\t");
+			print_inst(f, mfunction, inst);
+			fprintf(f, "\n");
+		}
+	}
 }
 
 void

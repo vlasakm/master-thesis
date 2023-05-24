@@ -399,6 +399,8 @@ is_to_be_spilled(SpillState *ss, Oper t)
 	return ss->ras->to_spill[t];
 }
 
+Inst *create_inst(Arena *arena, InstKind kind, int subkind);
+
 void
 insert_loads_of_spilled(void *user_data, Oper *src)
 {

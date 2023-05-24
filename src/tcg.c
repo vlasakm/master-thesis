@@ -736,25 +736,6 @@ translate_value(TranslationState *ts, Value *v)
 }
 
 void
-print_mfunction(FILE *f, MFunction *mfunction)
-{
-	print_str(f, mfunction->func->name);
-	fprintf(f, ":\n");
-	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
-		MBlock *mblock = mfunction->mblocks[b];
-		if (!mblock) {
-			continue;
-		}
-		fprintf(f, ".L%zu:\n", mblock->block->base.index);
-		for (Inst *inst = mblock->insts.next; inst != &mblock->insts; inst = inst->next) {
-			fprintf(f, "\t");
-			print_inst(f, mfunction, inst);
-			fprintf(f, "\n");
-		}
-	}
-}
-
-void
 get_uses(Function *function)
 {
 	GROW_ARRAY(function->uses, 2 * function->value_cnt);
@@ -1286,14 +1267,7 @@ single_exit(Arena *arena, Function *function)
 MFunction *
 translate_function(Arena *arena, GArena *labels, Function *function)
 {
-	Block **post_order = function->post_order;
-
-	MFunction *mfunction = arena_alloc(arena, sizeof(*mfunction));
-	memset(mfunction, 0, sizeof(*mfunction));
-	mfunction->func = function;
-	mfunction->labels = labels;
-	mfunction->mblocks = arena_alloc(arena, function->block_cnt * sizeof(mfunction->mblocks[0]));
-	mfunction->mblock_cnt = 0; // incremented when each block is inserted
+	MFunction *mfunction = mfunction_create(arena, function, labels);
 
 	TranslationState ts_ = {
 		.arena = arena,
@@ -1305,22 +1279,14 @@ translate_function(Arena *arena, GArena *labels, Function *function)
 	};
 	TranslationState *ts = &ts_;
 
+	Block **post_order = function->post_order;
+	size_t i = 0;
 	for (size_t b = function->block_cnt; b--;) {
-	//for (size_t j = 0; j < function->block_cnt; j++) {
 		Block *block = post_order[b];
-		//printf(".L%zu:\n", function->block_cnt - b - 1);
-		MBlock *mblock = arena_alloc(arena, sizeof(*mblock));
-		memset(mblock, 0, sizeof(*mblock));
-		mfunction->mblocks[mfunction->mblock_cnt++] = mblock;
-		mblock->insts.kind = IK_BLOCK;
-		mblock->insts.subkind = 0;
-		mblock->insts.mode = M_NONE;
-		mblock->insts.next = &mblock->insts;
-		mblock->insts.prev = &mblock->insts;
-		mblock->block = block;
-		//mblock->index = block->base.index;
-		mblock->index = mfunction->mblock_cnt - 1;
-		block->mblock = mblock;
+		MBlock *mblock = mblock_create(arena, block);
+		mfunction->mblocks[i] = mblock;
+		mblock->index = i;
+		i++;
 		ts->block = mblock;
 		if (block == function->entry) {
 			translate_prologue(ts);
@@ -1333,7 +1299,7 @@ translate_function(Arena *arena, GArena *labels, Function *function)
 	mfunction->vreg_cnt = ts->index;
 	mfunction->stack_space = ts->stack_space;
 	mfunction->make_stack_space = ts->make_stack_space;
-	function->mfunc = mfunction;
+	function->mfunction = mfunction;
 	return mfunction;
 }
 
@@ -2316,15 +2282,15 @@ main(int argc, char **argv)
 		print_function(stderr, functions[i]);
 		///*
 		translate_function(arena, &labels, functions[i]);
-		calculate_def_use_info(functions[i]->mfunc);
-		print_mfunction(stderr, functions[i]->mfunc);
-		peephole(functions[i]->mfunc, arena, false);
-		print_mfunction(stderr, functions[i]->mfunc);
-		reg_alloc_function(ras, functions[i]->mfunc);
-		print_mfunction(stderr, functions[i]->mfunc);
-		calculate_def_use_info(functions[i]->mfunc);
-		peephole(functions[i]->mfunc, arena, true);
-		print_mfunction(stderr, functions[i]->mfunc);
+		calculate_def_use_info(functions[i]->mfunction);
+		print_mfunction(stderr, functions[i]->mfunction);
+		peephole(functions[i]->mfunction, arena, false);
+		print_mfunction(stderr, functions[i]->mfunction);
+		reg_alloc_function(ras, functions[i]->mfunction);
+		print_mfunction(stderr, functions[i]->mfunction);
+		calculate_def_use_info(functions[i]->mfunction);
+		peephole(functions[i]->mfunction, arena, true);
+		print_mfunction(stderr, functions[i]->mfunction);
 		//*/
 		//peephole(functions[i]->mfunc, arena);
 	}
@@ -2375,7 +2341,7 @@ main(int argc, char **argv)
 
 	for (size_t i = 0; i < function_cnt; i++) {
 		printf("\n");
-		print_mfunction(stdout, functions[i]->mfunc);
+		print_mfunction(stdout, functions[i]->mfunction);
 	}
 	//*/
 
@@ -2411,7 +2377,7 @@ end:
 		}
 		free(function->blocks);
 		free(function->post_order);
-		mfunction_free(function->mfunc);
+		mfunction_free(function->mfunction);
 	}
 	garena_free(&labels);
 

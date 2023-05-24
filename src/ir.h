@@ -153,10 +153,10 @@ struct Block {
 
 Block *create_block(Arena *arena, Function *function);
 
-Block ** block_preds(Block *block);
+Block **block_preds(Block *block);
 size_t block_pred_cnt(Block *block);
 
-Block ** block_succs(Block *block);
+Block **block_succs(Block *block);
 size_t block_succ_cnt(Block *block);
 
 void block_add_pred(Block *block, Block *pred);
@@ -196,7 +196,7 @@ struct Function {
 	size_t block_cap;
 	size_t block_cnt;
 	size_t value_cnt;
-	MFunction *mfunc;
+	MFunction *mfunction;
 
 	GArena *uses; // array of Value * for each Value * (by its index)
 };
