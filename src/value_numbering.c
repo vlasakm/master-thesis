@@ -128,33 +128,41 @@ remove_value_and_uses_of_operands(Function *function, Value *where)
 
 
 Value *
-try_remove_trivial_phi(Arena *arena, Function *function, Operation *phi)
+try_remove_trivial_phi(Arena *arena, Function *function, Value *phi)
 {
+	// Simplify trivial phis like:
+	//
+	//     v30 = phi v20, v20
+	//
+	// or
+	//     v32 = phi v32, v19
+	//
+	// and use the value (v20, v19 in the examples above) instead. Since the
+	// values may also be phis which might become trivial, also investigate
+	// them. For this we need the uses, which we keep updated.
+
 	Value *same = NULL;
-	size_t operand_cnt = value_operand_cnt(&phi->base);
-	for (size_t i = 0; i < operand_cnt; i++) {
-		Value *op = phi->operands[i];
-		if (op == same || op == &phi->base) {
+	FOR_EACH_OPERAND(phi, op) {
+		if (*op == same || *op == phi) {
 			continue;
+		} else if (same) {
+			return phi;
 		}
-		if (same) {
-			return &phi->base;
-		}
-		same = op;
+		same = *op;
 	}
 	if (!same) {
-		Operation *undefined = create_operation(arena, (Block *) phi->base.parent, VK_UNDEFINED, phi->base.type, 0);
+		Operation *undefined = create_operation(arena, (Block *) phi->parent, VK_UNDEFINED, phi->type, 0);
 		same = &undefined->base;
 	}
-	remove_value_and_uses_of_operands(function, &phi->base);
-	replace_by(function, &phi->base, same);
-	GArena *guses = &function->uses[phi->base.index];
+	remove_value_and_uses_of_operands(function, phi);
+	replace_by(function, phi, same);
+	GArena *guses = &function->uses[phi->index];
 	size_t use_cnt = garena_cnt(guses, Value *);
 	Value **uses = garena_array(guses, Value *);
 	for (size_t i = 0; i < use_cnt; i++) {
 		Value *use = uses[i];
 		if (VK(use) == VK_PHI) {
-			try_remove_trivial_phi(arena, function, (Operation*) use);
+			try_remove_trivial_phi(arena, function, use);
 		}
 	}
 	return same;
@@ -169,7 +177,7 @@ add_phi_operands(ValueNumberingState *vns, Operation *phi, Block *block, Value *
 		phi->operands[i++] = value;
 		add_use(vns->function, value, &phi->base);
 	}
-	return try_remove_trivial_phi(vns->arena, vns->function, phi);
+	return try_remove_trivial_phi(vns->arena, vns->function, &phi->base);
 }
 
 typedef struct {
