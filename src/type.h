@@ -54,19 +54,19 @@ extern Type TYPE_INT;
 
 size_t type_size(Type *type);
 
-Type * type_pointer(Arena *arena, Type *child);
+Type *type_pointer(Arena *arena, Type *child);
 
 bool type_is_pointer(Type *pointer_type);
 
 Type *pointer_child(Type *pointer_type);
 
-Type * type_function(Arena *arena, Type *ret_type, Parameter *parameters, size_t param_cnt);
+Type *type_function(Arena *arena, Type *ret_type, Parameter *parameters, size_t param_cnt);
 
 bool type_is_function(Type *type);
 
 bool type_is_function_compatible(Type *type);
 
-FunctionType * type_as_function(Type *type);
+FunctionType *type_as_function(Type *type);
 
 size_t type_function_param_cnt(Type *type);
 
