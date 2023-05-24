@@ -1,0 +1,14 @@
+// vim: ft=c et sw=4
+
+int fn1(int a, int b, int c, int d, int e, int f, int g, int h) {
+	return a + 2 * b + 3 * c + 4 * d + 5 * e + 6 * f + 7 * g + 8 * h;
+}
+
+int fn2(int a, int b, int c, int d, int e, int f, int g, int h) {
+    return fn1(h, g, f, e, d, c, b, a);
+}
+
+int main() {
+    // > 204
+    return fn2(8, 7, 6, 5, 4, 3, 2, 1);
+}
