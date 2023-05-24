@@ -16,8 +16,6 @@ typedef struct {
 
 void table_init(Table *table);
 
-void table_init(Table *table);
-
 void table_free(Table *table);
 
 Entry *table_find_entry(Entry *entries, size_t capacity, Str key);

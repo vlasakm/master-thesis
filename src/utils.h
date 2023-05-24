@@ -53,3 +53,6 @@ typedef u32 Oper;
 
 #define UNREACHABLE() unreachable(__FILE__, __LINE__)
 _Noreturn void unreachable(char *file, size_t line);
+
+#define NOT_IMPLEMENTED(what) not_implemented((what), __FILE__, __LINE__)
+_Noreturn void not_implemented(char *what, char *file, size_t line);

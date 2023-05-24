@@ -261,7 +261,7 @@ type_specifier(Parser *parser)
 				Type *prev;
 				if (table_get(&parser->type_env, name, (void **) &prev)) {
 					// TODO: type compatible?
-					UNREACHABLE();
+					NOT_IMPLEMENTED("compare struct type specifier");
 				} else {
 					table_insert(&parser->type_env, name, type);
 				}
@@ -333,8 +333,7 @@ declarator(Parser *parser, Str *name, Type *type, DeclaratorKind kind)
 		switch (peek(parser)) {
 		case TK_LBRACKET: {
 			eat(parser, TK_LBRACKET);
-			// TODO
-			UNREACHABLE();
+			NOT_IMPLEMENTED("array declarator");
 			eat(parser, TK_RBRACKET);
 			break;
 		function_declarator:
@@ -504,7 +503,7 @@ cast(Parser *parser)
 static CValue
 pre(Parser *parser)
 {
-	UNREACHABLE();
+	NOT_IMPLEMENTED("prefix increment/decrement");
 }
 
 static CValue
@@ -760,7 +759,7 @@ shortcirc(Parser *parser, CValue cleft, int rbp)
 static CValue
 post(Parser *parser, CValue cleft, int rbp)
 {
-	UNREACHABLE();
+	NOT_IMPLEMENTED("postfix increment/decrement");
 }
 
 static CValue
@@ -864,7 +863,7 @@ statement(Parser *parser)
 		break;
 	}
 	case TK_SWITCH: {
-		UNREACHABLE();
+		NOT_IMPLEMENTED("switch parsing");
 		break;
 	}
 	case TK_WHILE: {
