@@ -1515,7 +1515,7 @@ remove_value_and_uses_of_operands(Function *function, Value *where)
 }
 
 
-void
+Value *
 try_remove_trivial_phi(Arena *arena, Function *function, Operation *phi)
 {
 	Value *same = NULL;
@@ -1526,7 +1526,7 @@ try_remove_trivial_phi(Arena *arena, Function *function, Operation *phi)
 			continue;
 		}
 		if (same) {
-			return;
+			return &phi->base;
 		}
 		same = op;
 	}
@@ -1545,9 +1545,10 @@ try_remove_trivial_phi(Arena *arena, Function *function, Operation *phi)
 			try_remove_trivial_phi(arena, function, (Operation*) use);
 		}
 	}
+	return same;
 }
 
-void
+Value *
 add_phi_operands(ValueNumberingState *vns, Operation *phi, Block *block, Value *variable)
 {
 	size_t i = 0;
@@ -1556,7 +1557,7 @@ add_phi_operands(ValueNumberingState *vns, Operation *phi, Block *block, Value *
 		phi->operands[i++] = value;
 		add_use(vns->function, value, &phi->base);
 	}
-	try_remove_trivial_phi(vns->arena, vns->function, phi);
+	return try_remove_trivial_phi(vns->arena, vns->function, phi);
 }
 
 typedef struct {
@@ -1600,9 +1601,8 @@ read_variable(ValueNumberingState *vns, Block *block, Value *variable)
 		// We already filled all predecessors.
 		block->pending = true;
 		Operation *phi = insert_phi(vns->arena, block, pointer_child(variable->type));
-		add_phi_operands(vns, phi, block, variable);
+		value = add_phi_operands(vns, phi, block, variable);
 		block->pending = false;
-		value = &phi->base;
 	}
 	// Memoize
 	write_variable(vns, block, variable, value);
