@@ -1055,7 +1055,7 @@ function_declaration(Parser *parser, Str fun_name, FunctionType *fun_type)
 	for (size_t i = 0; i < param_cnt; i++) {
 		Value *arg = &args[i].base;
 		Value *addr = add_alloca(parser, params[i].type);
-		add_binary(parser, VK_STORE, params[i].type, addr, arg);
+		add_binary(parser, VK_STORE, &TYPE_VOID, addr, arg);
 		env_define(&parser->env, params[i].name, addr);
 	}
 	function->args = args;
