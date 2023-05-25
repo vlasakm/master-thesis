@@ -23,40 +23,6 @@
 #include "regalloc.h"
 #include "parser.h"
 
-Str
-arena_vaprintf(Arena *arena, const char *fmt, va_list ap)
-{
-	va_list ap_orig;
-	// save original va_list (vprintf changes it)
-	va_copy(ap_orig, ap);
-
-	size_t available = arena->current->size - arena->current->pos;
-	void *mem = ((u8 *) arena->current) + arena->current->pos;
-	ASAN_UNPOISON_MEMORY_REGION(mem, available);
-	int len = vsnprintf(mem, available, fmt, ap);
-	assert(len >= 0);
-	len += 1; // terminating null
-	if ((size_t) len <= available) {
-		arena->current->pos += (size_t) len;
-		ASAN_POISON_MEMORY_REGION(((unsigned char *) arena->current) + arena->current->pos, available - len);
-	} else {
-		mem = arena_alloc(arena, (size_t) len);
-		vsnprintf(mem, (size_t) len, fmt, ap_orig);
-	}
-	va_end(ap_orig);
-	return (Str) { .str = mem, .len = len - 1 };
-}
-
-Str PRINTF_LIKE(2)
-arena_aprintf(Arena *arena, const char *fmt, ...)
-{
-	va_list ap;
-	va_start(ap, fmt);
-	Str str = arena_vaprintf(arena, fmt, ap);
-	va_end(ap);
-	return str;
-}
-
 typedef struct {
 	Arena *arena;
 	GArena *labels;
@@ -1836,7 +1802,7 @@ static void
 verror(ErrorContext *ec, const u8 *pos, char *kind, bool fatal, const char *fmt, va_list ap)
 {
 	Error *error = arena_alloc(&ec->arena, sizeof(*error));
-	error->msg = (u8 *) arena_vaprintf(&ec->arena, fmt, ap).str;
+	error->msg = arena_vaprintf(&ec->arena, fmt, ap);
 	error->pos = pos;
 	error->kind = kind;
 	error->next = NULL;

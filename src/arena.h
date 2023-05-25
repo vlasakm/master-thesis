@@ -5,6 +5,7 @@
 
 #include <stddef.h>
 #include <stdalign.h>
+#include <stdarg.h>
 
 // This header defines the API of two different Arena allocators - `Arena` and
 // `Garena`. In general arena allocators all "bump allocate" their memory. I.e.
@@ -80,6 +81,8 @@ void *arena_alloc(Arena *arena, size_t size);
 size_t arena_save(Arena *arena);
 void arena_restore(Arena *arena, size_t pos);
 
+// Like `vasprintf` - printf to string allocated from the arena.
+unsigned char *arena_vaprintf(Arena *arena, const char *fmt, va_list ap);
 
 
 // The `GArena` ("growable arena") is an implementation of the approach (3).

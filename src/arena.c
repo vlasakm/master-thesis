@@ -5,6 +5,9 @@
 #include "stdlib.h"
 #include "stdint.h"
 #include "string.h"
+#include "stdarg.h"
+#include "assert.h"
+#include "stdio.h"
 
 static size_t
 align(size_t pos, size_t alignment)
@@ -73,6 +76,30 @@ arena_free(Arena *arena)
 	}
 }
 
+unsigned char *
+arena_vaprintf(Arena *arena, const char *fmt, va_list ap)
+{
+	va_list ap_orig;
+	// save original va_list (vprintf changes it)
+	va_copy(ap_orig, ap);
+
+	size_t available = arena->current->size - arena->current->pos;
+	void *mem = ((unsigned char *) arena->current) + arena->current->pos;
+	ASAN_UNPOISON_MEMORY_REGION(mem, available);
+	int len = vsnprintf(mem, available, fmt, ap);
+	assert(len >= 0);
+	len += 1; // terminating null
+	if ((size_t) len <= available) {
+		arena->current->pos += (size_t) len;
+		ASAN_POISON_MEMORY_REGION(((unsigned char *) arena->current) + arena->current->pos, available - len);
+	} else {
+		mem = arena_alloc(arena, (size_t) len);
+		vsnprintf(mem, (size_t) len, fmt, ap_orig);
+	}
+	va_end(ap_orig);
+	return mem;
+}
+
 
 
 
@@ -97,8 +124,10 @@ garena_alloc(GArena *arena, size_t size, size_t alignment)
 	if (pos + size > arena->capacity) {
 		arena->capacity = arena->capacity ? arena->capacity * 2 : size * 8;
 		arena->mem = realloc(arena->mem, arena->capacity);
+		ASAN_POISON_MEMORY_REGION(arena->mem, arena->capacity);
 	}
 	arena->pos = pos + size;
+	ASAN_UNPOISON_MEMORY_REGION(arena->mem, arena->pos);
 	return &arena->mem[pos];
 }
 
