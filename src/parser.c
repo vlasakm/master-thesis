@@ -888,7 +888,68 @@ statement(Parser *parser)
 		break;
 	}
 	case TK_SWITCH: {
-		NOT_IMPLEMENTED("switch parsing");
+		eat(parser, TK_SWITCH);
+		Block *saved_break_block = parser->break_block;
+		Block *cond_block = add_block(parser);
+		Block *cascading_block = add_block(parser);
+		Block *default_block = NULL;
+		Block *after_block = add_block(parser);
+		parser->break_block = after_block;
+		add_jump(parser, cond_block);
+		switch_to_block(parser, cond_block);
+		eat(parser, TK_LPAREN);
+		Value *examinee = condition(parser);
+		eat(parser, TK_RPAREN);
+		eat(parser, TK_LBRACE);
+		add_jump(parser, cascading_block);
+		switch_to_block(parser, NULL);
+		while (!try_eat(parser, TK_RBRACE)) {
+			switch (peek(parser)) {
+			case TK_CASE: {
+				Block *new_block = add_block(parser);
+				add_jump(parser, new_block);
+
+				eat(parser, TK_CASE);
+				switch_to_block(parser, cascading_block);
+				cascading_block = add_block(parser);
+				CValue cvalue = literal(parser);
+				Value *value = as_rvalue(parser, cvalue);
+				Value *equal = add_binary(parser, VK_EQ, examinee->type, examinee, value);
+				add_cond_jump(parser, equal, new_block, cascading_block);
+				eat(parser, TK_COLON);
+
+				switch_to_block(parser, new_block);
+				break;
+			}
+			case TK_DEFAULT: {
+				Block *new_block = add_block(parser);
+				add_jump(parser, new_block);
+
+				eat(parser, TK_DEFAULT);
+				if (default_block) {
+					parser_error(parser, parser->prev, false, "Switch can't have multiple 'default' labels");
+				}
+				default_block = new_block;
+				eat(parser, TK_COLON);
+
+				switch_to_block(parser, new_block);
+				break;
+			}
+			default:
+				statement(parser);
+			}
+		}
+		add_jump(parser, after_block);
+
+		switch_to_block(parser, cascading_block);
+		if (default_block) {
+			add_jump(parser, default_block);
+		} else {
+			add_jump(parser, after_block);
+		}
+
+		parser->break_block = saved_break_block;
+		switch_to_block(parser, after_block);
 		break;
 	}
 	case TK_WHILE: {
