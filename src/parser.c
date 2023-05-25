@@ -1112,7 +1112,9 @@ function_declaration(Parser *parser, Str fun_name, FunctionType *fun_type)
 	}
 
 	// Complete the function
-	compute_preorder(function);
+	if (!parser->had_error) {
+		compute_preorder(function);
+	}
 	function->base.index = garena_cnt(&parser->functions, Function *);
 	garena_push_value(&parser->functions, Function *, function);
 	env_pop(&parser->env);
