@@ -346,6 +346,19 @@ validate_function(Function *function)
 		Block *block = function->post_order[j];
 		assert(block->base.parent == &function->base);
 
+		FOR_EACH_IN_BLOCK(block, v) {
+			assert(v->prev);
+			assert(v->next);
+			assert(v->prev->next == v);
+			assert(v->next->prev == v);
+			assert(v->parent == &block->base);
+			if (v != block->base.prev) {
+				assert(!value_is_terminator(v));
+			} else {
+				assert(value_is_terminator(v));
+			}
+		}
+
 		FOR_EACH_BLOCK_PRED(block, pred) {
 			FOR_EACH_BLOCK_SUCC(*pred, s) {
 				if (*s == block) {
@@ -364,19 +377,6 @@ validate_function(Function *function)
 			assert(false);
 		}
 		succ_ok:;
-
-		FOR_EACH_IN_BLOCK(block, v) {
-			assert(v->prev);
-			assert(v->next);
-			assert(v->prev->next == v);
-			assert(v->next->prev == v);
-			assert(v->parent == &block->base);
-			if (v != block->base.prev) {
-				assert(!value_is_terminator(v));
-			} else {
-				assert(value_is_terminator(v));
-			}
-		}
 	}
 #endif // NDEBUG
 }
