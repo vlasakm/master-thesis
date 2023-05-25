@@ -345,7 +345,6 @@ validate_function(Function *function)
 	for (size_t j = function->block_cnt; j--;) {
 		Block *block = function->post_order[j];
 		assert(block->base.parent == &function->base);
-		value_is_terminator(block->base.prev);
 
 		FOR_EACH_BLOCK_PRED(block, pred) {
 			FOR_EACH_BLOCK_SUCC(*pred, s) {
@@ -372,6 +371,11 @@ validate_function(Function *function)
 			assert(v->prev->next == v);
 			assert(v->next->prev == v);
 			assert(v->parent == &block->base);
+			if (v != block->base.prev) {
+				assert(!value_is_terminator(v));
+			} else {
+				assert(value_is_terminator(v));
+			}
 		}
 	}
 #endif // NDEBUG
