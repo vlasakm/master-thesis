@@ -57,7 +57,7 @@ value_is_terminator(Value *value)
 	case VK_RETVOID:
 		return true;
 	case VK_BLOCK:
-		UNREACHABLE();
+	     // fallthrough
 	default:
 		return false;
 	}
