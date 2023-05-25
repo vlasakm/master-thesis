@@ -150,9 +150,8 @@ block_succ_cnt(Block *block)
 		return 2;
 	case VK_RET:
 	case VK_RETVOID:
-		return 0;
 	default:
-		UNREACHABLE();
+		return 0;
 	}
 }
 
