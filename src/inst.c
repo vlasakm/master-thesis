@@ -41,6 +41,9 @@ mblock_create(Arena *arena, Block *block)
 void
 mfunction_free(MFunction *mfunction)
 {
+	if (!mfunction) {
+		return;
+	}
 	FREE_ARRAY(mfunction->def_count, mfunction->vreg_cnt);
 	FREE_ARRAY(mfunction->use_count, mfunction->vreg_cnt);
 	FREE_ARRAY(mfunction->only_def, mfunction->vreg_cnt);
