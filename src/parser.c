@@ -11,6 +11,18 @@ typedef struct {
 
 Value NOP = { .type = &TYPE_VOID, .kind = VK_NOP };
 
+static Type *
+typeof(CValue cvalue)
+{
+	Type *type = cvalue.value->type;
+	if (cvalue.lvalue) {
+		assert(type_is_pointer(type));
+		return pointer_child(type);
+	} else {
+		return type;
+	}
+}
+
 static CValue
 rvalue(Value *value)
 {
@@ -156,7 +168,9 @@ static void
 switch_to_block(Parser *parser, Block *new_block)
 {
 	if (parser->current_block) {
-		assert(value_is_terminator(parser->current_block->base.prev));
+		if (!parser->had_error) {
+			assert(value_is_terminator(parser->current_block->base.prev));
+		}
 		block_add_pred_to_succs(parser->current_block);
 	}
 	parser->current_block = new_block;
@@ -165,12 +179,18 @@ switch_to_block(Parser *parser, Block *new_block)
 static void
 add_jump(Parser *parser, Block *destination)
 {
+	if (parser->current_block) {
+		assert(!value_is_terminator(parser->current_block->base.prev));
+	}
 	add_unary(parser, VK_JUMP, &TYPE_VOID, &destination->base);
 }
 
 static void
 add_cond_jump(Parser *parser, Value *cond, Block *true_block, Block *false_block)
 {
+	if (parser->current_block) {
+		assert(!value_is_terminator(parser->current_block->base.prev));
+	}
 	Operation *op = add_operation(parser, VK_BRANCH, &TYPE_VOID, 3);
 	op->operands[0] = cond;
 	op->operands[1] = &true_block->base;
@@ -203,23 +223,13 @@ create_global(Parser *parser, Str name, Type *type)
 }
 
 static Value *
-add_argument(Parser *parser, Type *type, size_t index)
-{
-	Argument *arg = arena_alloc(parser->arena, sizeof(*arg));
-	value_init(&arg->base, VK_ARGUMENT, type);
-	append_to_block(parser->current_block, &arg->base);
-	arg->index = index;
-	return &arg->base;
-}
-
-static Value *
 as_rvalue(Parser *parser, CValue cvalue)
 {
 	if (cvalue.lvalue) {
 		Value *lvalue = cvalue.value;
-		assert(lvalue->type->kind == TY_POINTER);
-		Type *type = ((PointerType *) lvalue->type)->child;
-		return add_unary(parser, VK_LOAD, type, lvalue);
+		assert(type_is_pointer(lvalue->type));
+		Type *child = pointer_child(lvalue->type);
+		return add_unary(parser, VK_LOAD, child, lvalue);
 	} else {
 		return cvalue.value;
 	}
@@ -239,7 +249,7 @@ as_lvalue(Parser *parser, CValue cvalue, char *msg)
 static Type *struct_body(Parser *parser);
 
 static Type *
-type_specifier(Parser *parser)
+parse_type(Parser *parser, bool allow_void)
 {
 	Type *type;
 	Token token = discard(parser);
@@ -253,144 +263,20 @@ type_specifier(Parser *parser)
 		}
 		break;
 	}
-	case TK_STRUCT: {
-		if (peek(parser) == TK_IDENTIFIER) {
-			Str name = eat_identifier(parser);
-			if (peek(parser) == TK_LBRACE) {
-				type = struct_body(parser);
-				Type *prev;
-				if (table_get(&parser->type_env, name, (void **) &prev)) {
-					// TODO: type compatible?
-					NOT_IMPLEMENTED("compare struct type specifier");
-				} else {
-					table_insert(&parser->type_env, name, type);
-				}
-			} else {
-				if (!table_get(&parser->type_env, name, (void **) &type) || type->kind != TY_STRUCT) {
-					parser_error(parser, token, false, "Expected name to be defined as struct");
-				}
-			}
-		} else {
-			type = struct_body(parser);
-		}
-		break;
-	}
 	default:
 		type = &TYPE_VOID;
 		parser_error(parser, token, false, "Unexpected token %s in type specifier", tok_repr[token.kind]);
 	}
 
-	return type;
-}
-
-typedef enum {
-	DECLARATOR_ORDINARY,
-	DECLARATOR_ABSTRACT,
-	DECLARATOR_MAYBE_ABSTRACT,
-} DeclaratorKind;
-
-// `name` is output parameter
-static Type *
-declarator(Parser *parser, Str *name, Type *type, DeclaratorKind kind)
-{
 	while (try_eat(parser, TK_ASTERISK)) {
 		type = type_pointer(parser->arena, type);
 	}
 
-	switch (peek(parser)) {
-	case TK_IDENTIFIER: {
-		Str ident = eat_identifier(parser);
-		if (kind == DECLARATOR_ABSTRACT) {
-			parser_error(parser, parser->lookahead, false, "Abstract declarator has identifier");
-		}
-		if (name) {
-			*name = ident;
-		}
-		break;
-	}
-	case TK_LPAREN:
-		eat(parser, TK_LPAREN);
-		if (kind != DECLARATOR_ORDINARY) {
-			switch (peek(parser)) {
-			case TK_ASTERISK:
-			case TK_LPAREN:
-			case TK_IDENTIFIER:
-				break;
-			default:
-				goto function_declarator;
-			}
-		}
-		type = declarator(parser, name, type, kind);
-		eat(parser, TK_RPAREN);
-		break;
-	default:
-		if (kind != DECLARATOR_ORDINARY) {
-			parser_error(parser, parser->lookahead, true, "Unexpected token %s in declarator", tok_repr[parser->lookahead.kind]);
-		}
+	if (!allow_void && type == &TYPE_VOID) {
+		parser_error(parser, token, false, "Type 'void' is not allowed here");
 	}
 
-	for (;;) {
-		switch (peek(parser)) {
-		case TK_LBRACKET: {
-			eat(parser, TK_LBRACKET);
-			NOT_IMPLEMENTED("array declarator");
-			eat(parser, TK_RBRACKET);
-			break;
-		function_declarator:
-		case TK_LPAREN: {
-			eat(parser, TK_LPAREN);
-			size_t start = garena_save(parser->scratch);
-			while (!try_eat(parser, TK_RPAREN)) {
-				Type *type_spec = type_specifier(parser);
-				Str param_name;
-				Type *param_type = declarator(parser, &param_name, type_spec, DECLARATOR_MAYBE_ABSTRACT);
-				Parameter param = { param_name, param_type };
-				garena_push_value(parser->scratch, Parameter, param);
-				if (!try_eat(parser, TK_COMMA)) {
-					eat(parser, TK_RPAREN);
-					break;
-				}
-			}
-			size_t param_cnt = garena_cnt_from(parser->scratch, start, Parameter);
-			Parameter *params = move_to_arena(parser->arena, parser->scratch, start, Parameter);
-			type = type_function(parser->arena, type, params, param_cnt);
-			break;
-		}
-		default:
-			return type;
-		}
-		}
-	}
-}
-
-static Type *
-struct_body(Parser *parser)
-{
-	eat(parser, TK_LBRACE);
-	size_t start = garena_save(parser->scratch);
-	while (!try_eat(parser, TK_RBRACE)) {
-		Type *type_spec = type_specifier(parser);
-		Str field_name;
-		Type *field_type = declarator(parser, &field_name, type_spec, DECLARATOR_ORDINARY);
-
-		Field field = {
-			.name = field_name,
-			.type = field_type,
-		};
-		garena_push_value(parser->scratch, Field, field);
-		eat(parser, TK_SEMICOLON);
-	}
-	size_t field_cnt = garena_cnt_from(parser->scratch, start, Field);
-	Field *fields = move_to_arena(parser->arena, parser->scratch, start, Field);
-	Type *struct_type = type_struct(parser->arena, fields, field_cnt);
-	return struct_type;
-}
-
-static Type *
-type_name(Parser *parser)
-{
-	Type *type = type_specifier(parser);
-	return declarator(parser, NULL, type, DECLARATOR_ABSTRACT);
+	return type;
 }
 
 static CValue expression_bp(Parser *parser, int bp);
@@ -414,11 +300,10 @@ expression_no_equal(Parser *parser)
 }
 
 static Value *
-create_const(Parser *parser, i64 value)
+create_const(Parser *parser, Type *type, u64 value)
 {
 	Constant *k = arena_alloc(parser->arena, sizeof(*k));
-	// TODO: can parent really be NULL?
-	value_init(&k->base, VK_CONSTANT, &TYPE_INT);
+	value_init(&k->base, VK_CONSTANT, type);
 	k->k = value;
 	return &k->base;
 }
@@ -449,9 +334,13 @@ literal(Parser *parser)
 			value = value * 10 + (*pos - '0');
 		}
 		value = (i32) (negative ? -value : value);
-		return rvalue(create_const(parser, value));
+		return rvalue(create_const(parser, &TYPE_INT, value));
 	}
-	default: assert(false);
+	case TK_STRING: {
+		NOT_IMPLEMENTED("string literals");
+	}
+	default:
+		  UNREACHABLE();
 	}
 }
 
@@ -485,31 +374,58 @@ cast(Parser *parser)
 {
 	eat(parser, TK_CAST);
 	eat(parser, TK_LESS);
-	Type *new_type = type_name(parser);
+	Type *new_type = parse_type(parser, true);
 	eat(parser, TK_GREATER);
 	eat(parser, TK_LPAREN);
 	CValue cvalue = expression(parser);
-	Value *value = as_rvalue(parser, cvalue);
 	eat(parser, TK_RPAREN);
+
 	if (new_type == &TYPE_VOID) {
 		return rvalue(&NOP);
 	}
-	if (new_type->kind == TY_POINTER && value->type->kind == TY_POINTER) {
+	if (type_is_struct(typeof(cvalue))) {
+		parser_error(parser, parser->lookahead, false, "Cannot cast struct");
+	}
+
+	Value *value = as_rvalue(parser, cvalue);
+	if (type_is_pointer(new_type) && type_is_pointer(value->type)) {
 		value->type = new_type;
 	}
 	return rvalue(value);
 }
 
 static CValue
-pre(Parser *parser)
+inc_dec(Parser *parser, CValue carg, bool inc, bool pre)
 {
-	NOT_IMPLEMENTED("prefix increment/decrement");
+	Type *arg_type = typeof(carg);
+
+	if (type_is_struct(arg_type)) {
+	}
+
+	Value *arg_addr = as_lvalue(parser, carg, "Expected argument of increment/decrement to be an lvalue");
+	Value *arg = as_rvalue(parser, carg);
+	Value *res = &NOP;
+	if (type_is_pointer(arg_type)) {
+		Value *one = create_const(parser, &TYPE_INT, inc ? 1 : -1);
+		res = add_binary(parser, VK_GET_INDEX_PTR, arg->type, arg, one);
+	} else if (type_is_numeric(arg_type)) {
+		Value *one = create_const(parser, &TYPE_INT, 1);
+		res = add_binary(parser, inc ? VK_ADD : VK_SUB, arg_type, arg, one);
+	} else {
+		parser_error(parser, parser->lookahead, false, "Cannot increment/decrement non-numeric, non-pointer value");
+	}
+
+	add_binary(parser, VK_STORE, &TYPE_VOID, arg_addr, res);
+
+	return rvalue(pre ? res : arg);
 }
 
 static CValue
-empty(Parser *parser)
+pre(Parser *parser)
 {
-	return rvalue(&NOP);
+	bool inc = discard(parser).kind == TK_PLUS_PLUS;
+	CValue carg = expression_bp(parser, 14);
+	return inc_dec(parser, carg, inc, true);
 }
 
 static CValue
@@ -517,6 +433,11 @@ unop(Parser *parser)
 {
 	Token token = discard(parser);
 	CValue carg = expression_bp(parser, 14);
+
+	if (!type_is_numeric(typeof(carg))) {
+		parser_error(parser, parser->lookahead, false, "Unary arithmetic not on non-numeric type is not allowed");
+	}
+
 	Value *arg = as_rvalue(parser, carg);
 
 	Value *result;
@@ -525,7 +446,7 @@ unop(Parser *parser)
 		result = arg;
 		break;
 	case TK_MINUS:
-		result = add_unary(parser, VK_NEG, &TYPE_INT, arg);
+		result = add_unary(parser, VK_NEG, arg->type, arg);
 		break;
 	default:
 		UNREACHABLE();
@@ -538,6 +459,11 @@ deref(Parser *parser)
 {
 	eat(parser, TK_ASTERISK);
 	CValue carg = expression_bp(parser, 14);
+
+	if (!type_is_pointer(typeof(carg))) {
+		parser_error(parser, parser->lookahead, false, "Cannot dereference non-pointer");
+	}
+
 	Value *arg = as_rvalue(parser, carg);
 	return lvalue(arg);
 }
@@ -547,6 +473,7 @@ addr(Parser *parser)
 {
 	eat(parser, TK_AMP);
 	CValue carg = expression_bp(parser, 14);
+
 	Value *arg = as_lvalue(parser, carg, "Cannot take address of non-lvalue");
 	return rvalue(arg);
 }
@@ -556,9 +483,14 @@ lognot(Parser *parser)
 {
 	eat(parser, TK_BANG);
 	CValue carg = expression_bp(parser, 14);
+
+	if (!type_is_integral(typeof(carg))) {
+		parser_error(parser, parser->lookahead, false, "Logical not on non-integral type is not allowed");
+	}
+
 	Value *arg = as_rvalue(parser, carg);
-	Value *zero = create_const(parser, 0);
-	return rvalue(add_binary(parser, VK_EQ, &TYPE_INT, arg, zero));
+	Value *zero = create_const(parser, arg->type, 0);
+	return rvalue(add_binary(parser, VK_EQ, arg->type, arg, zero));
 }
 
 static CValue
@@ -566,8 +498,13 @@ bitnot(Parser *parser)
 {
 	eat(parser, TK_TILDE);
 	CValue carg = expression_bp(parser, 14);
+
+	if (type_is_integral(typeof(carg))) {
+		parser_error(parser, parser->lookahead, false, "Bitwise not on non-integral type is not allowed");
+	}
+
 	Value *arg = as_rvalue(parser, carg);
-	return rvalue(add_unary(parser, VK_NOT, &TYPE_INT, arg));
+	return rvalue(add_unary(parser, VK_NOT, arg->type, arg));
 }
 
 static CValue
@@ -575,6 +512,13 @@ cmp(Parser *parser, CValue cleft, int rbp)
 {
 	TokenKind tok = discard(parser).kind;
 	CValue cright = expression_bp(parser, rbp);
+
+	Type *tleft = typeof(cleft);
+	Type *tright = typeof(cright);
+	if (!type_is_numeric(tleft) || !types_compatible(tleft, tright)) {
+		parser_error(parser, parser->lookahead, false, "Cannot compare values of incompatible / non-integral types");
+	}
+
 	Value *left = as_rvalue(parser, cleft);
 	Value *right = as_rvalue(parser, cright);
 	ValueKind kind;
@@ -587,7 +531,7 @@ cmp(Parser *parser, CValue cleft, int rbp)
 	case TK_GREATER_EQUAL: kind = VK_SGEQ; break;
 	default: UNREACHABLE();
 	}
-	return rvalue(add_binary(parser, kind, &TYPE_INT, left, right));
+	return rvalue(add_binary(parser, kind, tleft, left, right));
 }
 
 static CValue
@@ -595,18 +539,37 @@ binop(Parser *parser, CValue cleft, int rbp)
 {
 	TokenKind tok = discard(parser).kind;
 	CValue cright = expression_bp(parser, rbp);
+
+	Type *tleft = typeof(cleft);
+	Type *tright = typeof(cright);
 	Value *left = as_rvalue(parser, cleft);
 	Value *right = as_rvalue(parser, cright);
-	ValueKind kind;
-	switch (tok) {
-	case TK_PLUS:     kind = VK_ADD; break;
-	case TK_MINUS:    kind = VK_SUB; break;
-	case TK_ASTERISK: kind = VK_MUL; break;
-	case TK_SLASH:    kind = VK_SDIV; break;
-	case TK_PERCENT:  kind = VK_SREM; break;
-	default: UNREACHABLE();
+	ValueKind kind = VK_UNDEFINED;
+	if (type_is_numeric(tleft) && types_compatible(tleft, tright)) {
+		switch (tok) {
+		case TK_PLUS:     kind = VK_ADD; break;
+		case TK_MINUS:    kind = VK_SUB; break;
+		case TK_ASTERISK: kind = VK_MUL; break;
+		case TK_SLASH:    kind = VK_SDIV; break;
+		case TK_PERCENT:  kind = VK_SREM; break;
+		default: UNREACHABLE();
+		}
+	} else if (type_is_pointer(tleft) && type_is_integral(tright)) {
+		kind = VK_GET_INDEX_PTR;
+		switch (tok) {
+		case TK_PLUS:
+			break;
+		case TK_MINUS:
+			right = add_unary(parser, VK_NEG, right->type, right);
+			break;
+		default:
+			parser_error(parser, parser->lookahead, false, "Invalid operator for pointer arithmetic");
+		}
+	} else {
+		parser_error(parser, parser->lookahead, false, "Binary arithmetic on values of incompatible / non-numeric types is not allowed");
 	}
-	return rvalue(add_binary(parser, kind, &TYPE_INT, left, right));
+
+	return rvalue(add_binary(parser, kind, tleft, left, right));
 }
 
 static CValue
@@ -614,6 +577,13 @@ bitbinop(Parser *parser, CValue cleft, int rbp)
 {
 	TokenKind tok = discard(parser).kind;
 	CValue cright = expression_bp(parser, rbp);
+
+	Type *tleft = typeof(cleft);
+	Type *tright = typeof(cright);
+	if (!type_is_numeric(tleft) || !types_compatible(tleft, tright)) {
+		parser_error(parser, parser->lookahead, false, "Bitwise binary arithmetic on values of incompatible / non-integral types is not allowed");
+	}
+
 	Value *left = as_rvalue(parser, cleft);
 	Value *right = as_rvalue(parser, cright);
 	ValueKind kind;
@@ -634,10 +604,15 @@ indexing(Parser *parser, CValue cleft, int rbp)
 	eat(parser, TK_LBRACKET);
 	CValue cright = expression(parser);
 	eat(parser, TK_RBRACKET);
-	Value *left = as_rvalue(parser, cleft);
-	if (left->type->kind != TY_POINTER) {
+
+	if (!type_is_pointer(typeof(cleft))) {
 		parser_error(parser, parser->lookahead, false, "Expected indexing to subscript a pointer");
 	}
+	if (!type_is_integral(typeof(cright))) {
+		parser_error(parser, parser->lookahead, false, "Expected index to be an integer");
+	}
+
+	Value *left = as_rvalue(parser, cleft);
 	Value *right = as_rvalue(parser, cright);
 	return lvalue(add_binary(parser, VK_GET_INDEX_PTR, left->type, left, right));
 }
@@ -659,9 +634,12 @@ call(Parser *parser, CValue cleft, int rbp)
 	call->operands[i++] = left;
 	while (!try_eat(parser, TK_RPAREN)) {
 		CValue carg = expression_no_comma(parser);
+		if (type_is_struct(typeof(carg))) {
+			parser_error(parser, parser->lookahead, false, "Passing structs as arguments is currently not allowed");
+		}
 		if (i - 1 < argument_cnt) {
 			call->operands[i] = as_rvalue(parser, carg);
-			if (call->operands[i]->type != fun_type->params[i - 1].type) {
+			if (!types_compatible(call->operands[i]->type, fun_type->params[i - 1].type)) {
 				parser_error(parser, parser->lookahead, false, "Argument type doesn't equal parameter type");
 			}
 		}
@@ -691,13 +669,16 @@ member(Parser *parser, CValue cleft, int rbp)
 		left = as_rvalue(parser, cleft);
 	}
 	Type *struct_type = left->type;
-	if (struct_type->kind != TY_POINTER) {
-		parser_error(parser, parser->lookahead, false, "Member access with '->' on non-pointer");
+	if (!type_is_pointer(struct_type)) {
+		parser_error(parser, parser->prev, false, "Member access with '->' on non-pointer");
 		return lvalue(&NOP);
 	}
 	struct_type = ((PointerType *) struct_type)->child;
-	if (struct_type->kind != TY_STRUCT) {
-		parser_error(parser, parser->lookahead, false, "Member access on non-struct");
+	if (!type_is_struct(struct_type)) {
+		parser_error(parser, parser->prev, false, "Member access on non-struct");
+	}
+	if (!type_is_complete(struct_type)) {
+		parser_error(parser, parser->prev, false, "Member access on incomplete struct type");
 	}
 	StructType *type = (void *) struct_type;
 	Type *field_type = &TYPE_VOID;
@@ -708,12 +689,52 @@ member(Parser *parser, CValue cleft, int rbp)
 			goto found;
 		}
 	}
-	parser_error(parser, parser->lookahead, false, "Field %.*s not found", (int) name.len, name.str);
+	parser_error(parser, parser->prev, false, "Field %.*s not found", (int) name.len, name.str);
 found:;
 	field_type = type_pointer(parser->arena, field_type);
-	Value *member_index = create_const(parser, i);
+	Value *member_index = create_const(parser, &TYPE_INT, i);
 	Value *member_access = add_binary(parser, VK_GET_MEMBER_PTR, field_type, left, member_index);
 	return lvalue(member_access);
+}
+
+static CValue
+ternop(Parser *parser, CValue ccond, int rbp)
+{
+	eat(parser, TK_QUESTION_MARK);
+
+	Block *true_block = add_block(parser);
+	Block *false_block = add_block(parser);
+	Block *after_block = add_block(parser);
+
+	Value *cond = as_rvalue(parser, ccond);
+	add_cond_jump(parser, cond, true_block, false_block);
+
+	// Parse the true branch
+	switch_to_block(parser, true_block);
+	CValue cleft = expression(parser);
+	Value *left = as_rvalue(parser, cleft);
+	eat(parser, TK_COLON);
+	add_jump(parser, after_block);
+
+	// Parse the false branch
+	switch_to_block(parser, false_block);
+	CValue cright = expression_bp(parser, rbp);
+	Value *right = as_rvalue(parser, cright);
+	add_jump(parser, after_block);
+
+	if (left->type != right->type) {
+		parser_error(parser, parser->lookahead, false, "Expected both sides of short circuiting operation to have the same type");
+	}
+
+	// Merge
+	switch_to_block(parser, after_block);
+	assert(block_pred_cnt(after_block) == 2);
+	assert(block_preds(after_block)[0] == true_block);
+	assert(block_preds(after_block)[1] == false_block);
+	Operation *phi = insert_phi(parser->arena, after_block, left->type);
+	phi->operands[0] = left;
+	phi->operands[1] = right;
+	return rvalue(&phi->base);
 }
 
 static CValue
@@ -759,7 +780,8 @@ shortcirc(Parser *parser, CValue cleft, int rbp)
 static CValue
 post(Parser *parser, CValue cleft, int rbp)
 {
-	NOT_IMPLEMENTED("postfix increment/decrement");
+	bool inc = discard(parser).kind == TK_PLUS_PLUS;
+	return inc_dec(parser, cleft, inc, false);
 }
 
 static CValue
@@ -790,6 +812,9 @@ condition(Parser *parser)
 {
 	CValue ccond = expression(parser);
 	Value *cond = as_rvalue(parser, ccond);
+	if (!type_is_numeric(cond->type) && !type_is_pointer(cond->type)) {
+		parser_error(parser, parser->prev, false, "Condition must have numeric or pointer type");
+	}
 	return cond;
 	//Value *zero = create_const(parser, 0);
 	//return add_binary(parser, VK_NEQ, cond, zero);
@@ -995,7 +1020,7 @@ statement(Parser *parser)
 		Type *return_type = ((FunctionType *) parser->current_function->base.type)->ret_type;
 		if (peek(parser) != TK_SEMICOLON) {
 			Value *value = as_rvalue(parser, expression(parser));
-			if (value->type != return_type) {
+			if (!types_compatible(value->type, return_type)) {
 				parser_error(parser, tok, false, "Type of 'return'ed value does not match nominal type");
 			}
 			add_unary(parser, VK_RET, &TYPE_VOID, value);
@@ -1084,9 +1109,8 @@ global_declaration(Parser *parser, Str name, Type *type)
 static void
 variable_declaration(Parser *parser)
 {
-	Type *type_spec = type_specifier(parser);
-	Str name;
-	Type *type = declarator(parser, &name, type_spec, DECLARATOR_ORDINARY);
+	Type *type = parse_type(parser, false);
+	Str name = eat_identifier(parser);
 	assert(parser->current_function);
 	Value *addr = add_alloca(parser, type);
 	if (peek(parser) == TK_EQUAL) {
@@ -1130,24 +1154,122 @@ expression_or_variable_declaration(Parser *parser)
 }
 
 static void
+struct_declaration(Parser *parser)
+{
+	eat(parser, TK_STRUCT);
+	Str tag = eat_identifier(parser);
+
+	Type *type = NULL;
+	if (!table_get(&parser->type_env, tag, (void **) &type)) {
+		type = type_struct_forward(parser->arena);
+		table_insert(&parser->type_env, tag, type);
+	}
+
+	if (!try_eat(parser, TK_LBRACE)) {
+		eat(parser, TK_SEMICOLON);
+		return;
+	}
+
+	size_t start = garena_save(parser->scratch);
+	while (!try_eat(parser, TK_RBRACE)) {
+		Type *field_type = parse_type(parser, false);
+		Str field_name = eat_identifier(parser);
+
+		Field field = {
+			.name = field_name,
+			.type = field_type,
+		};
+		garena_push_value(parser->scratch, Field, field);
+		eat(parser, TK_SEMICOLON);
+	}
+	eat(parser, TK_SEMICOLON);
+
+	size_t field_cnt = garena_cnt_from(parser->scratch, start, Field);
+	Field *fields = move_to_arena(parser->arena, parser->scratch, start, Field);
+	type_struct_define(type, fields, field_cnt);
+}
+
+static FunctionType *
+function_declarator(Parser *parser, Type *type, bool param_names)
+{
+	eat(parser, TK_LPAREN);
+	size_t start = garena_save(parser->scratch);
+	while (!try_eat(parser, TK_RPAREN)) {
+		Type *param_type = parse_type(parser, false);
+		Str param_name = STR("<anon>");
+		if (param_names) {
+			param_name = eat_identifier(parser);
+		}
+		Parameter param = { param_name, param_type };
+		garena_push_value(parser->scratch, Parameter, param);
+		if (!try_eat(parser, TK_COMMA)) {
+			eat(parser, TK_RPAREN);
+			break;
+		}
+	}
+	size_t param_cnt = garena_cnt_from(parser->scratch, start, Parameter);
+	Parameter *params = move_to_arena(parser->arena, parser->scratch, start, Parameter);
+	return (FunctionType *) type_function(parser->arena, type, params, param_cnt);
+}
+
+static void
+function_pointer_declaration(Parser *parser)
+{
+	eat(parser, TK_TYPEDEF);
+	Type *type = parse_type(parser, true);
+	eat(parser, TK_LPAREN);
+	eat(parser, TK_ASTERISK);
+	Str name = eat_identifier(parser);
+	eat(parser, TK_RPAREN);
+	type = &function_declarator(parser, type, false)->base;
+	eat(parser, TK_SEMICOLON);
+
+	table_insert(&parser->type_env, name, type);
+}
+
+static void
+global_declarations(Parser *parser, Type *type, Str name)
+{
+	for (;;) {
+		global_declaration(parser, name, type);
+		if (try_eat(parser, TK_SEMICOLON)) {
+			break;
+		}
+		eat(parser, TK_COMMA);
+		type = parse_type(parser, false);
+		name = eat_identifier(parser);
+	}
+}
+
+static void
 parse_program(Parser *parser)
 {
 	for (;;) {
-		if (peek(parser) == TK_EOF) {
+		switch (peek(parser)) {
+		case TK_EOF:
+			return;
+		case TK_STRUCT:
+			struct_declaration(parser);
+			continue;
+		case TK_TYPEDEF:
+			function_pointer_declaration(parser);
+			continue;
+		default:
 			break;
 		}
-		bool had_typedef = try_eat(parser, TK_TYPEDEF);
-		Type *type_spec = type_specifier(parser);
-		Str name;
-		Type *type = declarator(parser, &name, type_spec, DECLARATOR_ORDINARY);
-		if (had_typedef) {
-			table_insert(&parser->type_env, name, type);
-			eat(parser, TK_SEMICOLON);
-		} else if (type->kind == TY_FUNCTION) {
-			function_declaration(parser, name, (FunctionType *) type);
-		} else {
-			global_declaration(parser, name, type);
-			eat(parser, TK_SEMICOLON);
+		Type *type = parse_type(parser, true);
+		Str name = eat_identifier(parser);
+		switch (peek(parser)) {
+		case TK_LPAREN: {
+			FunctionType *fun_type = function_declarator(parser, type, true);
+			function_declaration(parser, name, fun_type);
+			break;
+		}
+		default:
+			if (type == &TYPE_VOID) {
+				parser_error(parser, parser->prev, false, "Type 'void' is not allowed here");
+			}
+			global_declarations(parser, type, name);
 		}
 	}
 }

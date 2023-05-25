@@ -66,13 +66,13 @@ typedef enum {
 	PU(RBRACKET,        "]",             nullerr,   0, stop,      0, LEFT)  \
 	PU(LBRACE,          "{",             nullerr,   0, lefterr,  99, LEFT)  \
 	PU(RBRACE,          "}",             nullerr,   0, lefterr,  99, LEFT)  \
-	PU(COLON,           ":",             nullerr,   0, lefterr,  99, LEFT)  \
-	PU(SEMICOLON,       ";",             empty,     0, stop,      0, LEFT)  \
+	PU(COLON,           ":",             nullerr,   0, stop,      0, LEFT)  \
+	PU(SEMICOLON,       ";",             nullerr,   0, stop,      0, LEFT)  \
 	PU(COMMA,           ",",             nullerr,   0, seq,       1, LEFT)  \
 	PU(TILDE,           "~",             unop,     14, lefterr,  99, LEFT)  \
 	PU(HAT,             "^",             nullerr,   0, binop,     7, LEFT)  \
 	PU(ASTERISK,        "*",             deref,    14, binop,    13, LEFT)  \
-	/*PU(QUESTION_MARK,   "?",             nullerr,   0, ternop,    3, RIGHT)*/ \
+	PU(QUESTION_MARK,   "?",             nullerr,   0, ternop,    3, RIGHT) \
 	PU(PERCENT,         "%",             nullerr,   0, binop,    13, LEFT)  \
 	                                                                        \
 	KW(BREAK,           "break",         nullerr,   0, lefterr,  99, LEFT)  \
@@ -178,6 +178,7 @@ lex_next(Lexer *lexer, Token *token)
 			case '^': tok = TK_HAT; goto done;
 			case '*': tok = TK_ASTERISK; goto done;
 			case '%': tok = TK_PERCENT; goto done;
+			case '?': tok = TK_QUESTION_MARK; goto done;
 			default:  tok = TK_ERROR; goto done;
 		} break;
 		case LS_IDENTIFIER: switch (c) {

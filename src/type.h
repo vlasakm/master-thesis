@@ -44,6 +44,7 @@ typedef struct {
 
 typedef struct {
 	Type base;
+	bool complete;
 	size_t size;
 	size_t field_cnt;
 	Field *fields;
@@ -53,6 +54,10 @@ extern Type TYPE_VOID;
 extern Type TYPE_INT;
 
 size_t type_size(Type *type);
+
+bool type_is_numeric(Type *type);
+
+bool type_is_integral(Type *type);
 
 Type *type_pointer(Arena *arena, Type *child);
 
@@ -71,6 +76,12 @@ FunctionType *type_as_function(Type *type);
 size_t type_function_param_cnt(Type *type);
 
 Type *type_struct(Arena *arena, Field *fields, size_t field_cnt);
+Type *type_struct_forward(Arena *arena);
+Type *type_struct_define(Type *struct_type, Field *fields, size_t field_cnt);
+
+bool type_is_struct(Type *type);
+
+bool type_is_complete(Type *type);
 
 bool types_compatible(Type *a, Type *b);
 

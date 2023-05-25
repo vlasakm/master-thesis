@@ -83,7 +83,7 @@ struct Value {
 
 typedef struct {
 	Value base;
-	int64_t k;
+	i64 k;
 } Constant;
 
 typedef struct {

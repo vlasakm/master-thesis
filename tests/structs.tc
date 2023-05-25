@@ -1,14 +1,14 @@
 // vim: ft=c et sw=4
 
-typedef int main_type(int a);
+typedef int (*main_type)(int);
 
 int G = 5;
 int H;
 
-typedef struct {
+struct S {
     int a;
     int b;
-} S;
+};
 
 int f() {
     return 1;

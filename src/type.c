@@ -20,6 +20,28 @@ type_size(Type *type)
 	UNREACHABLE();
 }
 
+bool
+type_is_numeric(Type *type)
+{
+	switch (type->kind) {
+	case TY_INT:
+		return true;
+	default:
+		return false;
+	}
+}
+
+bool
+type_is_integral(Type *type)
+{
+	switch (type->kind) {
+	case TY_INT:
+		return true;
+	default:
+		return false;
+	}
+}
+
 Type *
 type_pointer(Arena *arena, Type *child)
 {
@@ -112,6 +134,51 @@ type_struct(Arena *arena, Field *fields, size_t field_cnt)
 	struct_type->size = offset;
 
 	return &struct_type->base;
+}
+
+Type *
+type_struct_forward(Arena *arena)
+{
+	StructType *struct_type = arena_alloc(arena, sizeof(*struct_type));
+	struct_type->base.kind = TY_STRUCT;
+	struct_type->fields = NULL;
+	struct_type->field_cnt = 0;
+	return &struct_type->base;
+}
+
+Type *
+type_struct_define(Type *type, Field *fields, size_t field_cnt)
+{
+	assert(type_is_struct(type));
+	StructType *struct_type = (StructType *) type;
+	struct_type->fields = fields;
+	struct_type->field_cnt = field_cnt;
+
+	size_t offset = 0;
+	for (size_t i = 0; i < field_cnt; i++) {
+		// TODO: align
+		fields[i].offset = offset;
+		offset += type_size(fields[i].type);
+	}
+
+	struct_type->size = offset;
+
+	return &struct_type->base;
+}
+
+bool
+type_is_struct(Type *type)
+{
+	return type->kind == TY_STRUCT;
+}
+
+bool
+type_is_complete(Type *type)
+{
+	if (type->kind == TY_STRUCT) {
+		return ((StructType *) type)->fields != NULL;
+	}
+	return true;
 }
 
 bool
