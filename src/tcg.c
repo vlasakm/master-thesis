@@ -688,18 +688,8 @@ translate_value(TranslationState *ts, Value *v)
 void
 merge_simple_blocks(Arena *arena, Function *function)
 {
-	WorkList worklist = {0};
-	size_t block_cap = 1;
-	while (block_cap < function->block_cap) {
-		block_cap *= 2;
-	}
-	wl_grow(&worklist, block_cap);
-	for (size_t b = function->block_cnt; b--;) {
-		Block *block = function->post_order[b];
-		wl_add(&worklist, block->base.index);
-	}
-	Oper b;
-	while (wl_take(&worklist, &b)) {
+	//for (size_t b = function->block_cnt; b--;) {
+	for (size_t b = 0; b < function->block_cnt; b++) {
 		Block *block = function->post_order[b];
 		if (block_succ_cnt(block) != 1) {
 			continue;
@@ -727,24 +717,25 @@ merge_simple_blocks(Arena *arena, Function *function)
 		// Successors of block are fixed up automatically, because they
 		// are taken implicitly from the terminator instruction.
 
+		// Fix parent links.
 		FOR_EACH_IN_BLOCK(succ, v) {
 			v->parent = &block->base;
 		}
 
 		// Remove the jump instruction from `block`.
 		remove_value(block->base.prev);
-		// Append `succ` to the `block`.
+
+		// Append `succ` instructions to `block`.
 		block->base.prev->next = succ->base.next;
 		succ->base.next->prev = block->base.prev;
-		succ->base.prev->next = &block->base;
 		block->base.prev = succ->base.prev;
-		//prepend_value(&block->base, succ->base.next);
-		// Remove the redundant and unwanted `succ` block header.
-		//remove_value(&succ->base);
+		block->base.prev->next = &block->base;
 
-		wl_add(&worklist, b);
+		// Make sure we don't operate on the merge successor if it
+		// happens to be in processed later.
+		succ->base.next = &succ->base;
+		succ->base.prev = &succ->base;
 	}
-	wl_free(&worklist);
 
 	// Recompute function->post_order, since we invalidated it.
 	compute_preorder(function);
@@ -1917,6 +1908,7 @@ main(int argc, char **argv)
 		number_values(functions[i], R__MAX);
 		print_function(stderr, functions[i]);
 		merge_simple_blocks(arena, functions[i]);
+		print_function(stderr, functions[i]);
 		thread_jumps(arena, functions[i]);
 		print_function(stderr, functions[i]);
 		value_numbering(arena, functions[i]);
