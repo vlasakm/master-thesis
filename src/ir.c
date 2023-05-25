@@ -435,7 +435,7 @@ compute_preorder(Function *function)
 	GROW_ARRAY(function->post_order, function->block_cap);
 	function->block_cnt = 0;
 	dfs(function->entry, &function->block_cnt, function->post_order);
-	for (size_t b = function->block_cnt, i = 0; b--; i++) {
+	for (size_t b = function->block_cnt; b--;) {
 		function->post_order[b]->base.visited = 0;
 	}
 }
