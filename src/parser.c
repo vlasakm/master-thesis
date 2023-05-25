@@ -1046,6 +1046,22 @@ statement(Parser *parser)
 	}
 }
 
+bool
+is_function_terminated(Parser *parser)
+{
+	Block *current_block = parser->current_block;
+	if (current_block == NULL) {
+		// No block or no predecessors -> the current position is
+		// unreachable, thus necessarily terminated
+		return true;
+	}
+	if (block_pred_cnt(current_block) == 0 && current_block != parser->current_function->entry) {
+		// The block has no predecessors, so it is unreachable
+		return true;
+	}
+	Value *last = current_block->base.next;
+	return value_is_terminator(last);
+}
 
 static void
 function_declaration(Parser *parser, Str fun_name, FunctionType *fun_type)
@@ -1086,6 +1102,14 @@ function_declaration(Parser *parser, Str fun_name, FunctionType *fun_type)
 
 	// Parse function body
 	statements(parser);
+
+	if (!is_function_terminated(parser)) {
+		if (fun_type->ret_type->kind == TY_VOID) {
+			add_operation(parser, VK_RETVOID, &TYPE_VOID, 0);
+		} else {
+			parser_error(parser, parser->prev, false, "Missing return in function returning non-void");
+		}
+	}
 
 	// Complete the function
 	compute_preorder(function);
