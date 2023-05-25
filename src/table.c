@@ -14,7 +14,7 @@ table_init(Table *table)
 void
 table_free(Table *table)
 {
-	FREE_ARRAY(table->entries, table->capacity);
+	free(table->entries);
 }
 
 Entry *
@@ -36,7 +36,7 @@ void
 table_grow(Table *table)
 {
 	size_t capacity = table->capacity ? table->capacity * 2 : 8;
-	// TODO: intialize memory if not zero allocated
+	// NOTE: We depend on memory being zero initialized here.
 	Entry *entries = calloc(capacity, sizeof(*entries));
 	for (size_t i = 0; i < table->capacity; i++) {
 		Entry *old = &table->entries[i];
@@ -46,7 +46,7 @@ table_grow(Table *table)
 		Entry *new = table_find_entry(entries, capacity, old->key);
 		*new = *old;
 	}
-	FREE_ARRAY(table->entries, table->capacity);
+	free(table->entries);
 	table->entries = entries;
 	table->capacity = capacity;
 }
