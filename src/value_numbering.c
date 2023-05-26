@@ -188,14 +188,16 @@ typedef struct {
 void
 write_variable(ValueNumberingState *vns, Block *block, Value *variable, Value *value)
 {
-	fprintf(stderr, "Writing var %zu from block %zu with value %zu\n", VINDEX(variable), VINDEX(block), VINDEX(value));
+	fprintf(stderr, "Writing var %zu from block%zu with value ", VINDEX(variable), VINDEX(block));
+	print_operand(stderr, value);
+	fprintf(stderr, "\n");
 	vns->var_map[VINDEX(block)][VINDEX(variable)] = value;
 }
 
 Value *
 read_variable(ValueNumberingState *vns, Block *block, Value *variable)
 {
-	fprintf(stderr, "Reading var %zu from block %zu\n", VINDEX(variable), VINDEX(block));
+	fprintf(stderr, "Reading var %zu from block%zu\n", VINDEX(variable), VINDEX(block));
 	assert(!block->pending);
 	Value *value = vns->var_map[VINDEX(block)][VINDEX(variable)];
 	if (value) {
@@ -223,6 +225,9 @@ read_variable(ValueNumberingState *vns, Block *block, Value *variable)
 		Operation *phi = insert_phi(vns->arena, block, pointer_child(variable->type));
 		value = add_phi_operands(vns, phi, block, variable);
 		block->pending = false;
+	}
+	if (VINDEX(value) > 0 && vns->canonical[VINDEX(value)]) {
+		value = vns->canonical[VINDEX(value)];
 	}
 	// Memoize
 	write_variable(vns, block, variable, value);
