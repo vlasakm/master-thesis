@@ -671,17 +671,24 @@ call(Parser *parser, CValue cleft, int rbp)
 	size_t argument_cnt = fun_type->param_cnt;
 	Operation *call = create_operation(parser->arena, parser->current_block, VK_CALL, fun_type->ret_type, 1 + argument_cnt);
 
+	call->operands[0] = left;
+
 	size_t i = 0;
-	call->operands[i++] = left;
+	Value **arguments = &call->operands[1];
 	while (!try_eat(parser, TK_RPAREN)) {
 		CValue carg = expression_no_comma(parser);
-		if (type_is_struct(typeof(carg))) {
-			parser_error(parser, parser->lookahead, false, "Passing structs as arguments is currently not allowed");
+		Value *arg = &NOP;
+		Type *type = typeof(carg);
+		if (type_is_struct(type)) {
+			//parser_error(parser, parser->lookahead, false, "Passing structs as arguments is currently not allowed");
+			arg = as_lvalue(parser, carg, "Expected struct lvalue");
+		} else {
+			arg = as_rvalue(parser, carg);
 		}
-		if (i - 1 < argument_cnt) {
-			call->operands[i] = as_rvalue(parser, carg);
-			if (!types_compatible(call->operands[i]->type, fun_type->params[i - 1].type)) {
-				parser_error(parser, parser->lookahead, false, "Argument type doesn't equal parameter type");
+		if (i < argument_cnt) {
+			arguments[i] = arg;
+			if (!types_compatible(type, fun_type->params[i].type)) {
+				parser_error(parser, parser->prev, false, "Argument type doesn't equal parameter type");
 			}
 		}
 		i += 1;
@@ -690,7 +697,7 @@ call(Parser *parser, CValue cleft, int rbp)
 			break;
 		}
 	}
-	if (i - 1 != argument_cnt) {
+	if (i != argument_cnt) {
 		parser_error(parser, parser->lookahead, false, "Invalid number of arguments: expected %zu, got %zu", argument_cnt, i);
 	}
 	append_to_block(parser->current_block, &call->base);

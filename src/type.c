@@ -65,7 +65,9 @@ type_is_pointer(Type *pointer_type)
 Type *
 pointer_child(Type *pointer_type)
 {
-	assert(type_is_pointer(pointer_type));
+	if (!type_is_pointer(pointer_type)) {
+		return &TYPE_VOID;
+	}
 	return ((PointerType *) pointer_type)->child;
 }
 
@@ -233,7 +235,7 @@ print_type(FILE *f, Type *type)
 		break;
 	}
 	case TY_STRUCT: {
-		fprintf(f, "{");
+		fprintf(f, "{ ");
 		StructType *st = (StructType *) type;
 		for (size_t i = 0; i < st->field_cnt; i++) {
 			if (i != 0) {

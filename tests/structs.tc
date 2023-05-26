@@ -25,6 +25,18 @@ int global_offset2() {
     return *p;
 }
 
+//S identity(S a) {
+//    return a;
+//}
+//
+//int test() {
+//    S a, S b;
+//    a.a = 3;
+//    a.b = 4;
+//    b = identity(a);
+//    return b.a + b.b;
+//}
+
 int main() {
     S s;
     S arr_;
