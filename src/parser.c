@@ -50,6 +50,7 @@ typedef struct {
 	Function *current_function;
 	GArena functions; // array of Function *
 	GArena globals; // array of Global *
+	GArena strings; // array of StringConstant *
 	Block *current_block;
 	Block *continue_block;
 	Block *break_block;
@@ -227,8 +228,14 @@ as_rvalue(Parser *parser, CValue cvalue)
 {
 	if (cvalue.lvalue) {
 		Value *lvalue = cvalue.value;
-		assert(type_is_pointer(lvalue->type));
-		Type *child = pointer_child(lvalue->type);
+		Type *child = &TYPE_VOID;
+		if (!parser->had_error) {
+			assert(type_is_pointer(lvalue->type));
+			child = pointer_child(lvalue->type);
+		}
+		if (type_is_integral(child) && child->kind != TY_INT) {
+			child = &TYPE_INT;
+		}
 		return add_unary(parser, VK_LOAD, child, lvalue);
 	} else {
 		return cvalue.value;
@@ -256,6 +263,7 @@ parse_type(Parser *parser, bool allow_void)
 	switch (token.kind) {
 	case TK_VOID: type = &TYPE_VOID; break;
 	case TK_INT:  type = &TYPE_INT;  break;
+	case TK_CHAR: type = &TYPE_CHAR;  break;
 	case TK_IDENTIFIER: {
 		Str ident = prev_tok(parser).str;
 		if (!table_get(&parser->type_env, ident, (void **) &type)) {
@@ -316,6 +324,19 @@ nullerr(Parser *parser)
 	return rvalue(&NOP);
 }
 
+Value *
+create_string(Parser *parser, Str str)
+{
+	StringLiteral *string = arena_alloc(parser->arena, sizeof(*string));
+	value_init(&string->base, VK_STRING, &TYPE_CHAR_PTR.base);
+	string->str = str;
+
+	string->base.index = garena_cnt(&parser->strings, StringLiteral *);
+	garena_push_value(&parser->strings, StringLiteral *, string);
+
+	return &string->base;
+}
+
 static CValue
 literal(Parser *parser)
 {
@@ -337,7 +358,35 @@ literal(Parser *parser)
 		return rvalue(create_const(parser, &TYPE_INT, value));
 	}
 	case TK_STRING: {
-		NOT_IMPLEMENTED("string literals");
+		GArena *scratch = parser->scratch;
+		size_t start = garena_save(scratch);
+		const u8 *str = token.str.str + 1;
+		size_t len = token.str.len - 1;
+		bool in_escape = false;
+		for (size_t i = 0; i < len; i++) {
+			u8 c = str[i];
+			if (in_escape) {
+				in_escape = false;
+				switch (c) {
+				case  'n': c = '\n'; break;
+				case  't': c = '\t'; break;
+				case  'r': c = '\r'; break;
+				case  '~': c =  '~'; break;
+				case  '"': c =  '"'; break;
+				case '\\': c = '\\'; break;
+				default: UNREACHABLE();
+				}
+				garena_push_value(scratch, u8, c);
+			} else {
+				switch (c) {
+				case '\\': in_escape = true; break;
+				default: garena_push_value(scratch, u8, c);
+				}
+			}
+		}
+		len = garena_cnt_from(scratch, start, u8);
+		str = move_to_arena(parser->arena, scratch, start, u8);
+		return rvalue(create_string(parser, (Str) { .str = str, .len = len }));
 	}
 	default:
 		  UNREACHABLE();
@@ -484,13 +533,13 @@ lognot(Parser *parser)
 	eat(parser, TK_BANG);
 	CValue carg = expression_bp(parser, 14);
 
-	if (!type_is_integral(typeof(carg))) {
-		parser_error(parser, parser->lookahead, false, "Logical not on non-integral type is not allowed");
+	if (!type_is_integral(typeof(carg)) && !type_is_pointer(typeof(carg))) {
+		parser_error(parser, parser->lookahead, false, "Logical not on non-integral non-pointer type is not allowed");
 	}
 
 	Value *arg = as_rvalue(parser, carg);
 	Value *zero = create_const(parser, arg->type, 0);
-	return rvalue(add_binary(parser, VK_EQ, arg->type, arg, zero));
+	return rvalue(add_binary(parser, VK_EQ, &TYPE_INT, arg, zero));
 }
 
 static CValue
@@ -540,12 +589,12 @@ binop(Parser *parser, CValue cleft, int rbp)
 	TokenKind tok = discard(parser).kind;
 	CValue cright = expression_bp(parser, rbp);
 
-	Type *tleft = typeof(cleft);
-	Type *tright = typeof(cright);
 	Value *left = as_rvalue(parser, cleft);
 	Value *right = as_rvalue(parser, cright);
+	Type *type = &TYPE_VOID;
 	ValueKind kind = VK_UNDEFINED;
-	if (type_is_numeric(tleft) && types_compatible(tleft, tright)) {
+	if (type_is_numeric(left->type) && types_compatible(left->type, right->type)) {
+		type = &TYPE_INT;
 		switch (tok) {
 		case TK_PLUS:     kind = VK_ADD; break;
 		case TK_MINUS:    kind = VK_SUB; break;
@@ -554,7 +603,8 @@ binop(Parser *parser, CValue cleft, int rbp)
 		case TK_PERCENT:  kind = VK_SREM; break;
 		default: UNREACHABLE();
 		}
-	} else if (type_is_pointer(tleft) && type_is_integral(tright)) {
+	} else if (type_is_pointer(left->type) && type_is_integral(right->type)) {
+		type = left->type;
 		kind = VK_GET_INDEX_PTR;
 		switch (tok) {
 		case TK_PLUS:
@@ -569,7 +619,7 @@ binop(Parser *parser, CValue cleft, int rbp)
 		parser_error(parser, parser->lookahead, false, "Binary arithmetic on values of incompatible / non-numeric types is not allowed");
 	}
 
-	return rvalue(add_binary(parser, kind, tleft, left, right));
+	return rvalue(add_binary(parser, kind, type, left, right));
 }
 
 static CValue
@@ -1082,7 +1132,7 @@ statement(Parser *parser)
 		if (peek(parser) != TK_SEMICOLON) {
 			Value *value = as_rvalue(parser, expression(parser));
 			if (!types_compatible(value->type, return_type)) {
-				parser_error(parser, tok, false, "Type of 'return'ed value does not match nominal type");
+				parser_error(parser, tok, false, "Type of returned value does not match nominal type");
 			}
 			add_unary(parser, VK_RET, &TYPE_VOID, value);
 		} else if (return_type == &TYPE_VOID) {
@@ -1231,6 +1281,7 @@ expression_or_variable_declaration(Parser *parser)
 	// fallthrough
 	case TK_VOID:
 	case TK_INT:
+	case TK_CHAR:
 	case TK_STRUCT:
 		variable_declarations(parser);
 		break;
@@ -1467,6 +1518,8 @@ parse(Arena *arena, GArena *scratch, Str source, void (*error_callback)(void *us
 	module->functions = move_to_arena(arena, &parser.functions, 0, Function *);
 	module->global_cnt = garena_cnt(&parser.globals, Global *);
 	module->globals = move_to_arena(arena, &parser.globals, 0, Global *);
+	module->string_cnt = garena_cnt(&parser.strings, StringLiteral *);
+	module->strings = move_to_arena(arena, &parser.strings, 0, StringLiteral *);
 	garena_free(&parser.functions);
 	garena_free(&parser.globals);
 	return module;

@@ -9,6 +9,7 @@
 
 typedef enum {
 	TY_VOID,
+	TY_CHAR,
 	TY_INT,
 	TY_POINTER,
 	TY_FUNCTION,
@@ -52,6 +53,8 @@ typedef struct {
 
 extern Type TYPE_VOID;
 extern Type TYPE_INT;
+extern Type TYPE_CHAR;
+extern PointerType TYPE_CHAR_PTR;
 
 size_t type_size(Type *type);
 

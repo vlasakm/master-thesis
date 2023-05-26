@@ -2,12 +2,15 @@
 
 Type TYPE_VOID = { .kind = TY_VOID };
 Type TYPE_INT = { .kind = TY_INT };
+Type TYPE_CHAR = { .kind = TY_CHAR };
+PointerType TYPE_CHAR_PTR = { .base = (Type) { .kind = TY_POINTER, }, .child = &TYPE_CHAR };
 
 size_t
 type_size(Type *type)
 {
 	switch (type->kind) {
 	case TY_VOID: return 0;
+	case TY_CHAR: return 1;
 	case TY_INT:  return 8;
 	case TY_POINTER:
 		return 8;
@@ -25,6 +28,7 @@ type_is_numeric(Type *type)
 {
 	switch (type->kind) {
 	case TY_INT:
+	case TY_CHAR:
 		return true;
 	default:
 		return false;
@@ -36,6 +40,7 @@ type_is_integral(Type *type)
 {
 	switch (type->kind) {
 	case TY_INT:
+	case TY_CHAR:
 		return true;
 	default:
 		return false;
@@ -188,6 +193,11 @@ types_compatible(Type *a, Type *b)
 		return true;
 	} else if (type_is_pointer(a) && type_is_pointer(b)) {
 		return types_compatible(pointer_child(a), pointer_child(b));
+	} else if (a->kind == TY_CHAR && b->kind == TY_INT) {
+		// NOTE: This is here for stores to char. We don't need more,
+		// but this should ideally be improved if more flexibility is
+		// needed.
+		return true;
 	}
 	return false;
 }
@@ -198,6 +208,9 @@ print_type(FILE *f, Type *type)
 	switch (type->kind) {
 	case TY_VOID:
 		fprintf(f, "void");
+		break;
+	case TY_CHAR:
+		fprintf(f, "char");
 		break;
 	case TY_INT:
 		fprintf(f, "int");

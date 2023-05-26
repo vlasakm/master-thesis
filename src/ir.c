@@ -241,27 +241,14 @@ print_operand(FILE *f, Value *operand)
 {
 	switch (operand->kind) {
 	case VK_BLOCK:
-		fprintf(f, "block");
-		fprintf(f, "%zu", operand->index);
+	case VK_FUNCTION:
+	case VK_GLOBAL:
+	case VK_CONSTANT:
+	case VK_STRING:
+		print_value(f, operand);
 		break;
-	case VK_FUNCTION: {
-		Function *fun = (void *) operand;
-		print_str(f, fun->name);
-		break;
-	}
-	case VK_GLOBAL: {
-		Global *global = (void*) operand;
-		print_str(f, global->name);
-		break;
-	}
-	case VK_CONSTANT: {
-		Constant *k = (void*) operand;
-		fprintf(f, "%"PRIi64, k->k);
-		break;
-	}
 	default:
-		fprintf(f, "v");
-		fprintf(f, "%zu", operand->index);
+		fprintf(f, "v%zu", operand->index);
 		break;
 	}
 }
@@ -289,19 +276,26 @@ void
 print_value(FILE *f, Value *v)
 {
 	switch (v->kind) {
+	case VK_BLOCK:
+		fprintf(f, "block%zu", v->index);
+		break;
 	case VK_FUNCTION: {
 		Function *fun = (void *) v;
 		print_str(f, fun->name);
 		break;
 	}
 	case VK_GLOBAL: {
-		Global *g = (void *) v;
-		print_str(f, g->name);
+		Global *global = (void *) v;
+		print_str(f, global->name);
 		break;
 	}
 	case VK_CONSTANT: {
 		Constant *k = (void *) v;
 		fprintf(f, "%"PRIi64, k->k);
+		break;
+	}
+	case VK_STRING: {
+		fprintf(f, "$str%zu", v->index);
 		break;
 	}
 	case VK_ALLOCA: {

@@ -86,20 +86,22 @@ add_copy(TranslationState *ts, Oper dest, Oper src)
 	IREG2(inst) = src;
 }
 
-static void
+static Inst *
 add_load(TranslationState *ts, Oper dest, Oper addr)
 {
 	Inst *inst = add_inst(ts, IK_MOV, MOV, M_CM);
 	IREG(inst) = dest;
 	IBASE(inst) = addr;
+	return inst;
 }
 
-static void
+static Inst *
 add_store(TranslationState *ts, Oper addr, Oper value)
 {
 	Inst *inst = add_inst(ts, IK_MOV, MOV, M_Mr);
 	IREG(inst) = value;
 	IBASE(inst) = addr;
+	return inst;
 }
 
 static void
@@ -344,6 +346,7 @@ translate_prologue(TranslationState *ts)
 		Argument *argument = &function->args[i];
 		switch (VTYPE(argument)->kind) {
 		case TY_VOID:
+		case TY_CHAR:
 		case TY_FUNCTION:
 			UNREACHABLE();
 		case TY_INT:
@@ -474,17 +477,11 @@ translate_operand(TranslationState *ts, Value *operand)
 	case VK_BLOCK:
 		res = operand->index;
 		break;
-	case VK_FUNCTION: {
-		//Function *function = (void*) operand;
+	case VK_FUNCTION:
+	case VK_GLOBAL:
+	case VK_STRING: {
 		size_t label_index = add_label(ts->labels, operand);
 		res = ts->index++;
-		add_lea_label(ts, res, label_index);
-		break;
-	}
-	case VK_GLOBAL: {
-		//Global *global = (void*) operand;
-		res = ts->index++;
-		size_t label_index = add_label(ts->labels, operand);
 		add_lea_label(ts, res, label_index);
 		break;
 	}
@@ -547,6 +544,7 @@ translate_value(TranslationState *ts, Value *v)
 	case VK_BLOCK:
 	case VK_FUNCTION:
 	case VK_GLOBAL:
+	case VK_STRING:
 	case VK_ARGUMENT:
 		UNREACHABLE();
 		break;
@@ -624,12 +622,20 @@ translate_value(TranslationState *ts, Value *v)
 		translate_cmpop(ts, CC_AE, res, ops[0], ops[1]);
 		break;
 
-	case VK_LOAD:
-		add_load(ts, res, ops[0]);
+	case VK_LOAD: {
+		Inst *load = add_load(ts, res, ops[0]);
+		if (pointer_child(LOAD_ADDR(v)->type)->kind == TY_CHAR) {
+			IS(load) = MOVZX8;
+		}
 		break;
-	case VK_STORE:
-		add_store(ts, ops[0], ops[1]);
+	}
+	case VK_STORE: {
+		Inst *store = add_store(ts, ops[0], ops[1]);
+		if (pointer_child(STORE_ADDR(v)->type)->kind == TY_CHAR) {
+			IS(store) = MOV8;
+		}
 		break;
+	}
 	case VK_GET_INDEX_PTR: {
 		size_t size = type_size(pointer_child(v->type));
 		Oper size_oper = ts->index++;
@@ -1949,6 +1955,13 @@ main(int argc, char **argv)
 			print_value(stdout, global->init);
 			printf("\n");
 		}
+	}
+	for (size_t i = 0; i < module->string_cnt; i++) {
+		StringLiteral *string = module->strings[i];
+		printf("$str%zu:\n", i);
+		printf("\tdb\t'");
+		print_str(stdout, string->str);
+		printf("',0\n");
 	}
 	printf("\n");
 

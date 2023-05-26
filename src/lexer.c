@@ -155,6 +155,7 @@ lex_next(Lexer *lexer, Token *token)
 			case ' ': case '\t': case '\n': case '\r': start += 1; break;
 			case ALPHA: state = LS_IDENTIFIER; break;
 			case DIGIT: state = LS_NUMBER; break;
+			case '"': state = LS_STRING; break;
 			case '+': state = LS_PLUS; break;
 			case '-': state = LS_MINUS; break;
 			case '<': state = LS_LESS; break;
@@ -194,7 +195,7 @@ lex_next(Lexer *lexer, Token *token)
 			case '\\': state = LS_STRING_ESC; break;
 		} break;
 		case LS_STRING_ESC: switch (c) {
-			case 'n': case 't': case 'r': case '~': case '"': case '\\': state = LS_STRING; break;
+			case 'n': case 't': case 'r': case '"': case '\\': state = LS_STRING; break;
 			default: goto err;
 		} break;
 		case LS_PLUS: switch(c) {

@@ -14,6 +14,7 @@ typedef struct MBlock MBlock;
 	OT(UNDEFINED, "undefined") \
 	OT(NOP, "nop") \
 	OT(CONSTANT, "constant") \
+	OT(STRING, "string") \
 	OT(ALLOCA, "alloca") \
 	OT(GLOBAL, "global") \
 	OT(ARGUMENT, "argument") \
@@ -88,6 +89,11 @@ typedef struct {
 
 typedef struct {
 	Value base;
+	Str str;
+} StringLiteral;
+
+typedef struct {
+	Value base;
 	size_t size;
 	bool optimizable;
 } Alloca;
@@ -125,6 +131,7 @@ size_t value_operand_cnt(Value *value);
 #define FOR_EACH_OPERAND(value, op) \
 	for (Value **op = value_operands(value), **last = op + value_operand_cnt(value); op != last; op++)
 
+void print_operand(FILE *f, Value *operand);
 void print_value(FILE *f, Value *v);
 
 void prepend_value(Value *pos, Value *new);
@@ -216,6 +223,8 @@ typedef struct {
 	Function **functions;
 	size_t global_cnt;
 	Global **globals;
+	size_t string_cnt;
+	StringLiteral **strings;
 } Module;
 
 void print_globals(FILE *f, Module *module);

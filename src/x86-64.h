@@ -169,6 +169,8 @@ typedef enum {
 enum {
 	MOV,
 	LEA,
+	MOVZX8,
+	MOV8,
 };
 
 typedef enum {

@@ -1,0 +1,8 @@
+// vim: ft=c et sw=4
+int main() {
+    char *str = "abcd";
+    for (char *p = str; *p; p++) {
+        *p = *p + 1;
+    }
+    return str[0];
+}
