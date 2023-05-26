@@ -520,7 +520,7 @@ translate_value(TranslationState *ts, Value *v)
 	fprintf(stderr, "Translating: ");
 	print_value(stderr, v);
 
-	Oper ops[10];
+	Oper ops[256];
 	Value **operands = value_operands(v);
 	size_t operand_cnt = value_operand_cnt(v);
 	assert(operand_cnt < ARRAY_LEN(ops));
