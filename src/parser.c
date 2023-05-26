@@ -358,6 +358,7 @@ literal(Parser *parser)
 		return rvalue(create_const(parser, &TYPE_INT, value));
 	}
 	case TK_STRING: {
+		return rvalue(create_string(parser, token.str));
 		GArena *scratch = parser->scratch;
 		size_t start = garena_save(scratch);
 		const u8 *str = token.str.str + 1;
@@ -667,14 +668,9 @@ call(Parser *parser, CValue cleft, int rbp)
 	if (!type_is_function_compatible(left->type)) {
 		parser_error(parser, parser->lookahead, false, "Expected function call target to have function type");
 	}
-	FunctionType *fun_type = type_as_function(left->type);
-	size_t argument_cnt = fun_type->param_cnt;
-	Operation *call = create_operation(parser->arena, parser->current_block, VK_CALL, fun_type->ret_type, 1 + argument_cnt);
 
-	call->operands[0] = left;
+	size_t start = garena_save(parser->scratch);
 
-	size_t i = 0;
-	Value **arguments = &call->operands[1];
 	while (!try_eat(parser, TK_RPAREN)) {
 		CValue carg = expression_no_comma(parser);
 		Value *arg = &NOP;
@@ -685,22 +681,43 @@ call(Parser *parser, CValue cleft, int rbp)
 		} else {
 			arg = as_rvalue(parser, carg);
 		}
-		if (i < argument_cnt) {
-			arguments[i] = arg;
-			if (!types_compatible(type, fun_type->params[i].type)) {
-				parser_error(parser, parser->prev, false, "Argument type doesn't equal parameter type");
-			}
-		}
-		i += 1;
+		garena_push_value(parser->scratch, Value *, arg);
+
 		if (!try_eat(parser, TK_COMMA)) {
 			eat(parser, TK_RPAREN);
 			break;
 		}
 	}
-	if (i != argument_cnt) {
-		parser_error(parser, parser->lookahead, false, "Invalid number of arguments: expected %zu, got %zu", argument_cnt, i);
+
+	Value **arguments = garena_array_from(parser->scratch, start, Value *);
+	size_t argument_cnt = garena_cnt_from(parser->scratch, start, Value *);
+
+	FunctionType *fun_type = type_as_function(left->type);
+	size_t param_cnt = fun_type->param_cnt;
+	if (fun_type->vararg) {
+		if (argument_cnt < param_cnt) {
+			parser_error(parser, parser->prev, false, "Insufficient number of arguments passed to vararg function, expected at least %zu, got %zu", param_cnt, argument_cnt);
+			return rvalue(&NOP);
+		}
+	} else if (param_cnt != argument_cnt) {
+		parser_error(parser, parser->prev, false, "Invalid number of arguments: expected %zu, got %zu", param_cnt, argument_cnt);
+		return rvalue(&NOP);
 	}
-	append_to_block(parser->current_block, &call->base);
+
+	for (size_t i = 0; i < param_cnt; i++) {
+		if (!types_compatible(arguments[i]->type, fun_type->params[i].type)) {
+			parser_error(parser, parser->prev, false, "Argument type doesn't equal parameter type");
+		}
+	}
+
+	Operation *call = add_operation(parser, VK_CALL, fun_type->ret_type, 1 + argument_cnt);
+	call->base.operand_cnt = 1 + argument_cnt;
+	call->operands[0] = left;
+	Value **args = &call->operands[1];
+	for (size_t i = 0; i < argument_cnt; i++) {
+		args[i] = arguments[i];
+	}
+	garena_restore(parser->scratch, start);
 	return rvalue(&call->base);
 }
 
@@ -1173,18 +1190,17 @@ is_function_terminated(Parser *parser)
 }
 
 static void
-function_declaration(Parser *parser, Str fun_name, FunctionType *fun_type)
+function_declaration(Parser *parser, Function *function)
 {
+	FunctionType *fun_type = (FunctionType *) function->base.type;
 	Parameter *params = fun_type->params;
 	size_t param_cnt = fun_type->param_cnt;
 
-	Function *function = arena_alloc(parser->arena, sizeof(*function));
-	*function = (Function) {0};
-	function->name = fun_name;
-	value_init(&function->base, VK_FUNCTION, (Type *) fun_type);
+	if (fun_type->vararg) {
+		parser_error(parser, parser->prev, false, "Functions with varargs cannot be defined");
+	}
 
 	// Prepare for the arguments and function body.
-	env_define(&parser->env, fun_name, &function->base);
 	eat(parser, TK_LBRACE);
 	parser->current_function = function;
 	function->block_cnt = 0;
@@ -1224,8 +1240,6 @@ function_declaration(Parser *parser, Str fun_name, FunctionType *fun_type)
 	if (!parser->had_error) {
 		compute_preorder(function);
 	}
-	function->base.index = garena_cnt(&parser->functions, Function *);
-	garena_push_value(&parser->functions, Function *, function);
 	env_pop(&parser->env);
 	parser->current_function = NULL;
 }
@@ -1330,10 +1344,17 @@ function_declarator(Parser *parser, Type *type, bool param_names)
 {
 	eat(parser, TK_LPAREN);
 	size_t start = garena_save(parser->scratch);
+	bool vararg = false;
 	while (!try_eat(parser, TK_RPAREN)) {
+		if (try_eat(parser, TK_DOT_DOT_DOT)) {
+			vararg = true;
+			eat(parser, TK_RPAREN);
+			break;
+		}
+
 		Type *param_type = parse_type(parser, false);
 		Str param_name = STR("<anon>");
-		if (param_names) {
+		if (peek(parser) == TK_IDENTIFIER || param_names) {
 			param_name = eat_identifier(parser);
 		}
 		Parameter param = { param_name, param_type };
@@ -1345,7 +1366,7 @@ function_declarator(Parser *parser, Type *type, bool param_names)
 	}
 	size_t param_cnt = garena_cnt_from(parser->scratch, start, Parameter);
 	Parameter *params = move_to_arena(parser->arena, parser->scratch, start, Parameter);
-	return (FunctionType *) type_function(parser->arena, type, params, param_cnt);
+	return (FunctionType *) type_function(parser->arena, type, params, param_cnt, vararg);
 }
 
 static void
@@ -1397,8 +1418,18 @@ parse_program(Parser *parser)
 		Str name = eat_identifier(parser);
 		switch (peek(parser)) {
 		case TK_LPAREN: {
-			FunctionType *fun_type = function_declarator(parser, type, true);
-			function_declaration(parser, name, fun_type);
+			FunctionType *fun_type = function_declarator(parser, type, false);
+			Function *function = NULL;
+			if (!env_lookup(&parser->env, name, (void **) &function)) {
+				function = create_function(parser->arena, name, &fun_type->base);
+				function->base.index = garena_cnt(&parser->functions, Function *);
+				garena_push_value(&parser->functions, Function *, function);
+				env_define(&parser->env, name, &function->base);
+			}
+			if (try_eat(parser, TK_SEMICOLON)) {
+				break;
+			}
+			function_declaration(parser, function);
 			break;
 		}
 		default:
@@ -1520,5 +1551,6 @@ parse(Arena *arena, GArena *scratch, Str source, void (*error_callback)(void *us
 	module->strings = move_to_arena(arena, &parser.strings, 0, StringLiteral *);
 	garena_free(&parser.functions);
 	garena_free(&parser.globals);
+	garena_free(&parser.strings);
 	return module;
 }

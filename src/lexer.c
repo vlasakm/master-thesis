@@ -155,7 +155,7 @@ lex_next(Lexer *lexer, Token *token)
 			case ' ': case '\t': case '\n': case '\r': start += 1; break;
 			case ALPHA: state = LS_IDENTIFIER; break;
 			case DIGIT: state = LS_NUMBER; break;
-			case '"': state = LS_STRING; break;
+			case '"': state = LS_STRING; start += 1; break;
 			case '+': state = LS_PLUS; break;
 			case '-': state = LS_MINUS; break;
 			case '<': state = LS_LESS; break;

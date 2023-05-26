@@ -32,6 +32,7 @@ typedef struct {
 
 typedef struct {
 	Type base;
+	bool vararg;
 	Type *ret_type;
 	size_t param_cnt;
 	Parameter *params;
@@ -68,7 +69,7 @@ bool type_is_pointer(Type *pointer_type);
 
 Type *pointer_child(Type *pointer_type);
 
-Type *type_function(Arena *arena, Type *ret_type, Parameter *parameters, size_t param_cnt);
+Type *type_function(Arena *arena, Type *ret_type, Parameter *parameters, size_t param_cnt, bool vararg);
 
 bool type_is_function(Type *type);
 

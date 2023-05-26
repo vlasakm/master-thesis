@@ -75,6 +75,7 @@ typedef struct Value Value;
 struct Value {
 	ValueKind kind;
 	u8 visited;
+	u8 operand_cnt;
 	Type *type;
 	size_t index;
 	Value *parent;
@@ -207,6 +208,10 @@ struct Function {
 
 	GArena *uses; // array of Value * for each Value * (by its index)
 };
+
+Function *create_function(Arena *arena, Str name, Type *type);
+
+bool function_is_fully_defined(Function *function);
 
 void compute_preorder(Function *function);
 

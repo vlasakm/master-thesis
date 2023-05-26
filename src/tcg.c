@@ -252,7 +252,7 @@ add_cqo(TranslationState *ts)
 }
 
 static void
-translate_call(TranslationState *ts, Oper res, Oper fun, Oper *args, size_t arg_cnt)
+translate_call(TranslationState *ts, Oper res, Oper fun, Oper *args, size_t arg_cnt, bool vararg)
 {
 	// TODO: struct arguments
 	size_t gpr_index = 0;
@@ -262,6 +262,9 @@ translate_call(TranslationState *ts, Oper res, Oper fun, Oper *args, size_t arg_
 	}
 	for (size_t i = arg_cnt; i > ARRAY_LEN(argument_regs) - 1; i--) {
 		add_push(ts, args[i - 1]);
+	}
+	if (vararg) {
+		add_set_zero(ts, R_RAX);
 	}
 	add_call(ts, fun, gpr_index);
 	add_copy(ts, res, R_RAX);
@@ -654,8 +657,9 @@ translate_value(TranslationState *ts, Value *v)
 	}
 	case VK_CALL: {
 		Operation *call = (void *) v;
-		size_t arg_cnt = type_function_param_cnt(call->operands[0]->type);
-		translate_call(ts, res, ops[0], &ops[1], arg_cnt);
+		bool vararg = ((FunctionType *) call->operands[0]->type)->vararg;
+		size_t arg_cnt = value_operand_cnt(v) - 1;
+		translate_call(ts, res, ops[0], &ops[1], arg_cnt, vararg);
 		break;
 	}
 	case VK_JUMP: {
@@ -1912,6 +1916,9 @@ main(int argc, char **argv)
 	print_globals(stderr, module);
 	fprintf(stderr, "\n");
 	for (size_t i = 0; i < function_cnt; i++) {
+		if (!function_is_fully_defined(functions[i])) {
+			continue;
+		}
 		number_values(functions[i], R__MAX);
 		print_function(stderr, functions[i]);
 		merge_simple_blocks(arena, functions[i]);
@@ -1960,9 +1967,9 @@ main(int argc, char **argv)
 	for (size_t i = 0; i < module->string_cnt; i++) {
 		StringLiteral *string = module->strings[i];
 		printf("$str%zu:\n", i);
-		printf("\tdb\t'");
+		printf("\tdb\t`");
 		print_str(stdout, string->str);
-		printf("',0\n");
+		printf("`,0\n");
 	}
 	printf("\n");
 
@@ -1992,8 +1999,18 @@ main(int argc, char **argv)
 	printf("\tsyscall\n");
 
 	for (size_t i = 0; i < function_cnt; i++) {
+		Function *function = functions[i];
 		printf("\n");
-		print_mfunction(stdout, functions[i]->mfunction);
+		if (function_is_fully_defined(function)) {
+			printf("\tglobal ");
+			print_str(stdout, functions[i]->name);
+			printf("\n");
+			print_mfunction(stdout, functions[i]->mfunction);
+		} else {
+			printf("\textern ");
+			print_value(stdout, &functions[i]->base);
+			printf("\n");
+		}
 	}
 	//*/
 

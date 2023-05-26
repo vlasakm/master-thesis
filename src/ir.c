@@ -99,6 +99,7 @@ insert_phi(Arena *arena, Block *block, Type *type)
 	value_init(&phi->base, VK_PHI, type);
 	phi->base.index = ((Function *) block->base.parent)->value_cnt++;
 	phi->base.parent = &block->base;
+	phi->base.operand_cnt = block_pred_cnt(block);
 	prepend_value(non_phi, &phi->base);
 	return phi;
 }
@@ -216,18 +217,11 @@ append_to_block(Block *block, Value *new)
 size_t
 value_operand_cnt(Value *value)
 {
-	switch (value->kind) {
-	case VK_CALL: {
-		Operation *op = (void *) value;
-		return 1 + type_function_param_cnt(op->operands[0]->type);
+	size_t operand_cnt = value_kind_param_cnt[value->kind];
+	if (operand_cnt == 0) {
+		return value->operand_cnt;
 	}
-	case VK_PHI: {
-		return block_pred_cnt(((Block *) value->parent));
-	}
-	default:
-		return value_kind_param_cnt[value->kind];
-	}
-	UNREACHABLE();
+	return operand_cnt;
 }
 
 Value **
@@ -332,6 +326,17 @@ print_value(FILE *f, Value *v)
 	}
 }
 
+Function *
+create_function(Arena *arena, Str name, Type *type)
+{
+	Function *function = arena_alloc(arena, sizeof(*function));
+	*function = (Function) {0};
+	function->name = name;
+	value_init(&function->base, VK_FUNCTION, type);
+	return function;
+
+}
+
 void
 validate_function(Function *function)
 {
@@ -419,6 +424,12 @@ print_function(FILE *f, Function *function)
 		}
 	}
 	validate_function(function);
+}
+
+bool
+function_is_fully_defined(Function *function)
+{
+	return function->entry != NULL;
 }
 
 static void dfs(Block *block, size_t *index, Block **post_order);

@@ -358,12 +358,21 @@ print_reg8(FILE *f, Oper reg)
 }
 
 void
+print_label(FILE *f, MFunction *mfunction, Inst *inst)
+{
+	Value *value = garena_array(mfunction->labels, Value *)[ILABEL(inst)];
+	print_value(f, value);
+	if (VK(value) == VK_FUNCTION && !function_is_fully_defined((Function *) value)) {
+		fprintf(f, " wrt ..plt");
+	}
+}
+
+void
 print_mem(FILE *f, MFunction *mfunction, Inst *inst)
 {
 	fprintf(f, "[");
 	if (IBASE(inst) == R_NONE) {
-		Value *value = garena_array(mfunction->labels, Value *)[ILABEL(inst)];
-		print_value(f, value);
+		print_label(f, mfunction, inst);
 	} else {
 		print_reg(f, IBASE(inst));
 		if (IINDEX(inst)) {
@@ -481,8 +490,7 @@ print_inst(FILE *f, MFunction *mfunction, Inst *inst)
 		break;
 	case M_LCALL: {
 		fprintf(f, " ");
-		Value *value = garena_array(mfunction->labels, Value *)[ILABEL(inst)];
-		print_value(f, value);
+		print_label(f, mfunction, inst);
 		break;
 	}
 	case M_NONE:

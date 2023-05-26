@@ -72,13 +72,14 @@ pointer_child(Type *pointer_type)
 }
 
 Type *
-type_function(Arena *arena, Type *ret_type, Parameter *parameters, size_t param_cnt)
+type_function(Arena *arena, Type *ret_type, Parameter *parameters, size_t param_cnt, bool vararg)
 {
 	FunctionType *fun_type = arena_alloc(arena, sizeof(*fun_type));
 	fun_type->base.kind = TY_FUNCTION;
 	fun_type->ret_type = ret_type;
 	fun_type->params = parameters;
 	fun_type->param_cnt = param_cnt;
+	fun_type->vararg = vararg;
 	return &fun_type->base;
 }
 
