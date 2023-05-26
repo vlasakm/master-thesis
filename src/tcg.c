@@ -360,6 +360,7 @@ translate_prologue(TranslationState *ts)
 			}
 			break;
 		case TY_STRUCT:
+			NOT_IMPLEMENTED("struct arguments");
 			break;
 		}
 	}

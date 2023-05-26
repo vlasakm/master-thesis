@@ -432,11 +432,11 @@ cast(Parser *parser)
 	if (new_type == &TYPE_VOID) {
 		return rvalue(&NOP);
 	}
-	if (type_is_struct(typeof(cvalue))) {
+	Value *value = as_rvalue(parser, cvalue);
+	if (type_is_struct(value->type)) {
 		parser_error(parser, parser->lookahead, false, "Cannot cast struct");
 	}
 
-	Value *value = as_rvalue(parser, cvalue);
 	if (type_is_pointer(new_type) && type_is_pointer(value->type)) {
 		value->type = new_type;
 	}
@@ -446,20 +446,15 @@ cast(Parser *parser)
 static CValue
 inc_dec(Parser *parser, CValue carg, bool inc, bool pre)
 {
-	Type *arg_type = typeof(carg);
-
-	if (type_is_struct(arg_type)) {
-	}
-
 	Value *arg_addr = as_lvalue(parser, carg, "Expected argument of increment/decrement to be an lvalue");
 	Value *arg = as_rvalue(parser, carg);
 	Value *res = &NOP;
-	if (type_is_pointer(arg_type)) {
+	if (type_is_pointer(arg->type)) {
 		Value *one = create_const(parser, &TYPE_INT, inc ? 1 : -1);
 		res = add_binary(parser, VK_GET_INDEX_PTR, arg->type, arg, one);
-	} else if (type_is_numeric(arg_type)) {
+	} else if (type_is_numeric(arg->type)) {
 		Value *one = create_const(parser, &TYPE_INT, 1);
-		res = add_binary(parser, inc ? VK_ADD : VK_SUB, arg_type, arg, one);
+		res = add_binary(parser, inc ? VK_ADD : VK_SUB, arg->type, arg, one);
 	} else {
 		parser_error(parser, parser->lookahead, false, "Cannot increment/decrement non-numeric, non-pointer value");
 	}
@@ -483,11 +478,11 @@ unop(Parser *parser)
 	Token token = discard(parser);
 	CValue carg = expression_bp(parser, 14);
 
-	if (!type_is_numeric(typeof(carg))) {
+	Value *arg = as_rvalue(parser, carg);
+	if (!type_is_numeric(arg->type)) {
 		parser_error(parser, parser->lookahead, false, "Unary arithmetic not on non-numeric type is not allowed");
 	}
 
-	Value *arg = as_rvalue(parser, carg);
 
 	Value *result;
 	switch (token.kind) {
@@ -509,11 +504,11 @@ deref(Parser *parser)
 	eat(parser, TK_ASTERISK);
 	CValue carg = expression_bp(parser, 14);
 
-	if (!type_is_pointer(typeof(carg))) {
+	Value *arg = as_rvalue(parser, carg);
+	if (!type_is_pointer(arg->type)) {
 		parser_error(parser, parser->lookahead, false, "Cannot dereference non-pointer");
 	}
 
-	Value *arg = as_rvalue(parser, carg);
 	return lvalue(arg);
 }
 
@@ -533,11 +528,11 @@ lognot(Parser *parser)
 	eat(parser, TK_BANG);
 	CValue carg = expression_bp(parser, 14);
 
-	if (!type_is_integral(typeof(carg)) && !type_is_pointer(typeof(carg))) {
+	Value *arg = as_rvalue(parser, carg);
+	if (!type_is_integral(arg->type) && !type_is_pointer(arg->type)) {
 		parser_error(parser, parser->lookahead, false, "Logical not on non-integral non-pointer type is not allowed");
 	}
 
-	Value *arg = as_rvalue(parser, carg);
 	Value *zero = create_const(parser, arg->type, 0);
 	return rvalue(add_binary(parser, VK_EQ, &TYPE_INT, arg, zero));
 }
@@ -548,11 +543,11 @@ bitnot(Parser *parser)
 	eat(parser, TK_TILDE);
 	CValue carg = expression_bp(parser, 14);
 
-	if (type_is_integral(typeof(carg))) {
+	Value *arg = as_rvalue(parser, carg);
+	if (type_is_integral(arg->type)) {
 		parser_error(parser, parser->lookahead, false, "Bitwise not on non-integral type is not allowed");
 	}
 
-	Value *arg = as_rvalue(parser, carg);
 	return rvalue(add_unary(parser, VK_NOT, arg->type, arg));
 }
 
@@ -562,14 +557,12 @@ cmp(Parser *parser, CValue cleft, int rbp)
 	TokenKind tok = discard(parser).kind;
 	CValue cright = expression_bp(parser, rbp);
 
-	Type *tleft = typeof(cleft);
-	Type *tright = typeof(cright);
-	if (!type_is_numeric(tleft) || !types_compatible(tleft, tright)) {
+	Value *left = as_rvalue(parser, cleft);
+	Value *right = as_rvalue(parser, cright);
+	if (!type_is_numeric(left->type) || !types_compatible(left->type, right->type)) {
 		parser_error(parser, parser->lookahead, false, "Cannot compare values of incompatible / non-integral types");
 	}
 
-	Value *left = as_rvalue(parser, cleft);
-	Value *right = as_rvalue(parser, cright);
 	ValueKind kind;
 	switch (tok) {
 	case TK_EQUAL_EQUAL:   kind = VK_EQ;  break;
@@ -580,7 +573,7 @@ cmp(Parser *parser, CValue cleft, int rbp)
 	case TK_GREATER_EQUAL: kind = VK_SGEQ; break;
 	default: UNREACHABLE();
 	}
-	return rvalue(add_binary(parser, kind, tleft, left, right));
+	return rvalue(add_binary(parser, kind, left->type, left, right));
 }
 
 static CValue
@@ -628,14 +621,12 @@ bitbinop(Parser *parser, CValue cleft, int rbp)
 	TokenKind tok = discard(parser).kind;
 	CValue cright = expression_bp(parser, rbp);
 
-	Type *tleft = typeof(cleft);
-	Type *tright = typeof(cright);
-	if (!type_is_numeric(tleft) || !types_compatible(tleft, tright)) {
+	Value *left = as_rvalue(parser, cleft);
+	Value *right = as_rvalue(parser, cright);
+	if (!type_is_numeric(left->type) || !types_compatible(left->type, right->type)) {
 		parser_error(parser, parser->lookahead, false, "Bitwise binary arithmetic on values of incompatible / non-integral types is not allowed");
 	}
 
-	Value *left = as_rvalue(parser, cleft);
-	Value *right = as_rvalue(parser, cright);
 	ValueKind kind;
 	switch (tok) {
 	case TK_AMP:             kind = VK_AND; break;
@@ -655,15 +646,15 @@ indexing(Parser *parser, CValue cleft, int rbp)
 	CValue cright = expression(parser);
 	eat(parser, TK_RBRACKET);
 
-	if (!type_is_pointer(typeof(cleft))) {
+	Value *left = as_rvalue(parser, cleft);
+	Value *right = as_rvalue(parser, cright);
+	if (!type_is_pointer(left->type)) {
 		parser_error(parser, parser->lookahead, false, "Expected indexing to subscript a pointer");
 	}
-	if (!type_is_integral(typeof(cright))) {
+	if (!type_is_integral(right->type)) {
 		parser_error(parser, parser->lookahead, false, "Expected index to be an integer");
 	}
 
-	Value *left = as_rvalue(parser, cleft);
-	Value *right = as_rvalue(parser, cright);
 	return lvalue(add_binary(parser, VK_GET_INDEX_PTR, left->type, left, right));
 }
 
