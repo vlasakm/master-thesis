@@ -706,8 +706,8 @@ nodes to decrease as well and may thus lead to more simplifications. In
 Chaitin's algorithm this phase is called {\em simplify} and the
 removed low degree nodes are pushed onto a stack. In the final stage, called {\em
 assign}, the nodes have colors assigned in the reverse order simply by popping
-them from the stack and assigning them a color not used by any of the (already
-colored) neighbours in the (now being rebuilt) graph. Use of this heuristic is not
+them from the stack and assigning them a color not used by any of the already
+colored neighbours in the now being rebuilt graph. Use of this heuristic is not
 all saving---it is possible that after after simplification (removal of low
 degree nodes) there will still be high degree nodes left. In that moment, push
 of any of the remaining nodes on to the stack, could mean that there won't be a
@@ -728,7 +728,9 @@ well. Then simplification can be tried again. This entire process is tried
 until the simplification is able to reduce the graph to an empty graph, which is
 trivially colorable. Since each iteration is very expensive, it is important
 that there can be multiple spill decisions made in a single {\em simplify} run,
-this way often the process can finish in less than 3 iterations.
+this way the process can often finish in 1 or 2 iterations, if the first
+iteration successfully finds all nodes that need to be spilled and the second
+iteration finalizes the assignment.
 Being able to spill only one node on each iteration would mean that graphs with
 many high degree nodes would need {\em many} expensive iterations to finish.
 Proceeding from {\em simplify} only after all spill have been handled makes it
@@ -834,14 +836,13 @@ would already be spilled first. An alternative approach based on {\em live range
 splitting} is what is much better at keeping local the effects of interferences
 introduced by machine or calling convention constraints. Splitting introduces a
 {\em copy} into a new virtual register for each constrained use as well as
-definition. This new temporary can be procolored and it is not going to clash
-with any other similar precolored use, since it has short range, just like other
-the other newly introduced precolored temporaries and importantly their live
-ranges {\em don't overlap}. In the previous example, this would look like this:
+definition. These new temporaries can be precolored, since their live ranges are
+too short to interfere with each other. For instance, in the previous example,
+it would look like this:
 
 \begtt
 mov t5, t2
-sal t1, t2 // precolor t5 to cl
+sal t1, t5 // precolor t5 to cl
 mov t6, t4
 sar t3, t6 // precolor t6 to cl
 \endtt
@@ -857,17 +858,96 @@ mov rcx, rdx
 sar rbx, cl
 \endtt
 
-Here it was possible to keep all values in registers. The first move can be
+Here it was possible to keep all values in registers. The first copy can be
 easily optimized by subsequent peephole optimization pass.
 
 Register allocation by graph coloring is thus very powerful and flexible with
 regards to at least the machine and calling convention constraints presented
-here. But avoiding uncolorable graphs with splits means a lot of move
+here. But avoiding uncolorable graphs with splits means a lot of copy
 instructions, which if allocated different registers, will not be optimized by
-peephole optimization and thus will incur often unnecessary overhead. We
+peephole optimization and thus can incur significant unnecessary overhead. We
 described (in section TODO) that coalescing is the name of the technique that
 tries to allocate the target and source into the same register. Chaitin already
-realized the need for coalescing. His solution was to 
+realized the need for coalescing. His solution~\cite[Chaitin1991] was to
+coalesce every {\em copy-related}, {\em non-interfering} pair of virtual
+registers in a pass called {\em coalesce}, before simplification. A pair of
+virtual registers `t1` and `t2` is copy related when there is a copy (move)
+instruction between them (i.e. `mov t1, t2` or vice versa), which captures the
+goal of eliminating these moves. The virtual registers have to be
+non-interfering, since otherwise the coalesced node would be uncolorable, and
+also, since the temporaries interfere, and would be assigned distinct colors,
+elimination of the copy wouldn't be possible anyways. Because of the
+non-intefering criterion, we have to be careful not to create artificial
+interferences for the operands of a copy instruction, for example `mov t2, t1`
+alone shouldn't imply that `t1` and `t2` interfere! Chaitin essentially does
+coalescing everywhere where it is possible and where it {\em might} be
+beneficial. Because of its nature, this form of coalescing has later become
+called \"aggressive". The problem with it, is that the node created by
+coalescing two virtual registers has interferences of both of the former nodes,
+notably this means that the node's degree will be the sum of the two degrees and
+such nodes easily become significant (\"high degree", not trivially colorable).
+High degree nodes are problematic in the following {\em simplify} phase, because
+apart from being blocked from simplification themselves, they prevent
+simplifications on a high number of other nodes. Often this means spills of
+these high degree nodes. Aggressive coloring can make colorable graphs
+uncolorable, and depends on spilling to make the graph colorable again. But,
+since a spill of a node essentially splits the node into many low degree nodes,
+this effectively undoes coalescing, but also adds memory operations that weren't
+there originally.
+
+Briggs improved on this by employing so called {\em conservative coalescing}.
+Instead of coalescing all nodes that can be coalesced, he uses a filtering
+heuristic, which allows only those coalesces, that can't make the graph
+uncolorable. The filtering is done using a heuristic, because exactly predicting
+the effect on colorability is a hard problem and would be too time consuming.
+Since the effect of aggressive coalescing can be so severe, the heuristic was
+made conservative, i.e. it never allows coalescings which would make the graph
+uncolorable, but may also not allow coalesces that would be perfectly fine.
+
+Appel and George found that for their use aggressive coalescing produced too
+many spills, while conservative coalescing was too conservative, i.e. there were
+are too many uneliminated move instructions left, even though coalescing would
+be fine. They suggest an improvement called {\em iterated register coalescing}.
+The idea is to still use only Briggs' conservative coalescing (to prevent making
+the graph uncolorable), but instead of doing all the coalescing upfront, they
+iterate the simplify and coalesce phases repeatedly. What is important is, that
+simplify precedes coalescing---this alone improves the coalescing phase a lot,
+since the conservative heuristic is based on degrees of nodes, and
+simplification can decrease them significantly. But importantly after coalescing
+there may be nodes which become insignificant. For example, if `t3` interferes
+with both `t1` and `t2`, and the two are coalesced into `t12`, then in effect
+`t3` loses a neighbour and it's degree is decreased, and it might just become
+insignificant (\"low degree") and simplifiable (leading to more simplifications,
+which in turn might lead to more coalescings, etc.). While this may seem like a
+perfect positive feedback loop, it is important to recall from TODO ref, that
+coalescing two nodes creates a node of higher (even significant) degree.
+
+Park and Moon note that even iterated coalescing can be too conservative and not
+combine nodes that could be safely combined. They also note that that the
+positive effect of coalescing explained in the previous paragraph is not to be
+underestimated. Their approach is called {\em optimistic
+coalescing}~\ref[Park2004], not to be confused with {\em optimistic coloring}
+due to Briggs~\ref[Briggs1992].
+%Though the optimistic idea {\em is}
+%similar to Briggs's improvement to coloring, where he realized that performing
+%spills in the {\em simplify} stage is premature, since the {\em assign} stage
+%might be able to assign register after all, but if it isn't able to, only then
+%an actual spill is made.
+Park and Moon's idea is to do aggressive coalescing like Chaitin did, to exploit the
+positive effect of coalescing, but their improvement lies in being able to
+revert coalescing of a particular node, if it would have to be spilled. Briggs'
+optimistic coloring delayed actual spilling until the {\em assign} phase, since by
+then it may turn out that the concrete assignment isn't as unfavorable as it
+could have be just by judging from the interference graph and the simplification
+heuristic. Similarly Park and Moon moves decisions to {\em not coalesce} into
+the {\em assign} stage, and they are able to do better just because the concrete
+assignment is known. For example, in case a color is not available for `t12`
+(the result of coalescing `t1` and `t2`), it may be possible to find a color for
+`t1` or `t2` (or both, though it will not be the same color), which effectively
+undoes the coalescing. Though in practice, while Briggs' optimistic coloring
+improvement was simple addition and a sure improvement, optimistic coalescing
+and especially an efficient implementation is not simple.
+
 
 \rfc{Chaitin coalescing, Briggs coalescing, iterated coalescing}
 
