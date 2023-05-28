@@ -1218,7 +1218,7 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 			// mov t18, t27
 			// =>
 			// mov t18, 1
-			if (IK(inst) == IK_MOV && IM(inst) == M_Cr && (IM(prev) == M_CI || IM(prev) == M_Cr || IM(prev) == M_CM) && IREG(prev) == IREG2(inst) && use_cnt[IREG(prev)] == 1) {
+			if (IK(inst) == IK_MOV && IM(inst) == M_Cr && IK(prev) != IK_CMOVCC && (IM(prev) == M_CI || IM(prev) == M_Cr || IM(prev) == M_CM) && IREG(prev) == IREG2(inst) && use_cnt[IREG(prev)] == 1) {
 				def_cnt[IREG(prev)]--;
 				use_cnt[IREG(prev)]--;
 				IREG(prev) = IREG(inst);
@@ -1759,6 +1759,19 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 			last->next->prev = last->prev;
 			block_use_cnt[next_block_index]--;
 			last = last->prev;
+		}
+
+		// 	jz .L4 ; R
+		// 	mov rdx, rsi
+		// .L4:
+		// =>
+		//      cmovz rdx, rsi
+		if (IK(last) == IK_MOV && IS(last) == MOV && IM(last) == M_Cr && IK(prev) == IK_JCC && ILABEL(prev) == next->block->base.index) {
+			IK(last) = IK_CMOVCC;
+			IS(last) = IS(prev);
+			prev->prev->next = prev->next;
+			prev->next->prev = prev->prev;
+			block_use_cnt[next_block_index]--;
 		}
 
 		if (last_pass && block_use_cnt[next->block->base.index] == 0) {
