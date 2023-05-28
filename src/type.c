@@ -196,6 +196,21 @@ types_compatible(Type *a, Type *b)
 		return true;
 	} else if (type_is_pointer(a) && type_is_pointer(b)) {
 		return types_compatible(pointer_child(a), pointer_child(b));
+	} else if (a->kind == TY_FUNCTION && b->kind == TY_FUNCTION) {
+		FunctionType *x = (void *) a;
+		FunctionType *y = (void *) b;
+		if (!types_compatible(x->ret_type, y->ret_type)) {
+			return false;
+		}
+		if (x->param_cnt != y->param_cnt) {
+			return false;
+		}
+		for (size_t i = 0; i < x->param_cnt; i++) {
+			if (!types_compatible(x->params[i].type, y->params[i].type)) {
+				return false;
+			}
+		}
+		return true;
 	} else if (a->kind == TY_CHAR && b->kind == TY_INT) {
 		// NOTE: This is here for stores to char. We don't need more,
 		// but this should ideally be improved if more flexibility is

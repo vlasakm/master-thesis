@@ -332,9 +332,8 @@ create_function(Arena *arena, Str name, Type *type)
 	Function *function = arena_alloc(arena, sizeof(*function));
 	*function = (Function) {0};
 	function->name = name;
-	value_init(&function->base, VK_FUNCTION, type);
+	value_init(&function->base, VK_FUNCTION, type_pointer(arena, type));
 	return function;
-
 }
 
 void

@@ -228,6 +228,7 @@ as_rvalue(Parser *parser, CValue cvalue)
 {
 	if (cvalue.lvalue) {
 		Value *lvalue = cvalue.value;
+
 		Type *child = &TYPE_VOID;
 		if (!parser->had_error) {
 			assert(type_is_pointer(lvalue->type));
@@ -236,6 +237,10 @@ as_rvalue(Parser *parser, CValue cvalue)
 		if (type_is_integral(child) && child->kind != TY_INT) {
 			child = &TYPE_INT;
 		}
+		if (child->kind == TY_FUNCTION) {
+			return lvalue;
+		}
+
 		return add_unary(parser, VK_LOAD, child, lvalue);
 	} else {
 		return cvalue.value;
@@ -402,10 +407,6 @@ ident(Parser *parser)
 	if (!env_lookup(&parser->env, ident, (void **) &value)) {
 		parser_error(parser, prev_tok(parser), false, "Name '%.*s' not found", (int) ident.len, ident.str);
 		return rvalue(&NOP);
-	}
-	assert(value);
-	if (value->kind == VK_FUNCTION) {
-		return rvalue(value);
 	}
 	return lvalue(value);
 }
@@ -1143,7 +1144,7 @@ statement(Parser *parser)
 	}
 	case TK_RETURN: {
 		Token tok = discard(parser);
-		Type *return_type = ((FunctionType *) parser->current_function->base.type)->ret_type;
+		Type *return_type = ((FunctionType *) pointer_child(parser->current_function->base.type))->ret_type;
 		if (peek(parser) != TK_SEMICOLON) {
 			Value *value = as_rvalue(parser, expression(parser));
 			if (!types_compatible(value->type, return_type)) {
@@ -1192,7 +1193,7 @@ is_function_terminated(Parser *parser)
 static void
 function_declaration(Parser *parser, Function *function)
 {
-	FunctionType *fun_type = (FunctionType *) function->base.type;
+	FunctionType *fun_type = (FunctionType *) pointer_child(function->base.type);
 	Parameter *params = fun_type->params;
 	size_t param_cnt = fun_type->param_cnt;
 
@@ -1381,7 +1382,7 @@ function_pointer_declaration(Parser *parser)
 	type = &function_declarator(parser, type, false)->base;
 	eat(parser, TK_SEMICOLON);
 
-	table_insert(&parser->type_env, name, type);
+	table_insert(&parser->type_env, name, type_pointer(parser->arena, type));
 }
 
 static void
