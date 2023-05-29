@@ -44,17 +44,17 @@ typedef enum {
 	PU(RARROW,          "->",            nullerr,   0, member,   15, LEFT)  \
 	PU(LESS,            "<",             nullerr,   0, cmp,      10, LEFT)  \
 	PU(LESS_EQUAL,      "<=",            nullerr,   0, cmp,      10, LEFT)  \
-	PU(LESS_LESS,       "<<",            nullerr,   0, binop,    11, LEFT)  \
+	PU(LESS_LESS,       "<<",            nullerr,   0, bitbinop, 11, LEFT)  \
 	PU(GREATER,         ">",             nullerr,   0, cmp,      10, LEFT)  \
 	PU(GREATER_EQUAL,   ">=",            nullerr,   0, cmp,      10, LEFT)  \
-	PU(GREATER_GREATER, ">>",            nullerr,   0, binop,    11, LEFT)  \
+	PU(GREATER_GREATER, ">>",            nullerr,   0, bitbinop, 11, LEFT)  \
 	PU(EQUAL,           "=",             nullerr,   0, assign,    2, RIGHT) \
 	PU(EQUAL_EQUAL,     "==",            nullerr,   0, cmp,       9, LEFT)  \
 	PU(BANG,            "!",             lognot,   14, lefterr,  99, LEFT)  \
 	PU(BANG_EQUAL,      "!=",            nullerr,   0, cmp,       9, LEFT)  \
-	PU(AMP,             "&",             addr,     14, binop,     8, LEFT)  \
+	PU(AMP,             "&",             addr,     14, bitbinop,  8, LEFT)  \
 	PU(AMP_AMP,         "&&",            nullerr,   0, shortcirc, 5, LEFT)  \
-	PU(BAR,             "|",             nullerr,   0, binop,     6, LEFT)  \
+	PU(BAR,             "|",             nullerr,   0, bitbinop,  6, LEFT)  \
 	PU(BAR_BAR,         "||",            nullerr,   0, shortcirc, 4, LEFT)  \
 	PU(DOT,             ".",             nullerr,   0, member,   15, LEFT)  \
 	PU(DOT_DOT_DOT,     "...",           nullerr,   0, lefterr,  99, LEFT)  \

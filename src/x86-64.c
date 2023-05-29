@@ -401,7 +401,11 @@ print_inst(FILE *f, MFunction *mfunction, Inst *inst)
 		fprintf(f, " ");
 		print_reg(f, IREG1(inst));
 		fprintf(f, ", ");
-		print_reg(f, IREG2(inst));
+		if (IK(inst) == IK_SHIFT) {
+			print_reg8(f, IREG2(inst));
+		} else {
+			print_reg(f, IREG2(inst));
+		}
 		break;
 	case M_RM:
 	case M_rM:
