@@ -2,8 +2,8 @@
 
 \fontfam[lm]
 \input ctustyle3
-\load[vlna]
-\singlechars{Czech}{AaIiVvOoUuSsZzKk}
+%\load[vlna]
+%\singlechars{Czech}{AaIiVvOoUuSsZzKk}
 \enlang
 \enquotes
 \verbchar`
@@ -119,20 +119,20 @@ TODO
 }
 
 \declaration {
-Prohlašuji, že jsem předloženou práci vypracoval samostatně a že jsem uvedl
-veškeré použité informační zdroje v~souladu s~Metodickým pokynem o~dodržování
-etických principů při přípravě vysokoškolských závěrečných prací.
+I hereby declare that the presented thesis is my own work and that I have cited
+all sources of information in accordance with the Guideline for adhering to
+ethical principles when elaborating an academic final thesis.
 
-Beru na vědomí, že se na moji práci vztahují práva a povinnosti vyplývající ze
-zákona č.\,121/2000~Sb., autorského zákona, ve znění pozdějších předpisů.
-V~souladu s~ust.\,§\,2373 odst.\,2 zákona č.\,89/2012~Sb., občanský zákoník, ve
-znění pozdějších předpisů, tímto uděluji nevýhradní oprávnění (licenci) k~užití
-této mojí práce, a to včetně všech počítačových programů, jež jsou její součástí
-či přílohou a veškeré jejich dokumentace (dále souhrnně jen „Dílo“), a to všem
-osobám, které si přejí Dílo užít. Tyto osoby jsou oprávněny Dílo užít jakýmkoli
-způsobem, který nesnižuje hodnotu Díla a za jakýmkoli účelem (včetně užití
-k~výdělečným účelům). Toto oprávnění je časově, teritoriálně i množstevně
-neomezené.
+I acknowledge that my thesis is subject to the rights and obligations stipulated
+by the Act No. 121/2000 Coll., the Copyright Act, as amended. In accordance with
+Section 2373(2) of Act No. 89/2012 Coll., the Civil Code, as amended, I hereby
+grant a non-exclusive authorization (licence) to utilize this thesis, including
+all computer programs that are part of it or attached to it and all
+documentation thereof (hereinafter collectively referred to as the "Work"), to
+any and all persons who wish to use the Work. Such persons are entitled to use
+the Work in any manner that does not diminish the value of the Work and for any
+purpose (including use for profit). This authorisation is unlimited in time,
+territory and quantity.
 
 V XX dne XX.\,XX.\,TODO
 \signature
@@ -148,8 +148,20 @@ V XX dne XX.\,XX.\,TODO
 
 \chap Introduction
 
+\chap x86-64 architecture
+
+\chap State of the art
+
+\sec Structure of a compiler backend
+
+\sec SSA form
+
+\sec SSA deconstruction
+
+\sec Instruction selection
+
 \label[ragalloc]
-\chap Register allocation
+\sec Register allocation
 
 This chapter describes the last of the three big conceptual parts of a usual
 compiler backend---the register allocation phase. Motivation, importance and
@@ -166,7 +178,7 @@ target specific instructions, their form doesn't necessarily have to be target
 specific. Target independent representation of target specific instructions
 allows us to share also register allocation logic for all targets.
 
-\sec Motivation
+\secc Motivation
 
 Most CPU architectures these days are register based. That means that interface
 of the CPU consists of a fixed number of registers and instructions that allow
@@ -304,7 +316,7 @@ reside in memory), but even for temporaries we have to account for the fact that
 we simply can get out of registers.
 
 \label[sec:spilling]
-\sec Spilling
+\secc Spilling
 
 We can get out of registers, but we still have to store our (say intermediate)
 values {\em somewhere}. The solution is to put the values into memory. Resorting
@@ -331,7 +343,7 @@ absolute references require run time fix ups (called \"relocations") by the
 dynamic linker, which prevents reuse of the code between multiple processes.
 
 \label[sec:use-of-spilled]
-\secc Using spilled values
+\seccc Using spilled values
 
 As established, we will refer to spilled values through relative addressing
 (using either the stack pointer or the \"base" pointer, also often called the
@@ -501,7 +513,7 @@ even harder, because recklessly doing one or the other will make the code
 certainly worse, while doing neither may as adding these contrasting notions
 makes great register allocation an even harder problem.
 
-\secc Interaction with instruction selection
+\seccc Interaction with instruction selection
 
 As we have seen, the process of spilling needs to insert new instructions which
 together form the so called "spill code". In simplest scenario they just load
@@ -559,7 +571,7 @@ spill code insertion are usually very connected to the core principle of the
 register allocation algorithm at handle, and choices of some approaches are
 discussed in the section~\ref[sec:regalloc-techniques].
 
-\sec Formalization
+\secc Formalization
 
 The terms used in the previous sections about register allocation were not
 properly defined, and perhaps even not commonly used for the concepts. The
@@ -594,18 +606,18 @@ usually merge both of these parts, while more complex algorithms try to take
 advantage of the attacking each of those issues separately to reach more optimal
 results. But this distinction is of course not definitive.
 
-\secc Liveness, inteference
+\seccc Liveness, interference
 
-\secc Live ranges
+\seccc Live ranges
 
 vs value vs variable.
 
-\secc Coalescing
+\seccc Coalescing
 
-\secc Live range splitting
+\seccc Live range splitting
 
 \label[sec:regalloc-techniques]
-\sec Techniques
+\secc Techniques
 
 We have already seen a few things that can distinguish different register
 allocation algorithms:
@@ -657,18 +669,209 @@ and/or interferences to do register allocation and assignment. But use of
 control flow information in an algorithm is likely to steer it to better
 results---spills in hot or nested loops are undesirable. Control flow sensitive
 register allocation (not assignment) may for example even try to purposefully do
-spills before loops to make more registers available in loops.
-
+spills or splits before loops to make more registers available in loops.
 \enditems
 
 \label[sec:regalloc-top-down]
-\secc Top-down, bottom-up
+\seccc Local top-down and bottom-up
 
-\secc Backward
+Two of the most basic algorithms for register allocation are described by Cooper
+and Torczon~\cite[Engineering]. They operate only on single basic blocks, but
+form a good baseline to improve upon. Also, surprisingly, their ideas of how to
+handle spilling have their equivalents in more powerful algorithms.
 
-\secc Linear scan
+Both algorithms investigate uses and definitions of virtual registers inside a
+basic block, allocate some map some virtual registers to physical registers and
+spill the others. They differ in how they choose which virtual registers to
+spill:
 
-\secc Graph coloring
+\begitems
+* {\em Top-down.} In the top-down view those virtual registers which are used
+most often (i.e. their number of uses and definitions is the highest) should be
+the ones that get assigned registers, others should be spilled.
+
+While this is simple to implement, there are glaring problems. The algorithm is
+not able to reuse registers---since it maps virtual registers to physical
+registers one-to-one, it is not able to reuse a physical register once a virtual
+register becomes dead.
+
+Also, most instructions require at least some arguments to reside in registers,
+but it can happen that top-down register allocator spills all used and defined
+virtual registers of a particular instruction. To solve this, sufficient number
+of registers has to be set aside and not be allocated, they will be used for
+realizing loads of uses and stores of definitions of spilled virtual registers.
+This of course makes the allocation results even worse, because only a lesser
+number of registers are available for allocation, and spills may be
+introduced just because some registers are reserved for spill code realization.
+
+* {\em Bottom-up.} In the bottom-up approach instructions are investigated in
+order, one by one, and registers are allocated to supply the demand of each
+particular instruction. In general, each instruction is an operation with
+multiple input registers and multiple output registers. Hence for each
+instruction the algorithm ensures that input virtual registers are allocated
+into physical registers and allocates registers for output virtual registers.
+
+It may seem, that since the algorithm operates on a single basic block, that each
+use of an virtual registers should have a preceding definition, which should be
+the one, which allocates register for it, and that allocation of registers for
+arguments is not necessary. But it is necessary for handling spills---allocation
+of a physical register (whether for input or output virtual register) may find
+that none of the registers is free, so it has to choose one of the assigned
+registers, and spill it, by moving the value from that register to memory. Later
+the spilled register may be needed again, and so it has to be assigned register
+again and the previous value has to be reloaded from memory into the new
+register. The newly allocated register doesn't have to be the old one. This is a
+great advantage of this approach over {\em top-down}, while spilling, it is able
+to effectively split a live range and allocate it different physical registers
+or memory locations.
+
+Because the algorithm considers each instruction, it is able to much better deal
+with machine constraints. For example, if an instruction needs its operand to
+reside in a particular register, or puts the result in a particular registers,
+then the allocator may just forcibly allocate that particular register. One
+example of such constraint are that of the shift instructions on x86-64, which
+require the shift size to be specified in the `cl` register:
+
+\begtt
+shl t1, t2 % t2 has to be allocated to cl
+\endtt
+
+If we suppose that `t1` already resides in a register (say `rax`), and `t2` is
+already in `rcx` (the register of which `cl` is the lowest 8 bits), then the
+allocator doesn't have to do anything:
+
+\begtt
+shl rax, cl % t2 has to be allocated to cl
+\endtt
+
+If `t2` is assigned say the `rdx` register, and the value in the `rcx` register
+is no longer needed, just a copy is sufficient:
+
+\begtt
+mov rcx, rdx
+shl rax, cl
+\endtt
+
+If however, the virtual register which occupies `rcx` (say `t3`) is live after
+the instruction, then we need to find it a new register. And if conveniently
+`t2` (the shift amount) is not needed after the shift, then we can just reuse
+the newly freed `rdx` register by swapping the registers:
+
+\begtt
+xchg rcx, rdx
+shl rax, cl
+\endtt
+
+And so on. Similarly we could deal with platform calling conventions. For
+example, if the called function needs arguments in registers `rdi` and `rsi`,
+then we might just forcibly allocate them. If the function call doesn't preserve
+other registers (like `rax` or `rcx`), these registers should also be forcibly
+allocated---though the call-site will not use them for anything, the called
+function might, and hence we need to preserve values in them, and using the
+\"allocate a register" mechanism, we elegantly also handle the necessary spills.
+
+When a physical register is needed and none is available, one has to be spilled.
+Good choice is to spill the virtual register whose next use is the furthest
+away~\cite[Engineering]. This is akin to Bélády's MIN algorithm for page
+replacement~\cite[Belady1966]. The benefit of the approach is, that if we need
+to spill, the register we free up will be available for other purposes for the
+longest time, hence it will hopefully prevent other spills.
+
+The bottom-up algorithm has to do two passes over the code---first one to derive
+liveness information, second one to actually do the allocation. Liveness
+information provides the information necessary for choosing spills.
+\enditems
+
+An interesting twist to the bottom-up algorithm described by Mike
+Pall~\cite[Pall2009]. He does the allocation in a single pass over the code in
+SSA form, though in {\em reverse}. In programs in SSA form SSA values naturally
+correspond to live ranges, and reverse order is natural for computing liveness.
+Pall's algorithm essentially combines register allocation with the liveness
+computation. While iterating in reverse order definitions are processed first,
+while uses are processed next, contrary to the bottom-up algorithm. Also
+contrary to the bottom-up algorithm, where {\em definitions} was what derived
+the assignment, it is the {\em uses} that drive the assignment in this
+algorithm. When a first use of a virtual register encountered, it is allocated a
+register, and when (the only) definition of a virtual register is reached, then
+it is freed. This is often better, since more often the uses are constrained by
+machine constraints, so by discovering the uses first, the allocation can be
+targeted more easily.
+
+The problem with all these approaches is that they are too local. Their versions
+as presented above work only in a single basic block. Extensions to global
+(whole-procedure) allocation are possible by using memory---a simple extension
+does register allocation on each basic block separately and all virtual
+registers are stored at the end of each block and loaded back at start of a
+block. This still only requires local analysis, but is produces very inefficient
+code. It is perform global liveness analysis and to store only live-out virtual
+registers and to load only live-in virtual registers. Though at the point where
+global analysis is feasible, some of the global register allocation algorithms
+is probably feasible as well.
+
+\seccc Linear scan
+
+Poletto and Sarkar~\cite[Poletto1999] introduced o called {\em linear scan} register
+allocation. It can be seen as an extension of the bottom-up approach described
+in the previous section~(\ref[sec:regalloc-top-down]). The canonical version of
+the bottom up is able to allocate registers only for a single basic block,
+because it depends on many of the linear aspects of basic blocks, such as that
+the instructions are ordered, live ranges are also ordered and it can be
+determined which is \"furthest away", so that something akin to Bélády's
+algorithm~\ref[Belady1966] can be used. Linear scan register allocation extends
+the bottom-up approach to perform global (whole procedure) register allocation
+by imposing an ordering over the instructions by (globally) numbering them. This
+ordering induces a linear sequence, where live ranges can be represented as simple
+intervals starting at the number of the first instruction where the virtual register
+is live and ending at the number of the last instruction where the virtual
+register is live. This essentially makes the procedure into a single \"basic
+block" on which something akin to the bottom-up allocator can be run.
+
+But the algorithm described by Poletto instead operates on the live intervals.
+The algorithm orders the intervals by increasing start point and iterates over
+them. The algorithm effectively iterates over the starts of live ranges, keeping
+the set of {\em active} intervals (those whose start is {\em before} the start
+of the current interval, and end {\em after} the current interval). For each
+encountered interval, those intervals in the active set which end before the
+current interval's start are expired and their registers freed, and a new
+register is a allocated from the pool of free registers for the current live
+interval. If the number of intervals live at some point exceeds the number of
+available registers a live range needs to be spilled. Poletto and Sarkar choose
+to spill the live range which ends furthest away---if that live range is the one
+which is currently being allocated, it is not allocated a register, but a memory
+location instead, otherwise the current live range is assigned the register of
+the spilled interval and the spilled interval is assigned a memory location.
+
+There are many problems with linear scan. It has been designed as a fast and
+simple alternative to graph coloring register allocators
+(see~\ref[sec:regalloc-graph-coloring]), mainly for JIT compilers which value
+greatly run-time of {\em the compiler} and can sacrifice run-time of the
+compiled code. The relatively poor allocation quality is intentional.
+
+The reasons for the poor quality is that live ranges are really really
+imprecise, since this simple live ranges don't represent live ranges
+truthfully---there may be many instructions in the middle of the interval, where
+the virtual register is not live. In fact trivial live range $[1, n]$, where $n$
+is the number of instructions is correct for each virtual register, but of
+course produces unsatisfactory allocations. Another problem is, that unlike the
+bottom-up approach linear scan has more trouble with handling of spilled code as
+well as machine constraints. This is because virtual registers (live intervals)
+are assigned either a register for their entire duration, or a memory location.
+For use of the memory locations in instructions registers have to be used, and a
+few registers would have to be set aside for that (like with the top-down
+allocator from section~\ref[sec:regalloc-top-down]). Basic form of linear scan
+doesn't handle machine constrains at all 
+
+While in some sense linear scan register allocation can be seen as a extension
+of the bottom-up register allocator, it suffers from many of the issues of the
+top-down allocator. Some of the follow ups on linear scan are much better suited
+to practice. For example in~\cite[Traub1998] they are able to additionally deal
+with holes in live intervals and can assign a multiple registers to a single
+live range (at different times) and other approaches are able to better handle
+machine constraints and use properties of SSA form~\cite[Mossenbock2002,
+Wimmer2010].
+
+\label[sec:regalloc-graph-coloring]
+\seccc Graph coloring
 
 Even though the idea of using graph coloring for register allocation is older,
 first notable use of the technique is by Chaitin~\cite[Chaitin1981, Chaitin1982].
@@ -868,7 +1071,7 @@ instructions, which if allocated different registers, will not be optimized by
 peephole optimization and thus can incur significant unnecessary overhead. We
 described (in section TODO) that coalescing is the name of the technique that
 tries to allocate the target and source into the same register. Chaitin already
-realized the need for coalescing. His solution~\cite[Chaitin1991] was to
+realized the need for coalescing. His solution~\cite[Chaitin1981] was to
 coalesce every {\em copy-related}, {\em non-interfering} pair of virtual
 registers in a pass called {\em coalesce}, before simplification. A pair of
 virtual registers `t1` and `t2` is copy related when there is a copy (move)
@@ -902,7 +1105,14 @@ uncolorable. The filtering is done using a heuristic, because exactly predicting
 the effect on colorability is a hard problem and would be too time consuming.
 Since the effect of aggressive coalescing can be so severe, the heuristic was
 made conservative, i.e. it never allows coalescings which would make the graph
-uncolorable, but may also not allow coalesces that would be perfectly fine.
+uncolorable, but may also not allow coalesces that would be perfectly fine. The
+heuristic says that `t1` and `t2` can be coalesced only when the merged node
+`t12` would have no more significant (high-degree) neighbours, than $k$ (the
+number of available registers). The being, that after simplification of
+(low-degree) neighbours, the node will have at most $k$ neighbours left, which
+makes it simplifiable itself. Though it easy to imagine a situation where a lot
+of the neighbours have common neighbours, so simplification may do much better
+than conservatively assumed, and thus a lot of the moves remain uncoalesced.
 
 Appel and George found that for their use aggressive coalescing produced too
 many spills, while conservative coalescing was too conservative, i.e. there were
@@ -913,7 +1123,8 @@ the graph uncolorable), but instead of doing all the coalescing upfront, they
 iterate the simplify and coalesce phases repeatedly. What is important is, that
 simplify precedes coalescing---this alone improves the coalescing phase a lot,
 since the conservative heuristic is based on degrees of nodes, and
-simplification can decrease them significantly. But importantly after coalescing
+simplification can decrease them significantly (and Briggs' coalescing heuristic
+is too local to notice that otherwise). But importantly after coalescing
 there may be nodes which become insignificant. For example, if `t3` interferes
 with both `t1` and `t2`, and the two are coalesced into `t12`, then in effect
 `t3` loses a neighbour and it's degree is decreased, and it might just become
@@ -926,13 +1137,8 @@ Park and Moon note that even iterated coalescing can be too conservative and not
 combine nodes that could be safely combined. They also note that that the
 positive effect of coalescing explained in the previous paragraph is not to be
 underestimated. Their approach is called {\em optimistic
-coalescing}~\ref[Park2004], not to be confused with {\em optimistic coloring}
-due to Briggs~\ref[Briggs1992].
-%Though the optimistic idea {\em is}
-%similar to Briggs's improvement to coloring, where he realized that performing
-%spills in the {\em simplify} stage is premature, since the {\em assign} stage
-%might be able to assign register after all, but if it isn't able to, only then
-%an actual spill is made.
+coalescing}~\cite[Park2004], not to be confused with {\em optimistic coloring}
+due to Briggs~\cite[Briggs1992].
 Park and Moon's idea is to do aggressive coalescing like Chaitin did, to exploit the
 positive effect of coalescing, but their improvement lies in being able to
 revert coalescing of a particular node, if it would have to be spilled. Briggs'
@@ -947,10 +1153,6 @@ assignment is known. For example, in case a color is not available for `t12`
 undoes the coalescing. Though in practice, while Briggs' optimistic coloring
 improvement was simple addition and a sure improvement, optimistic coalescing
 and especially an efficient implementation is not simple.
-
-
-\rfc{Chaitin coalescing, Briggs coalescing, iterated coalescing}
-
 
 Nice thing about Chaitin's scheme (and Briggs' improvement) is that even the
 introduced spill code with new virtual registers gets the same general treatment
@@ -976,12 +1178,134 @@ they won't be available for handling the spills of the values constrained to
 such registers, the off the side registers would have to be used to somehow swap
 the values with the needed registers.
 
-\secc Reduction (to another NP-complete problem and using a solver)
+\seccc Graph coloring of chordal graphs
+
+While graph coloring in general is an NP-complete problem, for certain classes
+of graphs, it can be easier. Notable example are chordal graphs, which have
+posses useful properties for efficient graph coloring. It turns out, that
+chordal graphs are the exact class of graphs for which exists a so called
+\"perfect elimination order". Importantly for graph coloring, by assigning
+colors to nodes in the perfect elimination order, the graph can
+be colored with $k$ colors in a single greedy pass---of course provided that the
+graph is indeed $k$-colorable. Similar greedy coloring pass was the {\em assign}
+phase of Chaitin's algorithm~\cite[Chaitin1981], there the node ordering was
+determined by simplifications based on a heuristic and colorability was ensured
+by spilling nodes. Perfect elimination order can be found in $O(n^2)$ time using
+the maximum cardinality search algorithm and {\em guarantees} optimal coloring.
+Chordal graphs also offer improvements for spilling, because like with perfect
+graphs of which they are a subset, the number of colors needed to color a
+chordal graph is given by the size of the largest clique. This is powerful,
+because it gives the possibility to do enough of spills or live range splits
+ahead of time, before actually starting with coloring.
+
+The first application of these ideas to register allocation are due to Pereira
+and Palsberg~\cite[Pereira2005], who noticed that $95\,\%$ of
+interference graphs in the Java 1.5 library had chordal interference graphs
+(when compiled with JoeQ compiler). The algorithm proposed by them operates in a
+few independent phases:
+
+\begitems\style n
+* {\em pre-spilling}. Spill code is inserted in order to decrease the size of
+the largest clique to $k$, which makes it $k$ colorable.
+* {\em greedy coloring}. The graph is greedily colored without limiting the
+number of available colors.
+* {\em post-spilling}. If the number of used colors exceeds $k$, additional
+spills are done.
+* {\em coalescing}. Move related nodes are coalesced, if possible.
+\enditems
+
+Both {\em pre-spilling} and {\em coalescing} are entirely optional---spills can
+be handled by post-spilling phase and coalescing is not a necessary port of any
+register allocation algorithm. But they both improve the quality of the
+generated code. In particular due to the properties of the chordal graphs
+described above, pre-spilling is a much better place for introducing spills, and
+if done properly, it is guaranteed that post-spilling doesn't need to do
+anything at all. Case when {\em post-spilling} comes into play are when the
+optional pre-spilling isn't run, or when {\em non-chordal} graph is being
+colored---Pereira and Palsberg noticed that the same algorithm can be used also
+for non-chordal graphs, though the register assignment is not optimal, it is
+competitive according to them~\cite[Pereira2005].
+
+One of the important benefits of the algorithm is, that it isn't iterated, it
+finishes after running each phase only once. Though to be more precise, the
+post-spilling phase is not a single step---if more than $k$ are used, all nodes
+of one color are spilled (transforming a graph using $m$ colors to one using
+$m-1$), so this needs to be iterated until the only $k$ colors are used. Though
+this is bounded, usually fast and may not be needed at all if {\em pre-spilling}
+phase is run.
+
+While there are interesting similarities to Chaitin's classical approach, in
+particular being able to spill enough so that greedy algorithm can find a
+coloring, there are also interesting differences---in Chaitin's and derived
+algorithms coalescing is done {\em before} assignment, this can have both
+positive and negative impacts on colorability, and different variations
+approached it differently. Pereira's algorithm does all coalescing {\em after}
+assignment because after coalescing an interference graph can become
+non-chordal, though they report that in their experiments their approach
+does better in coalescing than Appel's Iterated register coalescing.
+
+While Pereira's algorithm can be used even for non-chordal interference graphs,
+following researched by e.g. Hack~\cite[Hack2006] showed, that programs in
+(strict) SSA form have chordal interference graphs. This is seems like an
+excellent result, because SSA form is great for middle-end optimizations and it
+simultaneously seems to be good for register allocation. Additionally SSA form
+allows much more efficient computation of the liveness property. The basis
+structure of Hack's algorithm is similar to Pereira's---do spilling before
+coloring to make the program $k$ colorable, then color the graph in a perfect
+elimination order. However, there are substantial improvements: as they prove
+that interference is directly connected to the notion of dominance deeply
+associated with SSA, it is possible to derive the perfect elimination order from
+the control flow graph and dominator tree alone. Also, if we assume that copy
+propagation has been run before register allocation, the only coalescing that
+has to be done on SSA is the coalescing of $\phi$ node operands---by assigning
+the operands the same color as the phi node, SSA deconstruction doesn't have to
+insert any moves. However, in fact SSA deconstruction and coalescing have to be
+integral parts of their algorithm, since inserting arbitrary moves for SSA
+deconstruction could make the graph non-chordal (and in fact SSA incompatible)
+or increase register demand---which would be detrimental, because now SSA
+deconstruction is done {\em after} register allocation.
+
+The fact that Hack's algorithm is able to take advantage of the many guarantees
+of SSA form, is also it's great disadvantage---it depends on the program on
+being in SSA form, which is not the norm. Usually, compilers do register
+allocation only after instruction selection during which concrete machine
+instructions are chosen to implement the behavior of the SSA-based intermediate
+representation. $\phi$ instructions are not real instructions real
+architectures, and certain operations are incompatible with SSA. TODO elaborate.
+
+\seccc Reduction (to another NP-complete problem and using a solver)
 
 ILP, IBQP
 
-\secc SSA register allocation
+\chap Design and implementation
 
+Needs, etc.
+
+\sec Architecture
+
+\sec Data structures
+
+\secc Middle-end
+
+\secc Back-end
+
+\sec Lowering
+
+\sec Peephole optimization
+
+\secc Local optimizations
+
+\secc Flag based optimizations
+
+\secc Use-def based optimizations
+
+\secc Inter-block optimizations
+
+\sec Register allocation
+
+\chap Evaluation
+
+\chap Conclusion
 
 \bibchap
 \usebib/s (iso690) vlasami6-dip
