@@ -158,6 +158,96 @@ V XX dne XX.\,XX.\,TODO
 
 \sec SSA deconstruction
 
+There are two problems with SSA form that make it problematic to translate to
+machine form. First is, that in SSA form instructions represent {\em values}.
+While they can be thought of as virtual registers, they are not register, since
+they cannot be assigned. In SSA instructions are operation that from operands
+produce a result, this result represents the instruction. This is the first
+disconnect of SSA form from real instruction sets, like x86-64, which operate on
+registers. For example, in SSA form, addition of two numbers looks like this:
+
+\begtt
+v1 = add 3, 4
+\endtt
+
+The name `v1` represents the value, which is the result of operation adding
+numbers $3$ and $5$ together. The equal sign doesn't really represent an
+assignment---what is right to the equal sign represents the value entirely. The
+reason why we use the equal sign is that other operations might want to refer to
+previous values, and in textual notation we need to write that somehow. For
+example, `v1` might be used to produce `v2` like this:
+
+\begtt
+v2 = add v1, 5
+\endtt
+
+Implementations often represent values as \"objects" (instances of classes,
+structs) and operations refer to other values through {\em pointers}. While even
+for implementations it might be beneficial to number values like we do in the
+textual representation (because then a simple array can be used for mapping the
+values to some other secondary information), there is no real semantic reason to
+do so.
+
+So in SSA form values are produced from other values and these values sometimes
+represent operations, instructions that execute and compute the values,
+otherwise values just represent static objects. In machine code we only have
+a few physical registers and instructions which usually read from registers and
+memory and also write to registers and memory. To translate SSA form we need to
+somehow map the values into registers, translate SSA instructions (value
+computations) to machine instructions, and we also need to somehow translate the
+static objects and be able to take their addresses.
+
+A powerful abstraction that pretty much all compilers have used is, to pretend
+in early stages that there is an infinite amount of registers available, the so
+called \"virtual registers". A later stage, called {\em register
+allocation}, is responsible for translating the use of unlimited amount of
+virtual registers into a fixed amount of physical (machine) registers, which is
+available for the particular kind of processor we are targeting. Even though
+there are techniques which do register allocation in SSA form and deconstruct
+SSA form only after (or during) register allocation, we will focus more on the
+traditional approach of deconstructing SSA form before register allocation and
+thus we will have the luxury of unlimited supply of (virtual) registers. We will
+number the virtual registers from $1$ and we will prefix them with the letter
+\"t" (for {\em temporary})\fnote{Using \"v" as \"virtual register" would be
+possible, but would clash with our notation for numbering SSA {\em values}.} for
+example `t1` represents the first virtual register.
+
+With the constraints given above, translating SSA to something like a three
+address code is relatively straightforward. The first register in three address
+code is the destination, where the result of the computation is written, while
+the other two registers are the sources, the arguments of the instruction. Each
+SSA value (which is an operation) can thus be assigned its own virtual register,
+which will hold the SSA value and like in SSA it will be assigned statically
+just once. But other instructions translated later will be able to refer to
+it through that virtual register. So something like:
+
+\begtt
+v3 = mul v1, v2
+v4 = div v1, v2
+\endtt
+
+Can be translated to:
+
+\begtt
+mul t3, t1, t2
+div t4, t1, t2
+\endtt
+
+For readability purposes, we used one-to-one mapping from value numbers (used
+for the textual notation of SSA form) to virtual registers. This makes it easy
+to follow by human, but the compiler itself doesn't have to do it this way, it
+just has to ensure to use a consistent mapping of values to virtual registers.
+The mapping is not as straightforward as it might seem though, because 
+
+Another so far neglected aspect of SSA form are the $\phi$ instructions. No real
+processors offers something like $\phi$ instruction, so we have to translate
+them specially.
+
+Important question is also {\em when} do 
+
+
+Since no real processor implements something like a $\phi$ instruction, which 
+
 \sec Instruction selection
 
 \label[ragalloc]
