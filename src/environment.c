@@ -18,7 +18,7 @@ env_pop(Environment *env)
 }
 
 void
-env_define(Environment *env, Str name, Value *value)
+env_define(Environment *env, Str name, void *value)
 {
 	assert(env->scope_cnt > 0);
 	table_insert(&env->scopes[env->scope_cnt - 1], name, value);
