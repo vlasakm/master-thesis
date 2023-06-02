@@ -951,6 +951,7 @@ control flow a virtual register is {\em live}.
 
 vs value vs variable.
 
+\label[sec:regalloc-coalescing]
 \seccc Coalescing
 
 Coalescing in register allocation tries to assign virtual registers a common
@@ -1005,7 +1006,7 @@ section~\ref[sec:ssa-deconstruction].
 * Live range splits. A virtual register can be split into multiple virtual
 registers, and copies are introduced to connect them. These can include splits
 due to register constraints (including calling conventions). See
-section~\ref[sec:regalloc-split] for more details.
+section~\ref[sec:regalloc-splitting] for more details.
 
 As coalescing is the exact opposite of live range splitting, virtual registers
 that are the result of live range splitting should not be carelessly coalesced,
@@ -1032,58 +1033,7 @@ to the same physical one means that effectively the registers are combined into
 one. This means that their interferences add together and it becomes much harder
 to find a common register.
 
-\seccc Register constraints
-
-Some instructions require the arguments to be in particular registers or produce
-values in particular registers. Typically, there are two such constraints:
-
-\begitems\style n
-* One concrete register has to be used.
-* One register belonging to a particular class can be used.
-\enditems
-
-Register classes are discussed in section~\ref[sec:regalloc-classes]. Here we
-discuss only constraints which require one particular register.
-
-The x86-64 architecture has two notable examples where concrete registers have
-to be used for operands or results:
-
-\begitems\style n
-* {\em Shifts}. Shift instructions where the shift amount is not an immediate
-value, require the shift amount to be in the `cl` register (that is, the low 8
-bits of the `rcx` register).
-* {\em Long multiplication and division}. On x86-64 the only available
-division instructions (for signed and unsigned division) divide a 128-bit number
-by a 64-bit value.%
-%
-\fnote{As with other instructions on
-x86-64, the 32-bit variants are available. So for example, the long division
-divides 64-bit number by a 32-bit number, but it still operates on two registers
-(`eax` and `edx`).}
-Upper 64-bits of the 128-bit dividend are expected in `rdx`,
-the lower 64-bits in `rax`. The division instructions store the remainder in
-`rdx` and quotient in `rax`. The divisor can be a (64-bit) register or memory
-location.
-\enditems
-
-But there are restrictions imposed not necessarily to the instruction set
-itself, but by {\em calling conventions} of the platform. For example on x86-64
-Linux the System V ABI prescribes that the registers `rdi`, `rsi`, `rdx`, `rcx`,
-`r8` and `r9` are used for passing parameters and `rax` and `rdx` are used for
-return values.
-
-Calling conventions also dictate the coordination of registers between the {\em
-caller} (calling function) and the {\em callee}. Both want to use machine
-registers (and ideally all of them), but if callee uses the registers, it
-overwrites values the caller has stored. For that purpose registers are
-classified as either caller-saved (caller has to save the registers, if it uses
-them) or callee-saved (callee has to save the registers, if it wants to use
-them).
-
-\label[sec:regalloc-classes]
-\seccc Register classes
-
-\label[sec:regalloc-split]
+\label[sec:regalloc-splitting]
 \seccc Live range splitting
 
 Live range splitting is essentially the opposite of coalescing. By splitting
@@ -1091,7 +1041,6 @@ one virtual register into multiple, we hope to achieve better register
 allocation, since the split virtual registers can be allocated separately and
 they can be much less constrained (have less interferences) than the original
 virtual register.
-
 
 A big disadvantage of our model of register allocation being a mapping from
 virtual register to physical registers is that a virtual register can be
@@ -1162,6 +1111,233 @@ able to do splitting \"online" and require it to be done as a preprocessing
 step, in that case live range splitting can be even more important.
 
 TODO: live range splitting for machine constraints and ABI
+
+
+\seccc Register constraints
+
+Some instructions require the arguments to be in particular registers or produce
+values in particular registers. Typically, there are two such constraints:
+
+\begitems\style n
+* One concrete register has to be used.
+* One register belonging to a particular class can be used.
+\enditems
+
+Register classes are discussed in section~\ref[sec:regalloc-classes]. Here we
+discuss only constraints which require one particular register.
+
+The x86-64 architecture has two notable examples where concrete registers have
+to be used for operands or results:
+
+\begitems\style n
+* {\em Shifts}. Shift instructions where the shift amount is not an immediate
+value, require the shift amount to be in the `cl` register (that is, the low 8
+bits of the `rcx` register).
+* {\em Long multiplication and division}. On x86-64 the only available
+division instructions (for signed and unsigned division) divide a 128-bit number
+by a 64-bit value.%
+%
+\fnote{As with other instructions on
+x86-64, the 32-bit variants are available. So for example, the long division
+divides 64-bit number by a 32-bit number, but it still operates on two registers
+(`eax` and `edx`).}
+Upper 64-bits of the 128-bit dividend are expected in `rdx`,
+the lower 64-bits in `rax`. The division instructions store the remainder in
+`rdx` and quotient in `rax`. The divisor can be a (64-bit) register or memory
+location.
+\enditems
+
+But there are restrictions imposed not necessarily to the instruction set
+itself, but by {\em calling conventions} of the platform. For example on x86-64
+Linux the System V ABI prescribes that the registers `rdi`, `rsi`, `rdx`, `rcx`,
+`r8` and `r9` are used for passing parameters and `rax` and `rdx` are used for
+return values.
+
+Register allocator needs to conform to these requirements. But if the physical
+registers are allocated for the entire lifetime of the constrained virtual
+registers, then there can be conflicts if there are multiple such constrained
+contexts and the virtual registers interfere. For example, if there are the
+x86-64 shift instructions:
+
+\begtt
+sal t1, t2 // t2 needs to be allocated to cl
+sar t3, t4 // t4 needs to be allocated to cl
+\endtt
+
+Here `t2` and `t4` both need to be allocated to `cl`, but they are live at the
+same time (interfere), so they cannot be assigned the same register. This is the
+case regardless of the number of available registers, so this is a problem of
+the {\em register assignment} part of register allocation. Spilling can save the
+situation, for example spill of `t4` helps if `t2` isn't needed after this
+snippet of code:
+
+\begtt
+sal t1, t2 // t2 = cl
+mov t5, [rbp+s4]
+sar t3, t5 // t5 = cl
+\endtt
+
+Spilling both of course also helps, but spill of `t2` alone doesn't, because the
+newly introduced temporary (`t5`, constrained to `cl`) would still be alive at the
+same as `t4` and thus they would interfere:
+
+\begtt
+mov t5, [rbp+s2]
+sal t1, t5 // t5 = cl
+sar t3, t4 // t4 = cl
+\endtt
+
+The problem with spilling here is, that it is mainly used as means of reducing
+register pressure. Because of that spilling heuristics are meant to spill
+virtual registers that are e.g. not going to be used for the \"longest" (which
+frees a physical register for the longest time) or which interfere with a lot of
+other virtual registers (so the other virtual registers have much higher chance
+of being allocated themselves). Nothing usually makes constrained registers good
+spill candidates, and it shouldn't, since because of the constraints the virtual
+registers {\em need} to be assigned.
+
+Live range splitting is a much better choice for handling constrained registers.
+By introducing a new virtual register (and a copy to it) for the short time of
+the constrained use, the constrained use doesn't have any chance of interfering
+with other constrained uses and is so short lived that it even isn't a plausible
+spill target (see section~\ref[sec:regalloc-spilling]). In our example, it looks
+like this:
+
+\begtt
+mov t5, t2
+sal t1, t5 // t5 = cl
+mov t6, t4
+sar t3, t6 // t6 = cl
+\endtt
+
+Here indeed `t5` and `t6` don't interfere and are unspillable. If, like we
+assumed earlier, `t2` doesn't {\em live-out}, then the best assignment would
+assign `t5` the `cl` register (low 8 bits of `rcx`), like this:
+
+\begtt
+mov rcx, rcx
+sal rax, cl
+mov rcx, rdx
+sar rbx, cl
+\endtt
+
+Here it was possible to keep all values in registers. The first copy can be
+easily optimized by subsequent peephole optimization pass.
+
+Live range splitting is good solution for making register constraints not
+constrain the register assignment much. The same ideas that apply to live range
+splitting apply also here, in particular allocators which are unable to perform
+live range splitting on demand should split constrained uses beforehand and
+coalescing may be able to remove the copies if it turns out they are not needed.
+
+Calling conventions also dictate the coordination of registers between the {\em
+caller} (calling function) and the {\em callee}. Both want to use machine
+registers (and ideally all of them), but if callee uses the registers, it
+overwrites values the caller has stored. For that purpose registers are
+classified as either caller-saved (caller has to save the registers, if it uses
+them) or callee-saved (callee has to save the registers, if it wants to use
+them).
+
+We ideally would like to model these constraints in a relatively simple
+way, to not introduce special cases. It turns out that 
+
+The fact that a register is caller saved means that when a function performs a
+call, it has to pessimistically assume that the callee changes all the caller
+saved registers.\fnote{The callee doesn't necessarily change any of the caller
+saved registers, but it is allowed to do so. Calling conventions are general,
+and don't try to specialize for some cases. They are the interface functions
+need to conform to, and allow code produced by different compilers to cooperate
+together. But if a compiler is sure that the function doesn't have to conform to
+the interface (perphaps because the function is `static` and thus not callable
+by from other separately compiled modules), then it can can try to do better by
+employing whole module register allocation, which considers register allocation
+even across the calls. Often though a much simpler technique helps with calling
+convention constraints---not performing any calls at all! Inlining the called
+function into the call site means that the registers used be the called function
+are allocated as part of the function procedure and the calling convention
+constraints don't apply at all. Leaf functions (functions not calling other
+functions) are especially good candidates for inlining especially because they
+don't impose calling convention constraints themselves.}
+This can be modelled like an register constraint on the call instruction. For
+example on x86-64, where for example `rax`, `rcx` and `r11` are caller saved we
+can make the `call` instruction {\em define} the registers:
+
+\begtt
+call f % defines rax, rcx, r11 and others
+\endtt
+
+Coincidentally `rax` is at the same time used for passing the return value, so
+it would have been defined by the call instruction already. But `rcx` for
+example is used for parameter passing and is thus as mentioned above {\em used}
+by the call instruction to model that. Adding definition of `rcx` to the call
+means, that the caller shouldn't expect the `rcx` register to be preserved by
+the caller. While this model works well for {\em correct allocation}, a lot of
+registers are caller saved and virtual registers that {\em live through} the
+call can not be allocated to them. Callee saved registers are needed in that
+situation. But for example on x86-64 there are 9 caller saved registers and only
+7 are callee saved, and out of those 2 are usually reserved for special purposes
+(stack and base pointer). Having only a few available registers for values
+living across calls means very high register pressure, which will have to be
+mitigated by spills. Spills are correct and needed here, since if the registers
+are reserved for the caller, we don't have any other choice for storing values
+than memory. But naively spilling virtual registers everywhere just because of
+high register pressure at a call site is not ideal. Once again this is a place
+where live range splitting helps---just like splits around loops were useful,
+splits around calls can be useful for minimizing damage implied by spilling
+virtual registers at every use or definition.
+
+Callee saved registers can be modelled through uses and definitions as well.
+Having definitions of callee saved registers at the entry point of a function
+and uses at the exit point (return instruction) models the fact, that the callee
+saved register has to be preserved for the entire duration of call. This not
+only requires physical registers to be somehow represented, but also blocks the
+callee saved register for the entire duration of the function. Live range
+splitting is again very useful here, because we can introduce virtual registers
+for holding the values in callee saved registers during the function, e.g. if we
+consider just `rbx` and `r12`:
+
+\begtt
+mov t20, rbx
+mov t21, r12
+[...]
+mov rbx, t20
+mov rbx, t21
+\endtt
+
+This is much better, since the virtual registers can be spilled, which frees up
+a callee saved physical registers, which can possibly be used by many (short
+lived) virtual registers or perhaps just one virtual register with more uses and
+definitions which would be more expensive to spill. The virtual
+registers introduced for callee saved registers are in fact ideal spill
+targets---there is only one definition and one use, both outside of any loop.
+Spilling them could look like this:
+
+\begtt
+mov [rbp+s20], rbx
+mov [rbp+s21], r12
+[...]
+mov rbx, [rbp+s20]
+mov rbx, [rbp+s21]
+\endtt
+
+Here we refer to some abstract \"stack slots". If the stack slots are chosen
+well, `push` and `pop` instructions can even be used for realizing those spills:
+
+\begtt
+push rbx
+push r12
+[...]
+pop rbx
+pop r12
+\endtt
+
+Which essentially gets us the code one would use to free up callee saved
+registers. But modelling it through register constraints can nicely take care of
+only using the callee saved registers when beneficial and so it is more
+flexible.
+
+\label[sec:regalloc-classes]
+\seccc Register classes
 
 \label[sec:regalloc-techniques]
 \secc Techniques
@@ -1484,7 +1660,7 @@ iteration finalizes the assignment.
 Being able to spill only one node on each iteration would mean that graphs with
 many high degree nodes would need {\em many} expensive iterations to finish.
 Proceeding from {\em simplify} only after all spill have been handled makes it
-possible to push only low degree nodes, guarantees that in the reverse {\em
+possible to push only low degree nodes, guaranteeing that in the reverse {\em
 assign} stage, every node popped from top of the stack will have at least one
 free color.
 
@@ -1501,7 +1677,7 @@ degree nodes {\em potential spills}, since they become {\em actual spills}
 spilled in the {\em assign} stage. This strategy is called {\em optimistic
 coloring} and was devised by Briggs~\cite[Briggs1992, Briggs1994]. Even in this
 strategy, it can happen that more than one (potential) spill will be necessary.
-Like with Chaitin's \"pessimistic" spilling, that the best possible node as
+Like with Chaitin's \"pessimistic" spilling, the best possible node for
 potential spill is the one with the lowest spill cost---first potential spill
 will be processed last in the {\em assign} stage, and will encounter a more
 complete interference graph, than potential spills pushed later, which are
@@ -1527,112 +1703,42 @@ algorithm would.
 The interference graph is a really great data structure, because apart from
 being able to represent the \"live at the same time, and thus unallocatable to
 the same register" constraints, it can express also other restrictions. Machine
-constraints (instructions working with only some registers) and calling
-conventions, which both restrict uses of {\em physical} registers, can be
+constraints and calling
+conventions can both be
 modelled by interferences (edges in the interference graph) if we also add
 physical registers as nodes. For example, we can force a virtual register node
 to be allocated to a particular physical register by making it interfere with
 nodes corresponding to all the other physical registers. This is often called
-"precoloring". In fact, since we need to be careful about not accidentally
-allocating physical register a different physical register, we make all physical
+{\en precoloring}. In fact, since we need to be careful about not accidentally
+allocating physical register a different physical register, we need to make all physical
 registers interfere with each other, this way they are all guaranteed to be
-allocated their one color (register). But these additional constrains can lead
+allocated their color (register). But these additional constrains can lead
 to uncolorable (\"overconstrained") graphs if the live ranges of precolored
-registers are too long.
+registers are too long. Since graph coloring maps each virtual register to a
+single physical register, it needs the precolored live ranges to be short and
+non-interfering, which can be done with {\em live range splitting} (see
+section~\ref[sec:regalloc-splitting]).
 
-For example on the x86-64 architecture shift instructions expect the shift size
-to be specified by either an immediate value or by the `cl` register. Having
-more than one shift instruction in one function can lead to uncolorable graph,
-if the precolored nodes interfere like in is the case below with `t2` and `t4`:
-
-\begtt
-sal t1, t2 // precolor t2 to cl
-sar t3, t4 // precolor t4 to cl
-\endtt
-
-Problem would occur in the {\em assignment} stage, where one of `t2` or `t4`
-would be assigned the `cl` register (since it interferes with all other physical
-registers), but the other of the two virtual registers would have no register
-left, since the only suitable register `cl` is occupied by a neighbour in the
-interference graph (an interfering virtual register, live at the same time).
-Spilling can save the situation, for example spill of `t4` helps if `t2` isn't
-needed after this snippet of code:
-
-\begtt
-sal t1, t2 // precolor t2 to cl
-mov t6, [rbp+t4]
-sar t3, t5 // precolor t5 to cl
-\endtt
-
-Spilling both of course also helps, but spill of `t2` alone doesn't, because the
-newly introduced temporary `t5` (precolored to `cl`) is still alive at the same
-as `t4` and thus interferes:
-
-\begtt
-mov t5, [rbp+t2]
-sal t1, t5 // precolor t5 to cl
-sar t3, t4 // precolor t4 to cl
-\endtt
-
-The problem with spilling here is, that the spilling decisions {\em usually}
-don't do that deep analysis to realize that spilling `t4` might make the graph
-colorable. The usual spill heuristics are based on the degree of the nodes
-(spilling nodes with high degree will decrease degrees of another nodes and thus
-simplify their allocation) and expensiveness of the spill (i.e. the cost of the
-load and store memory operations that would need to be introduced). But `t2` and
-`t4` may not be good spill candidates according to this metric. Spilling them
-helps, but if it occurs too late, it is possible that a lot of the other nodes
-would already be spilled first. An alternative approach based on {\em live range
-splitting} is what is much better at keeping local the effects of interferences
-introduced by machine or calling convention constraints. Splitting introduces a
-{\em copy} into a new virtual register for each constrained use as well as
-definition. These new temporaries can be precolored, since their live ranges are
-too short to interfere with each other. For instance, in the previous example,
-it would look like this:
-
-\begtt
-mov t5, t2
-sal t1, t5 // precolor t5 to cl
-mov t6, t4
-sar t3, t6 // precolor t6 to cl
-\endtt
-
-Temporaries `t5` and `t6` don't interfere. If, like we assumed earlier, `t2`
-doesn't {\em live out}, then the best assignment would assign `t5` the `cl`
-(`rcx`) register as well, and the code after allocation could look like this:
-
-\begtt
-mov rcx, rcx
-sal rax, cl
-mov rcx, rdx
-sar rbx, cl
-\endtt
-
-Here it was possible to keep all values in registers. The first copy can be
-easily optimized by subsequent peephole optimization pass.
-
-Register allocation by graph coloring is thus very powerful and flexible with
-regards to at least the machine and calling convention constraints presented
-here. But avoiding uncolorable graphs with splits means a lot of copy
-instructions, which if allocated different registers, will not be optimized by
-peephole optimization and thus can incur significant unnecessary overhead. We
-described (in section TODO) that coalescing is the name of the technique that
-tries to allocate the target and source into the same register. Chaitin already
-realized the need for coalescing. His solution~\cite[Chaitin1981] was to
+But avoiding uncolorable graphs with splits means a lot of copy instructions,
+which if allocated different registers, will not be optimized by peephole
+optimization and thus can incur significant unnecessary overhead. This increases
+the need for {\em coalescing} (see section~\ref[sec:regalloc-coalescing]).
+Chaitin already realized the need for coalescing. His
+solution~\cite[Chaitin1981] was to
 coalesce every {\em copy-related}, {\em non-interfering} pair of virtual
 registers in a pass called {\em coalesce}, before simplification. A pair of
 virtual registers `t1` and `t2` is copy related when there is a copy (move)
 instruction between them (i.e. `mov t1, t2` or vice versa), which captures the
 goal of eliminating these moves. The virtual registers have to be
 non-interfering, since otherwise the coalesced node would be uncolorable, and
-also, since the temporaries interfere, and would be assigned distinct colors,
-elimination of the copy wouldn't be possible anyways. Because of the
+also, since the temporaries interfere, they wouldn't be assigned distinct colors,
+and elimination of the copy wouldn't be possible anyways. Because of the
 non-intefering criterion, we have to be careful not to create artificial
 interferences for the operands of a copy instruction, for example `mov t2, t1`
 alone shouldn't imply that `t1` and `t2` interfere! Chaitin essentially does
 coalescing everywhere where it is possible and where it {\em might} be
 beneficial. Because of its nature, this form of coalescing has later become
-called \"aggressive". The problem with it, is that the node created by
+called {\em aggressive}. The problem with it, is that the node created by
 coalescing two virtual registers has interferences of both of the former nodes,
 notably this means that the node's degree will be the sum of the two degrees and
 such nodes easily become significant (\"high degree", not trivially colorable).
@@ -1640,8 +1746,8 @@ High degree nodes are problematic in the following {\em simplify} phase, because
 apart from being blocked from simplification themselves, they prevent
 simplifications on a high number of other nodes. Often this means spills of
 these high degree nodes. Aggressive coloring can make colorable graphs
-uncolorable, and depends on spilling to make the graph colorable again. But,
-since a spill of a node essentially splits the node into many low degree nodes,
+uncolorable, and depends on spilling to make the graph colorable again.
+Since a spill of a node essentially splits the node into many low degree nodes,
 this effectively undoes coalescing, but also adds memory operations that weren't
 there originally.
 
@@ -1655,9 +1761,9 @@ made conservative, i.e. it never allows coalescings which would make the graph
 uncolorable, but may also not allow coalesces that would be perfectly fine. The
 heuristic says that `t1` and `t2` can be coalesced only when the merged node
 `t12` would have no more significant (high-degree) neighbours, than $k$ (the
-number of available registers). The being, that after simplification of
+number of available registers). This implies, that after simplification of
 (low-degree) neighbours, the node will have at most $k$ neighbours left, which
-makes it simplifiable itself. Though it easy to imagine a situation where a lot
+makes it simplifiable itself. Though it is easy to imagine a situation where a lot
 of the neighbours have common neighbours, so simplification may do much better
 than conservatively assumed, and thus a lot of the moves remain uncoalesced.
 
