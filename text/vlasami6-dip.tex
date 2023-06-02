@@ -152,13 +152,94 @@ V XX dne XX.\,XX.\,TODO
 
 \chap x86-64 architecture
 
+AKA AMD64
+
+dlouhá historie
+
+původně 16 bit,
+
+
+\sec Characteristics
+
+CISC
+
+Two-address code
+
+kódování založené na osmičkách (3 bity) => 8 registrů, 8 binárních operací, 8
+unárních operací, 8 shiftů, apod.
+
+podporuje 8, 16, 32 a 64-bit operace, z pohledu efektivity (partial register
+stalls) a jazyka C se vyplatí používat jen 32 a 64 bitové operace (zbytek movzx,
+movsx nebo čtení z užších podregistrů)
+
+omezení často vychází z kódování instrukcí (shifty a dělení jsou kódovány jako unární operace
+a nemají v kódování místo na víc než jeden argument)
+
+\secc Addressing modes
+
+ModRM bajt, SIB adresování + RIP relativní adresování
+
+Max. jeden paměťový operand
+
+Dvouadresový kód - kódování stále stejné, jen směr otáčí jeden bit v opcodu
+
+\sec Calling conventions
+
+System V AMD64 ABI. 
+
+Registry pro argumenty, návratové hodnoty, caller saved, callee saved
+
+\sec Comparison with t86
+
+Srovnání s t86
+
 \chap State of the art
+
+kapitola o představení teorie za různými částmi překladače a zmínka zavedených
+existujících algoritmů a jejich přístupů
 
 \sec Structure of a compiler backend
 
+Instruction selection + Instruction scheduling + Register allocation
+
+Je potřeba zvážit middle end, jedná se o vstup
+
+Middle end často SSA, je potřeba s tím počítat (SSA dekonstrukce) nebo to rovnou
+využít (register allocation na SSA)
+
+\secc Phase ordering
+
+Backend fáze na sobě vzájemně závisí
+
+regalloc vytváří instrukce
+
+selection neví co nakonec bude v registrech
+
+selection neví jaké registry nakonec budou použity
+
+Klasikcé řešení selection -> scheduling -> regalloc je přijatelný kompromis
+
 \sec SSA form
 
+Princip, výhody
+
+Vhodné pro middle end optimalizace
+
 \sec SSA deconstruction
+
+SSA dekonstrukce potřeba alespoň někdy
+
+Problém kdy a jak (copy instrukce v SSA middle end IR? (nejsou SSA), nebo
+naopak backend IR v SSA i s phi nody, to ale zase špatně podporuje to, že
+některé instrukce prostě SSA neumožňují - two address code, binární operace,
+`setcc` instrukce, je to řešitelné, ale...)
+
+Swap problem, lost copy problem \cite[Briggs1998]
+
+Problém nejen korektnost, ale i rychlost (spousta kopií škodí)
+\cite[Boissinot2009].
+
+Zbytek SSA dekonstrukce nečíst, velmi hrubý začátek:
 
 There are two problems with SSA form that make it problematic to translate to
 machine form. First is, that in SSA form instructions represent {\em values}.
@@ -251,6 +332,42 @@ Important question is also {\em when} do
 Since no real processor implements something like a $\phi$ instruction, which 
 
 \sec Instruction selection
+
+Dva hlavní přístupy tiling (tree, DAG, dynamic programming, bottom up rewrite,
+LR parsování, ...) a peephole optimalizce (RTL, expanze a komprese)
+
+Oba přístupy v podstatě to samé, jakmile peephole přestane pracovat s
+instrukcemi, kterou jsou po sobě v CFG, ale začne využívat dataflow
+
+\sec Tiling
+
+Základní idea
+
+Asi rychlé představení pár algoritmů tilingu (DP, LR, BURS)
+
+Potřebuje DAG nebo tree.
+
+Nevýhody - instrukce s více výstupy.
+
+\sec Peephole
+
+Původní návrh Fraser a Davidson. Jejich cíl bylo mít jednoduchý generátor
+naivního kódu pro každou architekturu, univerzální \"register transfer"
+reprezentaci instrukcí a machine description, který jeden stejný peephole
+optimizer interpretoval (jako stringy). Každá dvojice a trojice nahrazena za
+nejoptimálnější sekvenci. Výhody - žádná case analysis v základním code
+generatoru, ani nikde jinde - peephole optimizer bere informace z machine
+description. Problémy - založeno na interpretaci stringů, v podstatě dělá
+abstract interpretation na všech instrukcích.
+
+Další jejich vylepšení: expander, cacher, combiner. Uvažování logicky
+následujících instrukcí (dataflow). Vygenerování patternů na
+základě běhu s abstraktní interpretací na nějaké sadě programů ("rule
+inference").
+
+Pokud je stejná reprezentace použitá i pro register allocation, lze znovu
+spustit jako cleanup fázi i po register allocation
+
 
 \label[ragalloc]
 \sec Register allocation
@@ -949,12 +1066,19 @@ the lower 64-bits in `rax`. The division instructions store the remainder in
 location.
 \enditems
 
+But there are restrictions imposed not necessarily to the instruction set
+itself, but by {\em calling conventions} of the platform. For example on x86-64
+Linux the System V ABI prescribes that the registers `rdi`, `rsi`, `rdx`, `rcx`,
+`r8` and `r9` are used for passing parameters and `rax` and `rdx` are used for
+return values.
 
-
-\begtt
-shl t1, t2 % t2 has to be allocated to cl
-\endtt
-
+Calling conventions also dictate the coordination of registers between the {\em
+caller} (calling function) and the {\em callee}. Both want to use machine
+registers (and ideally all of them), but if callee uses the registers, it
+overwrites values the caller has stored. For that purpose registers are
+classified as either caller-saved (caller has to save the registers, if it uses
+them) or callee-saved (callee has to save the registers, if it wants to use
+them).
 
 \label[sec:regalloc-classes]
 \seccc Register classes
@@ -1225,11 +1349,11 @@ as presented above work only in a single basic block. Extensions to global
 (whole-procedure) allocation are possible by using memory---a simple extension
 does register allocation on each basic block separately and all virtual
 registers are stored at the end of each block and loaded back at start of a
-block. This still only requires local analysis, but is produces very inefficient
-code. It is perform global liveness analysis and to store only live-out virtual
-registers and to load only live-in virtual registers. Though at the point where
-global analysis is feasible, some of the global register allocation algorithms
-is probably feasible as well.
+each block. This still only requires only local analysis, but produces very inefficient
+code. It is possible to improve this by performing global liveness analysis and
+to store only virtual registers that live-out and to load only live-in virtual
+registers. Though at the point where global analysis is feasible, some of the
+global register allocation algorithms is probably feasible as well.
 
 \seccc Linear scan
 
@@ -1702,17 +1826,40 @@ ILP, IBQP
 
 \chap Design and implementation
 
-Needs, etc.
+Přístupnost, jednoduchost =>
+
+C (známé, žádné závisloti, možnost reprezentovat datové struktury přesně podle
+potřeby)
+
+malé množství IR (middleend + backend)
+
+pokročilé a dobré algoritmy, ale ne úplně dnešní state of the art
+
 
 \sec Architecture
+
+Rozvržení fází, nějaké diagramy, přechody mezi reprezentacemi atd.
 
 \sec Data structures
 
 \secc Middle-end
 
+SSA IR, inspirované LLVM
+
 \secc Back-end
 
+Machine independent representation of machine dependent instructions
+
+x86-64 má 6 slotů, teoreticky je variabilní
+
 \sec Lowering
+
+Jednoduchá \"makro expanze" a SSA dekonstrukce (předpokládá absenci kritických
+hran)
+
+Problémy s 64 bit immediates, atd. Radši žádná case analysis, stejně ji musí
+dělat peephole a ten je stejně povolanější, protože spojuje instrukce nehledě na
+to z který middle end IR kód pochází
 
 \sec Peephole optimization
 
@@ -1726,7 +1873,11 @@ Needs, etc.
 
 \sec Register allocation
 
+Iterated register coalescing
+
 \chap Evaluation
+
+Srovnání s GCC apod.
 
 \chap Conclusion
 
