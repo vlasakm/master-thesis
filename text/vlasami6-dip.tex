@@ -1709,7 +1709,7 @@ modelled by interferences (edges in the interference graph) if we also add
 physical registers as nodes. For example, we can force a virtual register node
 to be allocated to a particular physical register by making it interfere with
 nodes corresponding to all the other physical registers. This is often called
-{\en precoloring}. In fact, since we need to be careful about not accidentally
+{\em precoloring}. In fact, since we need to be careful about not accidentally
 allocating physical register a different physical register, we need to make all physical
 registers interfere with each other, this way they are all guaranteed to be
 allocated their color (register). But these additional constrains can lead
