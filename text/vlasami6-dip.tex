@@ -148,6 +148,8 @@ V XX dne XX.\,XX.\,TODO
 
 \chap Introduction
 
+
+
 \chap x86-64 architecture
 
 \chap State of the art
@@ -253,9 +255,8 @@ Since no real processor implements something like a $\phi$ instruction, which
 \label[ragalloc]
 \sec Register allocation
 
-This chapter describes the last of the three big conceptual parts of a usual
-compiler backend---the register allocation phase. Motivation, importance and
-possible approaches are introduced.
+Register allocation is the last of the three big conceptual parts of a usual
+compiler backend. Motivation, importance and possible approaches are introduced.
 
 The x86-64 architecture (see \cite[ref:x86]) is what we mainly care about in
 this thesis. Since it is familiar, we will be using it as examples in the
@@ -272,7 +273,7 @@ allows us to share also register allocation logic for all targets.
 
 Most CPU architectures these days are register based. That means that interface
 of the CPU consists of a fixed number of registers and instructions that allow
-operations on these registers. For example registers may be 8 32-bit storage slots
+operations on these registers. For example registers may be eight 32-bit storage slots
 and instructions may allow performing arithmetic on these registers or allow
 loading/storing contents of register from/into memory. Memory is still an
 important part of these architectures---computations can't possibly fit all into
@@ -285,13 +286,11 @@ for the middle end IR, since it is supposed to be platform agnostic and rather
 than limiting to some fixed number of registers (per architecture or wholesale),
 we might as well pretend to have infinite amount of them. But once we start
 translating the middle end IR we just need to limit ourselves to fixed amount of
-registers somewhere. And not only that architectures these days usually have at
-least two classes of registers---general purpose registers and floating point
-registers...
+registers somewhere.
 
-After instruction selection (which tells us what instructions to use) and
-instruction scheduling (which refines the order these instructions are executed
-in), a snippet of input to register allocation can look as follows:
+After instruction selection (which determines what instructions to use) and
+instruction scheduling (which refines the order of the instructions), a snippet
+of input to register allocation can look as follows:
 
 \begtt
 mov t1, 1
@@ -300,23 +299,27 @@ mov t3, t1
 add t3, t2
 \endtt
 
+%The snippet could correspond to this middle end IR:
+%
+%\begtt
+%v1 = add 1, 2
+%\endtt
+%
+%The translation to instructions given above is suboptimal and in a reasonable
+%compiler such code wouldn't get as far as to the register allocator: middle-end
+%could fold the addition of constants into a constant, or instruction selection
+%could take advantage of the \"register plus immediate" instruction for the addition.
+%Nonetheless the example serves us well for showing how a simple allocation of
+%registers might look like.
+
+
 There are several things of note here. The instructions don't operate on real
-machine registers (like `rax`), but on "virtual registers" or "temporaries". It
-is the goal of register allocation to transform the code so that real registers
-are used. The snippet corresponds to this middle end IR:
-
-\begtt
-v1 = add 1, 2
-\endtt
-
-The translation given above is suboptimal and in a reasonable compiler such code
-wouldn't get as far as to the register allocator: the middle end could fold the
-addition of constants into a constant, or the instruction selector could take at
-least take advantage of "register plus immediate" instruction for addition.
-Nonetheless the example serves us well for showing how a simple allocation of
-registers might look like. Since the whole program doesn't use more than 16
-registers, we have no problem assigning x86-64 registers directly, for example
-in the order of the temporaries:
+machine registers (like `rax`), but on {\em virtual registers} (often also called
+\"pseudoregisters" or \"temporaries"). It is the goal of register allocation to
+transform the code so that {\em physical} (\"machine") registers are used.
+Since the whole program doesn't use more than 16 registers, we have no problem
+assigning x86-64 registers directly, for example in the order of the
+temporaries:
 
 \begtt
 mov rax, 1   // t1 = rax
@@ -332,9 +335,9 @@ allocation alone:
  * We introduce a third register `rcx` to store the result of addition. This
 works well and fits into the 16 registers we have available. But we can notice
 that after the addition we no longer need the value stored in register `rax`.
-Thes is the core idea of register allocation, we only need to store such values
-that will be needed in the future, and contrary to SSA we can use that to
-"recycle" registers.
+This is on of the big ideas in register allocation, we only need to store those
+values that will be needed in the future, and we can use that to \"reuse"
+registers.
 
 * If we were to reuse `rax` for storing the result of addition, our situation
 would look like this:
@@ -346,38 +349,26 @@ mov rax, rax // t3 = rax
 add rax, rbx
 \endtt
 
-Move (copy) of a register to itself is a no op, the instructions doesn't have
-any real effect (other than settings flags TODO). But at least in this case it
-is safely possible to remove that instruction. We can notice that the "two
-address code" generated from SSA "three address code" can be improved if it
-turns out that the destination can be the same register as the first source (or
-the second source in this case, since addition is commutative).
+Move (copy) of a register to itself is a no-op, the instructions doesn't have
+any real effect. It doesn't even change flags, to it is safely possible to
+remove it. We can notice that the two address code generated
+from SSA three address code can be improved if it turns out that the
+destination can be the same register as the first source (or the second source
+in this case, since addition is commutative).
 
-But a question remains, can the register allocator remove the instruction?
-Or should it even? + Spill insertion.
+Though this brings a question to which we will come back later: Can the register
+allocator remove the instruction? Does it have sufficient information to do so?
+Or should it even be concerned about the semantics of instructions it is working
+with?
 \enditems
 
-As we have seen, opportunities often arise for register reuse. Then what are the
-situations where we can get out of registers? Well, when we can't get away with
-reuse. We should consider the difference between (naive, but illustrative)
-compilation of expression `1 + 2 + 3 + 4` and its possible register allocation:
-
-\begtt
-mov t1, 1  // t1 = rax
-mov t2, 2  // t2 = rbx
-mov t3, t1 // t3 = rax
-add t3, t2
-
-mov t4, 3  // t4 = rbx
-mov t5, t3 // t5 = rax
-add t5, t4
-
-mov t6, 4  // t6 = rbx
-mov t7, t3 // t7 = rax
-add t7, t5
-\endtt
-
-And as opposed to that the "right associative" version: `1 + (2 + (3 + 4))`
+While we have shown that opportunities for register reuse arise, it doesn't mean
+we can't get out of registers. After all, there is a limited number of them, and
+opportunities for reuse come only when a virtual register is no longer needed
+later. Even relatively simple expressions can produce code which requires
+surprising amount of registers, while not allowing much reuse. For example,
+compilation of the expression `1 + (2 + (3 + 4))` can produce code like the one
+below:
 
 \begtt
 mov t1, 1  // t1 = rax
@@ -395,141 +386,233 @@ mov t7, t1 // t7 = rax
 add t7, t6
 \endtt
 
-Even though both versions use the same amount of {\em virtual registers}, their
-opportunities to reuse registers and hence use of {\em physical registers}
-differs considerably. While the example is trivial and the right associative
-version could be transformed into the left associative version the highlighted
-issue here is, that even single benign expressions can use a surprising number of
-registers. Just extending the addition to more than 16 addends would leave us
-out of registers. So not only for variables (which for example in C nominally
-reside in memory), but even for temporaries we have to account for the fact that
-we simply can get out of registers.
+Possible register allocation is noted in the example. The right associative
+nature of the expression means, that for each of the additions while the left
+hand side (the immediate numbers) are evaluated first, its result has to be kept in
+registers until the right hand side is evaluated and ready for the addition.
+Register reuse is possible but only after the additions, because each has at
+least one argument that is not needed further. The example could be extended to
+exhaust all available registers. Contrary to that the left associative version
+(i.e. `((1 + 2) + 3) + 4`) needs just two registers:
+
+\begtt
+mov t1, 1  // t1 = rax
+mov t2, 2  // t2 = rbx
+mov t3, t1 // t3 = rax
+add t3, t2
+
+mov t4, 3  // t4 = rbx
+mov t5, t3 // t5 = rax
+add t5, t4
+
+mov t6, 4  // t6 = rbx
+mov t7, t3 // t7 = rax
+add t7, t5
+\endtt
+
+Since the operands are kept in registers only for short time in between the
+additions, there are more possibilities for reuse. So even though both versions
+use the same amount of {\em virtual} registers, they need different amounts of
+{\em physical} registers. While instruction scheduling, or perhaps instruction
+selection or middle-end optimizations can transform the right associative
+version to the left associative one, or just fold the computation entirely
+(since it's a sum of four constants), the example illustrates that virtual
+register which are needed for a long time are a problem, since they prevent
+register reuse and that because of that even simple examples can get out of
+registers.
 
 \label[sec:spilling]
 \secc Spilling
 
-We can get out of registers, but we still have to store our (say intermediate)
-values {\em somewhere}. The solution is to put the values into memory. Resorting
-to putting the values to memory is called \"spilling".
-The system stack (\"frame stack", \"call stack") is best suited for spilled
-values, much for the same reasons it is the best place for storing local
-variables: recursion is handled naturally and well, since each {\em invocation}
-of a function gets its own locations for storing the values---by storing the
-values on the stack, we allow functions to be {\em reentrant}.
+We have to make all values in virtual register available wherever they are
+needed. But there may be too little of {\em physical} registers to do so. One
+possibility of reducing the {\em register pressure} is to use memory.
+In the simplified view of a compiler, there is essentially infinite amount of
+memory available, so storing values does not deplete a limited resource as much
+as using physical registers does.
 
-Architectures usually also have a dedicated register for the pointer to \"the
-top of the stack", which means that code needing to access the values not
+%Memory
+%isn't all-saving, since computations usually must involve at least some
+%registers, but we can use memory to store values temporarily---between places in
+%which the values need to be present in registers.
+
+Techniques that involve using memory to reduce register pressure are usually
+called {\em spilling}---alluding to the fact that what does not fit into
+physical registers is put somewhere else, and that in fact it is an undesirable
+thing and we use it only when absolutely necessary.
+
+The best place for storing spilled values is on the system stack (also often
+called \"frame stack" or \"call stack") in the function's call frame. This is
+due to the same reasons why it is a good place for local variables---each
+invocation of a function gets its own locations for storing the values. This
+keeps the functions reentrant and for example naturally supports recursion.
+
+Architectures usually also have a dedicated register for the pointer to the
+top of the stack, which means that code needing to access the values not
 fitting into registers can address their memory locations using relative
-addressing with small offsets (say smaller than 16 bits), also a feature
-efficiently supported by all common architectures these days. On the other hand
-accessing static slots of memory would pose similar challenges as global
-variables have - they may not be reachable with small relative offsets from any
-register and especially on 64 bits systems their absolute address is not only too large
-to be stored in literals in code, but using absolute addresses is also
-discouraged, because it means that the code becomes {\em position
-dependent}---change of the absolute address through a change in position in
-address space, would mean that our code would no longer be correct. Such
-absolute references require run time fix ups (called \"relocations") by the
-dynamic linker, which prevents reuse of the code between multiple processes.
+addressing with small offsets, also a feature efficiently supported by all
+common architectures these days. On the other hand accessing static slots of
+memory would pose similar challenges as accessing global variables does (see for
+example section~\ref[TODO] for more details).
 
 \label[sec:use-of-spilled]
 \seccc Using spilled values
 
-As established, we will refer to spilled values through relative addressing
-(using either the stack pointer or the \"base" pointer, also often called the
-\"frame pointer", see TODO). But we have to get back to the problem at
-hand---we store values in registers, because we want to use the values in
-computations and processors (mostly) operate on registers. But now that we can't
-fit all values into registers and want to store them in memory, how do we use
-the values from memory and how do they even get there?
+Putting values into memory brings in the problem of using them in instructions.
+The generated code used operations involving registers and often instructions
+don't allow memory locations to be used everywhere where registers are allowed
+to be used. In fact, on processors employing the \"load-store" architecture
+(which is one of the signatures of RISC processors), there are only few
+instructions for loading values from memory into registers and a few
+instructions for storing register contents into memory and no other instruction
+can address memory locations. But, the computation of a value still needs to
+store it into a register, just like the use of the value needs it to be present
+in a register---though between the definition and use, the value can reside in
+memory. To achieve this load and store instructions are introduced. These
+inserted loads and stores are called {\em spill code}.
 
-RISC processors usually employ a \"load-store" architecture. There are only a
-few dedicated instructions for reading values from memory into registers (`load`
-instructions) and writing register contents into memory (`store` instructions).
-All other instructions operate only with registers. This means that to even have
-a value to spill, it has to be in a register! Also only from that register, we
-can store the value to memory and later retrieve it, but again only into a
-register. The important observation here is, that resorting to storing the
-values in memory doesn't in general mean that we get around of doing register
-allocation. What we gain is that instead of having to store a value in a
-register in a long part of the code (because it is needed in all parts of that
-code), by putting the value into memory and retrieving it immediately before
-each use, we have made the register allocation problem simpler---a register is
-needed in more but smaller parts of the code. This means that a single machine
-register can be reused for several values, instead of being blocked by "one".
+What makes spilling beneficial, is that the registers involved in the spill code
+(and in the associated definitions and uses of the spilled values) are only used
+very locally. Additionally, the registers used for storing and loading are
+essentially completely independent, because each load and store can use a
+different register. This makes register allocation much easier
+(or even possible), since this essentially introduces new and much less
+\"constrained" virtual registers.
 
-At least the register used for the store, doesn't have to be the same one used
-for the load. So even though we are constrained by the fact that registers have
-to be used for spills, we are not too constrained in choosing the registers for
-performing spills. Loads and stores inserted for handling spills are usually
-called the {\em spill code}.
+%Involving memory in places where access to registers was presumed means adding
+%new instructions that perform the loads and store to the memory, these
+%instructions are called {\em spill code}. This code is necessary, since many
+%instructions require at least one of their operands to be in a register. RISC
+%architectures usually employ so called \"load-store" model, where there are only
+%a few instructions that are able to load data from memory into a register or
+%store register contents into memory. Any computations involving operations on
+%spilled values have to still use registers and in order to use a spilled value
+%as an operand, it 
+
+%Indeed
+%especially on modern CPU architectures using memory instead of registers has big
+%negative performance implications.
+%So not only is use of registers a must due to 
+
+
+%One of the
+%most common approaches of using memory instead of registers is called 
+
+%Storing some values into memory and then fetching them back helps by making
+%more registers available.
+
+%The solution is to put the values into memory. Resorting
+%to putting the values to memory is called \"spilling".
+%The system stack (also often called \"frame stack" or \"call stack") is best suited for spilled
+%values, much for the same reasons it is the best place for storing local
+%variables: recursion is handled naturally and well, since each {\em invocation}
+%of a function gets its own locations for storing the values---by storing the
+%values on the stack, we allow functions to be {\em reentrant}.
+
+%As established, we will refer to spilled values through relative addressing
+%(using either the stack pointer or the \"base" pointer, also often called the
+%\"frame pointer", see TODO). But we want to use the values in computations and
+%processors (mostly) operate on registers. But processors mainly support
+%using registers for computations, not locations in memory. This is especially
+%true 
+%
+%RISC processors usually employ a \"load-store" architecture. There are only a
+%few dedicated instructions for reading values from memory into registers
+%(\"load" instructions) and writing register contents into memory (\"store" instructions).
+%All other instructions operate only with registers. This means that to even have
+%a value to spill, it has to be in a register! Also only from that register, we
+%can store the value to memory and later retrieve it, but again only into a
+%register. The important observation here is, that resorting to storing the
+%values in memory doesn't in general mean that we get around of doing register
+%allocation. What we gain is that instead of having to store a value in a
+%register for a significant part of the code, by putting the value into memory and
+%retrieving it immediately before each use, we have made the register allocation
+%problem simpler---a register is needed in {\em more} but {\em smaller} parts of
+%the code. This means that a single machine register can be reused for virtual
+%registers instead of being blocked by one.
+
+%At least the register used for the store, doesn't have to be the same one used
+%for the load. So even though we are constrained by the fact that registers have
+%to be used for spills, we are not too constrained in choosing the registers for
+%performing spills. Loads and stores inserted for handling spills are usually
+%called the {\em spill code}.
 
 In this text, we care especially about the x86-64 architecture, which, like most
 CISC architectures, doesn't have a load-store architecture. There are
-instructions which can e.g. perform arithmetic directly on locations in memory.
+for example instructions, which can perform arithmetic directly on locations in memory.
 Though at most one operand of an instruction can be a location in memory, the
 other one has to be either a register or an immediate value. So on one hand, the
-problem of having to use {\em registers} for storing/retrieving
-spilled values remains, but on the other hand, since one operand can be a
-location in memory, we can take advantage of that and not use an intermediate
-register at all.
+problem of having to use registers for storing/retrieving spilled values
+remains, but on the other hand, since one operand can be a location in memory,
+we can take advantage of that and not use an intermediate register at all.
 
-An interesting perspective is, that even though the x86-64 architecture allows
+Even though the x86-64 architecture allows
 the instructions to operate on memory operands, an implementation of the
 architecture in for example some new Intel processors splits these instructions
-into micro-operations based on the load-store architecture, using some internal
-\"architectural" registers (not normally accessible directly) for storing the
+into micro-operations based on the load-store architecture, using internal
+{\em architectural} registers (not accessible directly) for storing the
 intermediate values. Because of this there probably isn't any {\em direct}
 performance difference of using the memory operands. But it is still very useful
 to use these more complex instructions---not only can the instruction encoding
 be shorter (thus sparing the instruction cache of the processor), but we take
 advantage of the internal architectural registers, that we normally wouldn't
 have access to, which can mean less constraints on the use of the ordinary
-\"general purpose" registers that we have access to, which may allow storing
-more values into registers instead of memory and hence have a significant {\em
-indirect impact} on performance.
+{\em physical registers} that we have access to, which may allow storing more
+values into registers instead of memory and hence have a significant {\em
+indirect} impact on performance.
 
-For example, let's say that `t4` needs to be spilled in the following:
+For example, suppose that `t3` needs to be spilled in the following:
 
 \begtt
 add t3, t2
 \endtt
 
-Instead of adding a load before the instruction of `t4` and a store of `t4`
-after, like this:
+The straightforward solution is to add a load before and store after:
 
 \begtt
-mov t4, [rbp+t3]
+mov t4, [rbp+s3] // s3 = an offset to t3's spill stack slot (immediate integer)
 add t4, t2
-mov [rbp+t3], t4
+mov [rbp+s3], t4
 \endtt
 
-We can just operate on the memory location:
+We have to be careful about actually inserting loads and stores, because `t3` is
+both {\em used} and {\em defined} in this instruction---the instruction
+essentially does `t3 := t3 + t2`. Because of this, the register used for loading
+`t3` from memory is the same one that will hold the result that needs to be
+stored back into memory, so the store needs to use the same virtual register
+the load does, here it as `t4`.
+
+This example shows, that as mentioned, at least with a very narrow local
+view, and with the first straightforward solution, spilling `t3` doesn't help with the
+use of registers. We introduced another pseudoregister, `t4`, to substitute
+`t3`, but the original instruction just became surrounded by memory operations.
+Indeed, spilling helps only in a broader scope, where for example `t3` had more
+definitions and uses.
+
+We can alternatively just operate on the memory location:
 
 \begtt
-add [rbp+t3], t4
+add [rbp+s3], t2
 \endtt
 
-This example also showed, that as mentioned, at least with a very narrow local
-view, and with the first simpler solution, spilling `t3` doesn't help with the
-use of registers! We needed to introduce another pseudoregister, `t4`, to hold
-the value of `t3` loaded from memory. Indeed, spilling helps only in a broader
-scope, where splitting definitions / uses of one pseudoregister into single
-definitions and singe uses of many different pseudoregisters help making the
-register allocation solvable (due to limited number of registers) or easier.
+This seems beneficial, since the processor will likely do the same three fetch modify
+write operations we had with with our own spill code, it will use an
+architectural register to do so, and we don't need any physical register
+(represented by above by `t4` virtual register) to do so. But we shall look at
+this in bigger context than a single instruction. The x86-64 two address code is
+often generated from three address code (likely from SSA form), for that the
+code generator likely had to introduce a copy to preserve the value of the first
+operand\fnote{Technically, the lowering step doesn't have to generate the copy
+to preserve the value if it is not needed. But, as mentioned further, this
+requires non-trivial liveness analysis and eliding (coalescing) the copies is
+what register allocators try to be good at, so emitting the copy unconditionally
+is reasonable solution.}, so in fact assuming that the original IR was:
 
-Thus for spills, we want to introduce a new temporary for each new load and
-store, but that is not the case in the example, `t4` is used also for storing
-spilled `t3` back to memory. This is needed, since as we have discussed in TODO,
-most instructions on the x86-64 use the "two address code", where one of the
-operands is also the destination for the result. So it is not directly possible
-to store the result in a different location than the location of the first
-operand. Judging the snippet only locally, the transformation is fine, since the
-`original` value of `t3` was also \"destroyed" in the original version. In
-general, the original value of `t3`, before the addition, {\em might} be needed
-even after the addition. That is why the code generator might need to output the
-following sequence to add `t1` and `t2` into `t3` while preserving all of `t1`,
-`t2` and `t3`:
+\begtt
+v3 = add v1, v2
+\endtt
+
+the full x86-64 code would be:
 
 \begtt
 mov t3, t1
@@ -539,10 +622,10 @@ add t3, t2
 Now the prospect of naively spilling `t3` seems even worse:
 
 \begtt
-mov [rbp+t3], t1
-mov t4, [rbp+t3]
+mov [rbp+s3], t1
+mov t4, [rbp+s3]
 add t4, t2
-mov [rbp+t3], t4
+mov [rbp+s3], t4
 \endtt
 
 The code generator hoped that by assigning `t1` and `t3` the same register, the
@@ -551,99 +634,122 @@ that is now out of the question, but there is still a suboptimality---`t1` is
 copied to memory and then immediately loaded back again into `t4`, because it
 needs to be used in the `add` instruction and then also stored back into memory.
 Use of `t3`'s memory location as the first operand of the `add` instruction
-helps as before:
+helps:
 
 \begtt
-mov [rbp+t3], t1
-add [rbp+t3], t2
+mov [rbp+s3], t1
+add [rbp+s3], t2
 \endtt
 
-But in some sense, this is a red herring---the memory operations are still
+But the issue is just hidden---the memory operations are still
 there, the CPU still has to load the value `t3` from memory in the `add`
 instruction, when we just had it in a register. Just because the addressing
 modes of x86 allow use of memory locations in the instruction encodings, doesn't
 mean that internally the ALU (Arithmetical logical unit) can suddenly operate
 directly on memory, the CPU still has to internally load the value into a
 register. So while we spare a general purpose register and instead use an
-architectural one, we still excessively operate on memory. Alternatively instead of
-using memory location for the `add` instruction we could move the value from
-`t1` directly into memory, because store/load pair didn't have any meaning at
-all---we store the result of addition to `t3` in the last instruction after all.
+architectural one, we still excessively operate on memory.
+
+Alternatively, starting from the straightforward 4 instruction sequence, we can
+just forward the load and use `t1` to populate `t4` directly:
+
+\begtt
+mov [rbp+s3], t1
+mov t4, t1
+add t4, t2
+mov [rbp+s3], t4
+\endtt
+
+Now the dead store to `[rbp+s3]` is even more apparent, and can be optimized
+away:
 
 \begtt
 mov t4, t1
 add t4, t2
-mov [rbp+t3], t4
+mov [rbp+s3], t4
 \endtt
 
 Now, we keep the values in registers the whole time, and only store the final
 result in memory on assumption that later the value is needed and storing it in
 memory somehow helps the register allocator. While the first example is two
 instructions, it is X bytes, while the second one is 3 instructions and Y bytes
-TODO: compare lengths of instructions. But in fact this is how we started in the
-first place---just have the values in the registers. The important difference
-is, that the register `t4` introduced by spilling, is a temporary, it's value
-ends right at the store to `t3`'s location in memory. Thus it makes the register
-allocation problem much easier than previously just with `t3`. For example now
-it is even more likely that `t4` and `t1` are assigned the same register, thus
-making the first instruction a noop. The reason why it is easier to merge with
-`t4` instead of `t3` is not really apparent from this local view, but we have
-TODO less interference.
+TODO: compare lengths of instructions.
 
-Another point of view on the issue is, that essentially, in (the last snippet)
+Another important observation is that, the \"optimal" code we ended up with, is
+very similar to what we started with---there is just a store instruction in the
+end. Whether spilling `t3` helped is impossible to tell from this context. But
+we can something about the possible benefits of spilling `t4`---there are none.
+By spilling `t4` we would get the same instruction we already have, just with a
+different pseudoregister (say `t5`). We are at the `t3` spilling {\em fixed
+point}. For this reason we should prevent the register allocator from thinking
+that spilling `t4` might be a good idea, since it might lead it to an infinite
+loop. The reason why spilling `t4` is not beneficial is the fact that the potentially
+inserted loads and stores are redundant. The more general pattern is, that any
+definition immediately followed by use is not a possible spill candidate. This includes
+virtual registers inserted for spill code (so prevents potential infinite loops
+spilling spill registers), but can also prevent spilling other virtual
+registers, which otherwise might look like plausible spill targets, but in fact
+aren't.
+
+A different point of view is, that essentially, in (the last snippet)
 in the first two instructions `t3` is represented by `t4`, while in the last
-instruction it shifts from being represented by `t4` to be represented by `t3`,
-which due to some previous decision, resides in a memory location. We have
-essentially split the register `t3` into multiple registers connected by moves
-and it improved the generated code. In contrast, we argued, that by merging `t4`
-and `t1` we would have had the chance to eliminate the move instruction, thus
-improving the code as well. Both "merging" (also called {\em coalescing}), and
-\"splitting" can both improve the code in different situations, this makes it
+instruction it shifts back to being represented by `t3`, which due to some
+previous decision, resides in a memory location `[rbp+s3]`. It is as if we have
+originally split the register `t3` into multiple registers (`t3` and `t4`
+connected by moves) and only spilled `t3`. It results in the same great code as
+our optimized spilled version improved the generated code, because some of the
+multiple registers can be much less constrained than the original one and are
+thus less likely to be spilled and more likely to get assigned a physical
+register.
+
+In contrast, we argued, that by merging `t4` and `t1` we would have had the
+chance to eliminate the move instruction, thus improving the code as well. Both
+"merging" (called {\em coalescing}) and \"splitting" (called {\em live range
+splitting}) can improve the code in different situations, this makes it
 even harder, because recklessly doing one or the other will make the code
-certainly worse, while doing neither may as adding these contrasting notions
-makes great register allocation an even harder problem.
+certainly worse, while doing neither may be just as bad. This makes great register
+allocation even harder.
 
 \seccc Interaction with instruction selection
 
 As we have seen, the process of spilling needs to insert new instructions which
 together form the so called "spill code". In simplest scenario they just load
 and store the value, but better code can be achieved if the spill code is
-inserted with better thought than just load from memory and move to memory. But
+inserted with more thought than just load from memory and store to memory. But
 both of these problems---selecting the instructions to use for operations and
-additionally making nontrivial transformations based on the code at hand was
-exactly the job of instruction selection.
+choosing best ones in the current context is exactly the job of instruction
+selection.
 
 In principle, register allocator shouldn't care about the instructions. It
-should only cares about their effects on the registers. The result of register
-allocation should be the assignment of register to pseudoregisters. Since spills
+should only care about their effects on the registers. The result of register
+allocation should be the assignment of register to virtual registers. Since spills
 can be necessary, which requires insertion of new instructions, we have to
 decide how this spill code will be handled. The basic options are the following,
 and mostly depend on the chosen register allocation technique:
 
-\begitems
+\begitems\style n
 * Insert spill code in the register allocator pass.
-* Return the list of spilled pseudoregisters, and expect to be called again with
+* Return the list of spilled virtual registers, and expect to be called again with
 code transformed to include the spill code.
 \enditems
 
 The first option can make the register allocator depend on the target
 architecture---it now needs to know about the current target, its instructions,
-their meanings and how to insert them. On the other hand, register allocation is
+their meanings and how to insert them. On one hand, register allocation is
 already in the "backend", where we expect to handle things on the level of the
 target, and generally hope to take advantage of that by, for example, doing
-optimizations specific to the particular target. This can be application of that
-idea. On the other hand, as mentioned previously, machine independent
-representations of machine dependent instructions are possible, thus spill code
-insertion {\em could} also be made machine independent similarly as instruction
-selection.
+optimizations specific to the particular target. On the other hand, as mentioned
+previously, machine independent representations of (machine dependent)
+instructions are possible, thus spill code insertion {\em could} also be made
+machine independent similarly just like the register allocation.
 
-The second makes the register allocation process pure in a sense. The register
+The second approach also makes the register allocation process pure in a sense. The register
 allocator never modifies the input, its result is a either a mapping of
-pseudoregisters to registers, or a list of pseudoregisters to be spilled.
+virtual registers to physical registers, or a list of virtual registers to be spilled.
 Though it still has to be decided on how to insert the instructions. Some
 instruction selection mechanisms which ultimately depend on the middle end IR,
 are not suitable for inserting and optimizing spill code, since we are already
-in the "low level" backend IR. Tree or DAG based instruction selection
+in the low level backend IR. Tree or DAG based instruction selection
 mechanisms may also not be directly applicable---we may no longer be using
 trees or DAGs for representing the machine code, especially after instruction
 scheduling, which sets the order of instructions in stone. On the other hand
@@ -654,35 +760,37 @@ if we are able to find patterns which spilled code creates, such as in the
 example in the previous subsection (\ref[sec:use-of-spilled]).
 
 The obvious downside of the \"pure register allocation" approach is, that it has
-to start over with register allocation, if any spills need to be made. The first
-approach seems more suited to register allocation where we would want self
-contained and final results in possibly just one pass. The approaches used for
-spill code insertion are usually very connected to the core principle of the
-register allocation algorithm at handle, and choices of some approaches are
-discussed in the section~\ref[sec:regalloc-techniques].
+to start over with register allocation if any spills need to be made. The first
+approach seems more suited to register allocation where we want a self
+contained fast single pass register allocation.
+
+The approaches used for spill code insertion are usually very connected to the
+core principle of the register allocation algorithm at hand, and choices of some
+approaches are discussed in section~\ref[sec:regalloc-techniques].
 
 \secc Formalization
 
 The terms used in the previous sections about register allocation were not
-properly defined, and perhaps even not commonly used for the concepts. The
-intention was to practically show the problems register allocation tries to
-solve and what needs to do to solve it, which of course includes optimizations
-that try to make the register allocation process more optimal.
+properly defined, and used a bit vaguely. The intention was to practically show
+the problems register allocation tries to solve and what it needs to do to solve
+it, which includes optimizations that try to make the register allocation
+process more optimal. In this section, we try to more properly introduce the
+terms used for concepts connected to register allocation.
 
 One thing that has to be noted is the name \"register allocation" itself. We
-in fact mentioned that register allocation is meant to map pseudoregisters to
-real machine registers of the target architecture, but the process isn't always
+mentioned that register allocation is meant to map virtual registers to
+physical registers of the target architecture, but the process isn't always
 so direct, and sometimes it makes sense and brings benefits to split this
 process into two parts, which really define what we mean by these names:
 
 \begitems\style n
 * {\em Register allocation}. In a narrower sense, by register allocation we mean
-the process of making sure that each pseudoregister can be assigned a register.
-At this point, we may not care too much about which one, but we care about spill
-code, because that is what allows us to fit into the limited amount of registers
-available.
-* {\em Register assignment}. The assignments follows allocation---now that we
-can map every pseudoregister left into at least one register, we choose the
+the process of making sure that each virtual register can be assigned a physical
+one. At this point, we may not care too much about which one, but we care about
+spill code, because that is what allows us to fit into the limited amount of
+registers available.
+* {\em Register assignment}. Assignments follows allocation---now that we
+can map every virtual register to at least one register, we choose the
 concrete one. Although this seems much more simpler than the allocation part,
 in practice register assignment is also very important, because we have seen
 situations where some assignments lead to better code, for example where the
@@ -693,10 +801,34 @@ move instruction can be eliminated.
 Some register allocation algorithms intertwine both parts and don't split them.
 Some algorithms strictly separate these concerns. In general simpler algorithms
 usually merge both of these parts, while more complex algorithms try to take
-advantage of the attacking each of those issues separately to reach more optimal
+advantage of attacking each of those issues separately to reach more optimal
 results. But this distinction is of course not definitive.
 
 \seccc Liveness, interference
+
+Already in previous sections we hinted that we may reuse a physical register if
+the virtual register occupying has no further use. Liveness is the property that
+captures this formally.
+
+A virtual register is {\em live} at a program point if it {\em may} be used in
+future.
+
+The definition of liveness captures the \"not used further" aspect that we found
+beneficial for register reuse. If at a program point a virtual register stops
+being live (becomes {\em dead}) the physical register allocated to it becomes
+available. The definition of liveness carefully says \"may be used in future",
+because in general it is undecidable whether a virtual register {\em will} be
+used. TODO: Rice's theorem, halting problem.
+
+For computing liveness analysis the means of classical data flow analysis may be
+used. For each program point we can compute the liveness property on the control
+flow edges coming to it ($\hbox{LIVE}_{\hbox{\it in}}$) and control flow edges
+coming out of it.
+
+Liveness is the most basic property on which register allocation is based.
+Liveness of a virtual register represents whether from a 
+Liveness is a property of virtual registers and tells us at which points in the
+control flow a virtual register is {\em live}.
 
 \seccc Live ranges
 
@@ -704,7 +836,208 @@ vs value vs variable.
 
 \seccc Coalescing
 
+Coalescing in register allocation tries to assign virtual registers a common
+physical register. Usually we only care about coalescing where it is beneficial.
+In the low level these are the situations which may manifest as copies from one
+register to the other---if the two registers are allocated the same physical
+register, the copy is redundant and can be optimized out.
+
+In practice this is connected to several high level concepts that generate low
+level copies:
+
+\begitems
+* Translation from three address code to two address code. In two address code
+the first operand is the same as the destination. When translating three address
+code to two address code, we need to introduce a copy to not clobber the first
+operand in case it {\em lives out}. For example this three address code
+instruction:
+
+\begtt
+sub t1, t2, t3
+\endtt
+
+Can be translated to:
+
+\begtt
+mov t3, t1
+sub t3, t2
+\endtt
+
+* SSA deconstruction (section~\ref[sec:ssa-deconstruction]). Effects of $\phi$
+instructions are usually modelled with copies in predecessor blocks. For example
+the following instruction in block 3, which merges virtual registers `t1` and
+`t2` into virtual register `t3`:
+
+\begtt
+phi t3, t1, t2
+\endtt
+
+May translate to the following instructions in the two predecessors blocks:
+
+\begtt
+// predecessor 1
+mov t3, t1
+
+// predecessor 2
+mov t3, t2
+\endtt
+
+Note that just these copies may be insufficient in some situations, see
+section~\ref[sec:ssa-deconstruction].
+
+* Live range splits. A virtual register can be split into multiple virtual
+registers, and copies are introduced to connect them. These can include splits
+due to register constraints (including calling conventions). See
+section~\ref[sec:regalloc-split] for more details.
+
+As coalescing is the exact opposite of live range splitting, virtual registers
+that are the result of live range splitting should not be carelessly coalesced,
+since that would practically undo the splits.
+
+%* Register constraints. Sometimes instructions require their arguments to reside
+%in specific registers or put the results into specific registers or for example
+%calling conventions can require arguments to be passed in specific registers. If
+%our register allocator is not able to do live range splits on demand  we may want to 
+%
+%* Callee saved registers.
+%
+%
+%This also
+%applies to calling conventions which say which arguments are used for passing
+%functions, and which are caller-saved or callee-saved.
+\enditems
+
+The removal of the move instructions itself is a simple task that can be left to
+the peephole optimizer. The real role of coalescing in register allocation is
+to try to allocate move related nodes to the same register. But too much
+coalescing can be counterproductive---choosing to allocate two virtual registers
+to the same physical one means that effectively the registers are combined into
+one. This means that their interferences add together and it becomes much harder
+to find a common register.
+
+\seccc Register constraints
+
+Some instructions require the arguments to be in particular registers or produce
+values in particular registers. Typically, there are two such constraints:
+
+\begitems\style n
+* One concrete register has to be used.
+* One register belonging to a particular class can be used.
+\enditems
+
+Register classes are discussed in section~\ref[sec:regalloc-classes]. Here we
+discuss only constraints which require one particular register.
+
+The x86-64 architecture has two notable examples where concrete registers have
+to be used for operands or results:
+
+\begitems\style n
+* {\em Shifts}. Shift instructions where the shift amount is not an immediate
+value, require the shift amount to be in the `cl` register (that is, the low 8
+bits of the `rcx` register).
+* {\em Long multiplication and division}. On x86-64 the only available
+division instructions (for signed and unsigned division) divide a 128-bit number
+by a 64-bit value.%
+%
+\fnote{As with other instructions on
+x86-64, the 32-bit variants are available. So for example, the long division
+divides 64-bit number by a 32-bit number, but it still operates on two registers
+(`eax` and `edx`).}
+Upper 64-bits of the 128-bit dividend are expected in `rdx`,
+the lower 64-bits in `rax`. The division instructions store the remainder in
+`rdx` and quotient in `rax`. The divisor can be a (64-bit) register or memory
+location.
+\enditems
+
+
+
+\begtt
+shl t1, t2 % t2 has to be allocated to cl
+\endtt
+
+
+\label[sec:regalloc-classes]
+\seccc Register classes
+
+\label[sec:regalloc-split]
 \seccc Live range splitting
+
+Live range splitting is essentially the opposite of coalescing. By splitting
+one virtual register into multiple, we hope to achieve better register
+allocation, since the split virtual registers can be allocated separately and
+they can be much less constrained (have less interferences) than the original
+virtual register.
+
+
+A big disadvantage of our model of register allocation being a mapping from
+virtual register to physical registers is that a virtual register can be
+assigned only one physical register. Live range splitting essentially remedies
+it, because the splits are allocated separately.
+
+Another advantage is that, in the simple spilling implementation, every use and
+definition of a register is replaced accordingly by a load or store.
+
+Naive spilling of an entire virtual register is simple to implement, but doesn't
+consider the nature of the register's use. For example the virtual register may
+see significant use in the beginning of the procedure and then in the end of the
+procedure and not be used much otherwise. Such virtual register will interfere
+with practically all other virtual registers, since it is live during the whole
+function. Splitting it to three registers (beginning, middle and end of the
+procedure) not only allows different physical registers to be allocated to it in
+the different parts, but it also allows {\em independent} spill decisions. For
+example, it can be spilled during the middle of the function cheaply with only
+one load and one store. The splits here would mean splitting say `t10`:
+
+\begtt
+...
+mov t10, ...
+...,  t10
+
+[...] // a loop
+
+..., t10
+\endtt
+
+To `t11`, `t12` and `t13`:
+
+\begtt
+...
+mov t11, ...
+...,  t11
+
+mov t12, t11
+[...] // a loop
+mov t13, t12
+
+..., t12
+\endtt
+
+Splits can be especially beneficial around loops, since spills of any values
+used inside loops are costly. Even a lot of shuffling of registers and memory
+can be beneficial if a loop is executed many times. Moving expensive operations
+out of the loops has been the task of code motion in the middle-end and
+instruction scheduling in the backend. Since register allocation generally
+follows them, we should do our best to not hinder it.
+
+If the splits turn out to be unnecessary, they can be coalesced away. Though
+introducing too many splits can reduce the chance of coalescing in
+general---coalescing has to be careful about splits in order to not undo them
+carelessly, additionally many register allocation techniques avoid excessive
+coalescing.
+
+Spilling can be seen as a very primitive form of live range splitting, which
+introduces a new virtual register for each use and definition and spills all of
+them. Splitting the uses and definitions manually, and spilling them only when
+needed may prove to be better, since even in case the copies across the splits
+don't get coalesced, they are presumably cheaper than touching the memory.
+
+Some allocators are able to rethink the register allocation of a virtual
+register at its every use or definition. This means that the algorithm can
+essentially perform live range splitting everywhere. Other algorithms are not
+able to do splitting \"online" and require it to be done as a preprocessing
+step, in that case live range splitting can be even more important.
+
+TODO: live range splitting for machine constraints and ABI
 
 \label[sec:regalloc-techniques]
 \secc Techniques
@@ -887,7 +1220,7 @@ it is freed. This is often better, since more often the uses are constrained by
 machine constraints, so by discovering the uses first, the allocation can be
 targeted more easily.
 
-The problem with all these approaches is that they are too local. Their versions
+The problem with all these three approaches is that they are too local. Their versions
 as presented above work only in a single basic block. Extensions to global
 (whole-procedure) allocation are possible by using memory---a simple extension
 does register allocation on each basic block separately and all virtual
