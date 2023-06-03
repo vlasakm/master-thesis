@@ -657,7 +657,7 @@ translate_value(TranslationState *ts, Value *v)
 	}
 	case VK_CALL: {
 		Operation *call = (void *) v;
-		bool vararg = ((FunctionType *) call->operands[0]->type)->vararg;
+		bool vararg = type_as_function(call->operands[0]->type)->vararg;
 		size_t arg_cnt = value_operand_cnt(v) - 1;
 		translate_call(ts, res, ops[0], &ops[1], arg_cnt, vararg);
 		break;
