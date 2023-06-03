@@ -31,13 +31,13 @@ struct RegAllocState {
 	// Final register allocation
 	Oper *reg_assignment;
 
-	u8 *to_spill;
+	Oper *to_spill;
 	Oper *alias;
 
 	// Spill cost related
 	u16 *def_cost;
 	u16 *use_cost;
-	u8 *unspillable; // true/false for each vreg
+	BitSet unspillable; // true/false for each vreg
 
 	// Degrees of nodes.
 	u32 *degree;
@@ -48,7 +48,7 @@ struct RegAllocState {
 
 	WorkList live_set;
 	WorkList uninterrupted;
-	u8 *ever_interrupted;
+	BitSet ever_interrupted;
 	WorkList block_work_list;
 	WorkList *live_in;
 
@@ -111,14 +111,14 @@ reg_alloc_state_reset(RegAllocState *ras)
 		GROW_ARRAY(ras->alias, ras->vreg_capacity);
 		GROW_ARRAY(ras->def_cost, ras->vreg_capacity);
 		GROW_ARRAY(ras->use_cost, ras->vreg_capacity);
-		GROW_ARRAY(ras->unspillable, ras->vreg_capacity);
+		bs_grow(&ras->unspillable, ras->vreg_capacity);
 		GROW_ARRAY(ras->degree, ras->vreg_capacity);
 		bs_grow(&ras->matrix, ras->vreg_capacity * ras->vreg_capacity);
 		GROW_ARRAY(ras->adj_list, ras->vreg_capacity);
 		ZERO_ARRAY(&ras->adj_list[old_vreg_capacity], ras->vreg_capacity - old_vreg_capacity);
 		wl_grow(&ras->live_set, ras->vreg_capacity);
 		wl_grow(&ras->uninterrupted, ras->vreg_capacity);
-		GROW_ARRAY(ras->ever_interrupted, ras->vreg_capacity);
+		bs_grow(&ras->ever_interrupted, ras->vreg_capacity);
 		for (size_t i = 0; i < old_block_capacity; i++) {
 			wl_grow(&ras->live_in[i], ras->vreg_capacity);
 		}
@@ -140,7 +140,7 @@ reg_alloc_state_reset(RegAllocState *ras)
 	}
 	ZERO_ARRAY(ras->def_cost, ras->mfunction->vreg_cnt);
 	ZERO_ARRAY(ras->use_cost, ras->mfunction->vreg_cnt);
-	ZERO_ARRAY(ras->unspillable, ras->mfunction->vreg_cnt);
+	bs_reset(&ras->unspillable, ras->mfunction->vreg_cnt);
 	ZERO_ARRAY(ras->degree, ras->mfunction->vreg_cnt);
 	bs_reset(&ras->matrix, ras->N);
 	for (size_t i = 0; i < ras->mfunction->vreg_cnt; i++) {
@@ -148,7 +148,7 @@ reg_alloc_state_reset(RegAllocState *ras)
 	}
 	wl_reset(&ras->live_set);
 	wl_reset(&ras->uninterrupted);
-	ZERO_ARRAY(ras->ever_interrupted, ras->vreg_capacity);
+	bs_reset(&ras->ever_interrupted, ras->vreg_capacity);
 	wl_reset(&ras->block_work_list);
 	for (size_t i = 0; i < ras->mfunction->mblock_cnt; i++) {
 		wl_reset(&ras->live_in[i]);
@@ -173,7 +173,7 @@ reg_alloc_state_free(RegAllocState *ras)
 	FREE_ARRAY(ras->alias, ras->vreg_capacity);
 	FREE_ARRAY(ras->def_cost, ras->vreg_capacity);
 	FREE_ARRAY(ras->use_cost, ras->vreg_capacity);
-	FREE_ARRAY(ras->unspillable, ras->vreg_capacity);
+	bs_free(&ras->unspillable, ras->vreg_capacity);
 	FREE_ARRAY(ras->degree, ras->vreg_capacity);
 	bs_free(&ras->matrix, ras->vreg_capacity);
 	for (size_t i = 0; i < ras->vreg_capacity; i++) {
@@ -182,7 +182,7 @@ reg_alloc_state_free(RegAllocState *ras)
 	FREE_ARRAY(ras->adj_list, ras->vreg_capacity);
 	wl_free(&ras->live_set);
 	wl_free(&ras->uninterrupted);
-	FREE_ARRAY(ras->ever_interrupted, ras->vreg_capacity);
+	bs_free(&ras->ever_interrupted, ras->vreg_capacity);
 	wl_reset(&ras->block_work_list);
 	wl_free(&ras->block_work_list);
 	for (size_t i = 0; i < ras->block_capacity; i++) {
@@ -608,8 +608,8 @@ mark_defs_with_uninterrupted_uses_unspillable(void *user_data, Oper *def_)
 	// uninterrupted by any death of other live range. Make sure that the
 	// use is really uninterrupted, by checking global flag which forbids
 	// interruptions.
-	if (wl_remove(&ras->uninterrupted, def) && !ras->ever_interrupted[def]) {
-		ras->unspillable[def] = true;
+	if (wl_remove(&ras->uninterrupted, def) && !bs_test(&ras->ever_interrupted, def)) {
+		bs_set(&ras->ever_interrupted, def);
 		if (def >= R__MAX) {
 			fprintf(stderr, "Marking ");
 			print_reg(stderr, def);
@@ -632,7 +632,7 @@ detect_interrupting_deaths(void *user_data, Oper *use_)
 		WorkList *uninterrupted = &ras->uninterrupted;
 		FOR_EACH_WL_INDEX(uninterrupted, i) {
 			Oper op = uninterrupted->dense[i];
-			ras->ever_interrupted[op] = true;
+			bs_set(&ras->ever_interrupted, op);
 		}
 		wl_reset(uninterrupted);
 	}
@@ -670,7 +670,7 @@ calculate_spill_cost(RegAllocState *ras)
 		// (in this case by basic block boundary).
 		FOR_EACH_WL_INDEX(live_set, i) {
 			Oper live_across_block = live_set->dense[i];
-			ras->ever_interrupted[live_across_block] = true;
+			bs_set(&ras->ever_interrupted, live_across_block);
 		}
 		for (Inst *inst = mblock->insts.prev; inst != &mblock->insts; inst = inst->prev) {
 			for_each_def(inst, mark_defs_with_uninterrupted_uses_unspillable, ras);
@@ -865,13 +865,13 @@ initialize_worklists(RegAllocState *ras)
 double
 spill_metric(RegAllocState *ras, Oper i)
 {
-	if (ras->unspillable[i]) {
+	if (bs_test(&ras->unspillable, i)) {
 		return 0.0;
 	}
 	double cost = (double) ras->degree[i] / (ras->def_cost[i] + ras->use_cost[i]);
 	fprintf(stderr, "Spill cost for ");
 	print_reg(stderr, i);
-	fprintf(stderr, " degree: %"PRIu32", defs: %zu, uses: %zu, unspillable: %d, cost: %f\n", ras->degree[i], (size_t) ras->def_cost[i], (size_t) ras->use_cost[i], (int) ras->unspillable[i], cost);
+	fprintf(stderr, " degree: %"PRIu32", defs: %zu, uses: %zu, unspillable: %d, cost: %f\n", ras->degree[i], (size_t) ras->def_cost[i], (size_t) ras->use_cost[i], (int) bs_test(&ras->unspillable, i), cost);
 	return cost;
 }
 
@@ -1266,7 +1266,7 @@ assign_registers(RegAllocState *ras)
 			print_reg(stderr, u);
 			fprintf(stderr, "\n");
 			ras->to_spill[u] = mfunction->stack_space;
-			assert(mfunction->stack_space < 240);
+			assert(mfunction->stack_space < 512);
 			mfunction->stack_space += 8;
 			have_spill = true;
 		}
