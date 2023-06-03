@@ -1371,6 +1371,7 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 				IM(prev) = M_Cr;
 				IREG2(prev) = IREG2(inst);
 				IM(inst) = M_Ri;
+				continue;
 			}
 
 			// lea t14, [rbp-16]
@@ -1650,7 +1651,7 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 			// push 1
 			if (IK(inst) == IK_PUSH && IM(inst) == M_r && try_replace_by_immediate(mfunction, inst, IREG(inst))) {
 				IM(inst) = M_I;
-
+				continue;
 			}
 
 			// lea t25, [rbp-24]
