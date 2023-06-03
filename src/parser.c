@@ -131,7 +131,7 @@ typedef struct {
 	Str str;
 } Token;
 
-Lexer
+static Lexer
 lex_create(Str source)
 {
 	return (Lexer) {
@@ -1431,7 +1431,7 @@ statement(Parser *parser)
 	}
 }
 
-bool
+static bool
 is_function_terminated(Parser *parser)
 {
 	Block *current_block = parser->current_block;

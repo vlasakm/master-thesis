@@ -1,6 +1,6 @@
 #include "ir.h"
 
-void
+static void
 get_uses(Function *function)
 {
 	GROW_ARRAY(function->uses, 2 * function->value_cnt);
@@ -23,7 +23,7 @@ get_uses(Function *function)
 	}
 }
 
-void
+static void
 free_uses(Function *function)
 {
 	for (size_t i = 0; i < function->value_cnt; i++) {
@@ -32,7 +32,7 @@ free_uses(Function *function)
 	free(function->uses);
 }
 
-void
+static void
 analyze_optimizable_allocas(Function *function)
 {
 	Block *entry = function->entry;
@@ -57,7 +57,7 @@ analyze_optimizable_allocas(Function *function)
 	}
 }
 
-bool
+static bool
 is_optimizable_alloca(Value *v)
 {
 	return VK(v) == VK_ALLOCA && ((Alloca *) v)->optimizable;
@@ -70,16 +70,16 @@ typedef struct {
 	Value **canonical;
 } ValueNumberingState;
 
-Value *read_variable(ValueNumberingState *vns, Block *block, Value *variable);
+static Value *read_variable(ValueNumberingState *vns, Block *block, Value *variable);
 
-void
+static void
 add_use(Function *function, Value *what, Value *where)
 {
 	GArena *uses = &function->uses[what->index];
 	garena_push_value(uses, Value *, where);
 }
 
-void
+static void
 remove_use(Function *function, Value *what, Value *where, bool assert)
 {
 	if (what->index == 0) {
@@ -100,7 +100,7 @@ remove_use(Function *function, Value *what, Value *where, bool assert)
 	}
 }
 
-void
+static void
 replace_by(Function *function, Value *old, Value *new)
 {
 	GArena *guses = &function->uses[old->index];
@@ -117,7 +117,7 @@ replace_by(Function *function, Value *old, Value *new)
 	}
 }
 
-void
+static void
 remove_value_and_uses_of_operands(Function *function, Value *where)
 {
 	FOR_EACH_OPERAND(where, operand) {
@@ -127,7 +127,7 @@ remove_value_and_uses_of_operands(Function *function, Value *where)
 }
 
 
-Value *
+static Value *
 try_remove_trivial_phi(Arena *arena, Function *function, Value *phi)
 {
 	// Simplify trivial phis like:
@@ -170,7 +170,7 @@ try_remove_trivial_phi(Arena *arena, Function *function, Value *phi)
 	return same;
 }
 
-Value *
+static Value *
 add_phi_operands(ValueNumberingState *vns, Operation *phi, Block *block, Value *variable)
 {
 	size_t i = 0;
@@ -187,7 +187,7 @@ typedef struct {
 	Value *variable;
 } IncompletePhi;
 
-void
+static void
 write_variable(ValueNumberingState *vns, Block *block, Value *variable, Value *value)
 {
 	fprintf(stderr, "Writing var %zu from block%zu with value ", VINDEX(variable), VINDEX(block));
@@ -196,7 +196,7 @@ write_variable(ValueNumberingState *vns, Block *block, Value *variable, Value *v
 	vns->var_map[VINDEX(block)][VINDEX(variable)] = value;
 }
 
-Value *
+static Value *
 read_variable(ValueNumberingState *vns, Block *block, Value *variable)
 {
 	fprintf(stderr, "Reading var %zu from block%zu\n", VINDEX(variable), VINDEX(block));
@@ -237,7 +237,7 @@ read_variable(ValueNumberingState *vns, Block *block, Value *variable)
 	return value;
 }
 
-void
+static void
 seal_block(ValueNumberingState *vns, Block *block)
 {
 	size_t incomplete_phi_cnt = garena_cnt(&block->incomplete_phis, IncompletePhi);
@@ -249,7 +249,7 @@ seal_block(ValueNumberingState *vns, Block *block)
 	garena_free(&block->incomplete_phis);
 }
 
-void
+static void
 do_value_numbering(Arena *arena, Function *function)
 {
 	size_t block_cnt = function->block_cnt;
