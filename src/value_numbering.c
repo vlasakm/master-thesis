@@ -151,7 +151,9 @@ try_remove_trivial_phi(Arena *arena, Function *function, Value *phi)
 		same = *op;
 	}
 	if (!same) {
-		Operation *undefined = create_operation(arena, (Block *) phi->parent, VK_UNDEFINED, phi->type, 0);
+		Operation *undefined = create_operation(arena, VK_UNDEFINED, phi->type, 0);
+		undefined->base.parent = phi->parent;
+		undefined->base.index = function->value_cnt++;
 		same = &undefined->base;
 	}
 	remove_value_and_uses_of_operands(function, phi);

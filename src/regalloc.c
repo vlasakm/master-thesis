@@ -794,6 +794,7 @@ for_each_move(RegAllocState *ras, Oper u, void (*fun)(RegAllocState *ras, Oper u
 bool
 is_precolored(RegAllocState *ras, Oper op)
 {
+	(void) ras;
 	return op < R__MAX;
 }
 

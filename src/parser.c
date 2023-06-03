@@ -12,7 +12,7 @@ typedef struct {
 Value NOP = { .type = &TYPE_VOID, .kind = VK_NOP };
 
 static Type *
-typeof(CValue cvalue)
+ctypeof(CValue cvalue)
 {
 	Type *type = cvalue.value->type;
 	if (cvalue.lvalue) {
@@ -143,7 +143,7 @@ add_block(Parser *parser)
 static Operation *
 add_operation(Parser *parser, ValueKind kind, Type *type, size_t operand_cnt)
 {
-	Operation *op = create_operation(parser->arena, parser->current_block, kind, type, operand_cnt);
+	Operation *op = create_operation(parser->arena, kind, type, operand_cnt);
 	append_to_block(parser->current_block, &op->base);
 	return op;
 }
@@ -258,8 +258,6 @@ as_lvalue(Parser *parser, CValue cvalue, char *msg)
 	}
 }
 
-static Type *struct_body(Parser *parser);
-
 static Type *
 parse_type(Parser *parser, bool allow_void)
 {
@@ -304,12 +302,6 @@ static CValue
 expression_no_comma(Parser *parser)
 {
 	return expression_bp(parser, 2);
-}
-
-static CValue
-expression_no_equal(Parser *parser)
-{
-	return expression_bp(parser, 3);
 }
 
 static Value *
@@ -364,35 +356,6 @@ literal(Parser *parser)
 	}
 	case TK_STRING: {
 		return rvalue(create_string(parser, token.str));
-		GArena *scratch = parser->scratch;
-		size_t start = garena_save(scratch);
-		const u8 *str = token.str.str + 1;
-		size_t len = token.str.len - 1;
-		bool in_escape = false;
-		for (size_t i = 0; i < len; i++) {
-			u8 c = str[i];
-			if (in_escape) {
-				in_escape = false;
-				switch (c) {
-				case  'n': c = '\n'; break;
-				case  't': c = '\t'; break;
-				case  'r': c = '\r'; break;
-				case  '~': c =  '~'; break;
-				case  '"': c =  '"'; break;
-				case '\\': c = '\\'; break;
-				default: UNREACHABLE();
-				}
-				garena_push_value(scratch, u8, c);
-			} else {
-				switch (c) {
-				case '\\': in_escape = true; break;
-				default: garena_push_value(scratch, u8, c);
-				}
-			}
-		}
-		len = garena_cnt_from(scratch, start, u8);
-		str = move_to_arena(parser->arena, scratch, start, u8);
-		return rvalue(create_string(parser, (Str) { .str = str, .len = len }));
 	}
 	default:
 		  UNREACHABLE();
@@ -675,7 +638,7 @@ call(Parser *parser, CValue cleft, int rbp)
 	while (!try_eat(parser, TK_RPAREN)) {
 		CValue carg = expression_no_comma(parser);
 		Value *arg = &NOP;
-		Type *type = typeof(carg);
+		Type *type = ctypeof(carg);
 		if (type_is_struct(type)) {
 			//parser_error(parser, parser->lookahead, false, "Passing structs as arguments is currently not allowed");
 			arg = as_lvalue(parser, carg, "Expected struct lvalue");
@@ -794,9 +757,6 @@ ternop(Parser *parser, CValue ccond, int rbp)
 
 	// Merge
 	switch_to_block(parser, after_block);
-	assert(block_pred_cnt(after_block) == 2);
-	assert(block_preds(after_block)[0] == true_block);
-	assert(block_preds(after_block)[1] == false_block);
 	Operation *phi = insert_phi(parser->arena, after_block, left->type);
 	phi->operands[0] = left;
 	phi->operands[1] = right;
@@ -808,7 +768,6 @@ shortcirc(Parser *parser, CValue cleft, int rbp)
 {
 	TokenKind tok = discard(parser).kind;
 	Value *left = as_rvalue(parser, cleft);
-	Block *left_block = parser->current_block;
 	Block *right_block = add_block(parser);
 	Block *after_block = add_block(parser);
 	switch (tok) {
@@ -834,9 +793,6 @@ shortcirc(Parser *parser, CValue cleft, int rbp)
 
 	// Merge both branches
 	switch_to_block(parser, after_block);
-	assert(block_pred_cnt(after_block) == 2);
-	assert(block_preds(after_block)[0] == left_block);
-	assert(block_preds(after_block)[1] == right_block);
 	Operation *phi = insert_phi(parser->arena, after_block, left->type);
 	phi->operands[0] = left;
 	phi->operands[1] = right;
@@ -846,6 +802,7 @@ shortcirc(Parser *parser, CValue cleft, int rbp)
 static CValue
 post(Parser *parser, CValue cleft, int rbp)
 {
+	(void) rbp;
 	bool inc = discard(parser).kind == TK_PLUS_PLUS;
 	return inc_dec(parser, cleft, inc, false);
 }

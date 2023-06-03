@@ -64,19 +64,19 @@ value_is_terminator(Value *value)
 }
 
 Operation *
-create_operation(Arena *arena, Block *block, ValueKind kind, Type *type, size_t operand_cnt)
+create_operation(Arena *arena, ValueKind kind, Type *type, size_t operand_cnt)
 {
 	Operation *op = arena_alloc(arena, sizeof(*op) + sizeof(op->operands[0]) * operand_cnt);
-	value_init(&op->base, kind, &TYPE_INT);
+	value_init(&op->base, kind, type);
 	op->base.kind = kind;
 	op->base.type = type;
 	return op;
 }
 
 Value *
-create_unary(Arena *arena, Block *block, ValueKind kind, Type *type, Value *arg)
+create_unary(Arena *arena, ValueKind kind, Type *type, Value *arg)
 {
-	Operation *op = create_operation(arena, block, kind, type, 1);
+	Operation *op = create_operation(arena, kind, type, 1);
 	op->operands[0] = arg;
 	return &op->base;
 }

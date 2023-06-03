@@ -699,6 +699,7 @@ translate_value(TranslationState *ts, Value *v)
 void
 merge_simple_blocks(Arena *arena, Function *function)
 {
+	(void) arena;
 	//for (size_t b = function->block_cnt; b--;) {
 	for (size_t b = 0; b < function->block_cnt; b++) {
 		Block *block = function->post_order[b];
@@ -756,6 +757,7 @@ merge_simple_blocks(Arena *arena, Function *function)
 void
 thread_jumps(Arena *arena, Function *function)
 {
+	(void) arena;
 	for (size_t b = 0; b < function->block_cnt; b++) {
 		Block *block = function->post_order[b];
 		if (VK(block->base.next) != VK_JUMP) {
@@ -828,7 +830,7 @@ split_critical_edges(Arena *arena, Function *function)
 			fprintf(stderr, "Splitting critical edge from block%zu to block%zu\n", VINDEX(pred), VINDEX(succ));
 			Block *new = create_block(arena, function);
 			block_add_pred(new, pred);
-			Value *jump = create_unary(arena, new, VK_JUMP, &TYPE_VOID, &succ->base);
+			Value *jump = create_unary(arena, VK_JUMP, &TYPE_VOID, &succ->base);
 			jump->parent = &new->base;
 			jump->index = function->value_cnt++;
 			prepend_value(&new->base, jump);
@@ -885,7 +887,7 @@ single_exit(Arena *arena, Function *function)
 	for (size_t i = 0; i < phi_cnt; i++) {
 		PendingPhi *phi = &phis[i];
 		Block *pred = phi->block;
-		Value *jump = create_unary(arena, pred, VK_JUMP, &TYPE_VOID, &ret_block->base);
+		Value *jump = create_unary(arena, VK_JUMP, &TYPE_VOID, &ret_block->base);
 		jump->index = function->value_cnt++;
 		jump->parent = &pred->base;
 		remove_value(pred->base.prev);
@@ -895,7 +897,7 @@ single_exit(Arena *arena, Function *function)
 
 	Value *ret_inst;
 	if (ret_void) {
-		ret_inst = &create_operation(arena, ret_block, VK_RETVOID, &TYPE_VOID, 0)->base;
+		ret_inst = &create_operation(arena, VK_RETVOID, &TYPE_VOID, 0)->base;
 	} else {
 		Type *type = phis[0].value->type;
 		Operation *phi = insert_phi(arena, ret_block, type);
@@ -903,7 +905,7 @@ single_exit(Arena *arena, Function *function)
 		for (size_t i = 0; i < phi_cnt; i++) {
 			phi->operands[i] = phis[i].value;
 		}
-		ret_inst = create_unary(arena, ret_block, VK_RET, &TYPE_VOID, &phi->base);
+		ret_inst = create_unary(arena, VK_RET, &TYPE_VOID, &phi->base);
 	}
 	ret_inst->index = function->value_cnt++;
 	ret_inst->parent = &ret_block->base;
@@ -1121,6 +1123,7 @@ try_combine_label(MFunction *mfunction, Inst *inst)
 void
 peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 {
+	(void) arena;
 	u8 *use_cnt = mfunction->use_count;
 	u8 *def_cnt = mfunction->def_count;
 	Inst **defs = mfunction->only_def;
