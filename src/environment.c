@@ -43,4 +43,3 @@ env_free(Environment *env)
 	}
 	FREE_ARRAY(env->scopes, env->scope_cnt);
 }
-

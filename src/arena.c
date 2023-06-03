@@ -9,6 +9,8 @@
 #include "assert.h"
 #include "stdio.h"
 
+#include "utils.h"
+
 static size_t
 align(size_t pos, size_t alignment)
 {
@@ -38,11 +40,11 @@ arena_alloc(Arena *arena, size_t size)
 		new->prev = arena->current;
 		arena->current = new;
 		pos = align(sizeof(ArenaChunk), 8);
-		ASAN_POISON_MEMORY_REGION(((unsigned char *) new) + pos, new_size - pos);
+		ASAN_POISON_MEMORY_REGION(((u8 *) new) + pos, new_size - pos);
 	}
 	arena->current->pos = pos + size;
-	ASAN_UNPOISON_MEMORY_REGION(((unsigned char *) arena->current) + pos, size);
-	return ((unsigned char *) arena->current) + pos;
+	ASAN_UNPOISON_MEMORY_REGION(((u8 *) arena->current) + pos, size);
+	return ((u8 *) arena->current) + pos;
 }
 
 size_t
@@ -62,7 +64,7 @@ arena_restore(Arena *arena, size_t pos)
 		arena->prev_size_sum -= chunk->size;
 	}
 	chunk->pos = pos - arena->prev_size_sum;
-	ASAN_POISON_MEMORY_REGION(((unsigned char *) chunk) + chunk->pos, chunk->size - chunk->pos);
+	ASAN_POISON_MEMORY_REGION(((u8 *) chunk) + chunk->pos, chunk->size - chunk->pos);
 	arena->current = chunk;
 }
 
@@ -76,7 +78,7 @@ arena_free(Arena *arena)
 	}
 }
 
-unsigned char *
+u8 *
 arena_vaprintf(Arena *arena, const char *fmt, va_list ap)
 {
 	va_list ap_orig;
@@ -84,14 +86,14 @@ arena_vaprintf(Arena *arena, const char *fmt, va_list ap)
 	va_copy(ap_orig, ap);
 
 	size_t available = arena->current->size - arena->current->pos;
-	void *mem = ((unsigned char *) arena->current) + arena->current->pos;
+	void *mem = ((u8 *) arena->current) + arena->current->pos;
 	ASAN_UNPOISON_MEMORY_REGION(mem, available);
 	int len = vsnprintf(mem, available, fmt, ap);
 	assert(len >= 0);
 	len += 1; // terminating null
 	if ((size_t) len <= available) {
 		arena->current->pos += (size_t) len;
-		ASAN_POISON_MEMORY_REGION(((unsigned char *) arena->current) + arena->current->pos, available - len);
+		ASAN_POISON_MEMORY_REGION(((u8 *) arena->current) + arena->current->pos, available - len);
 	} else {
 		mem = arena_alloc(arena, (size_t) len);
 		vsnprintf(mem, (size_t) len, fmt, ap_orig);
@@ -114,7 +116,7 @@ garena_init(GArena *arena)
 void
 garena_free(GArena *arena)
 {
-	free(arena->mem);
+	FREE_ARRAY(arena->mem, arena->capacity);
 }
 
 void *
@@ -123,7 +125,7 @@ garena_alloc(GArena *arena, size_t size, size_t alignment)
 	size_t pos = align(arena->pos, alignment);
 	if (pos + size > arena->capacity) {
 		arena->capacity = arena->capacity ? arena->capacity * 2 : size * 8;
-		arena->mem = realloc(arena->mem, arena->capacity);
+		GROW_ARRAY(arena->mem, arena->capacity);
 		ASAN_POISON_MEMORY_REGION(arena->mem, arena->capacity);
 	}
 	arena->pos = pos + size;
