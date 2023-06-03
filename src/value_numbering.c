@@ -200,7 +200,6 @@ Value *
 read_variable(ValueNumberingState *vns, Block *block, Value *variable)
 {
 	fprintf(stderr, "Reading var %zu from block%zu\n", VINDEX(variable), VINDEX(block));
-	assert(!block->pending);
 	Value *value = vns->var_map[VINDEX(block)][VINDEX(variable)];
 	if (value) {
 		fprintf(stderr, "Have locally %zu\n", VINDEX(value));
@@ -223,10 +222,12 @@ read_variable(ValueNumberingState *vns, Block *block, Value *variable)
 	} else {
 		fprintf(stderr, "Merge\n");
 		// We already filled all predecessors.
-		block->pending = true;
 		Operation *phi = insert_phi(vns->arena, block, pointer_child(variable->type));
+		// Memoize the phi as the definition in the current block.
+		// Because even though we are iterating in reverse
+		// post order, there may be a cycle which can lead us back here.
+		write_variable(vns, block, variable, &phi->base);
 		value = add_phi_operands(vns, phi, block, variable);
-		block->pending = false;
 	}
 	if (VINDEX(value) > 0 && vns->canonical[VINDEX(value)]) {
 		value = vns->canonical[VINDEX(value)];
