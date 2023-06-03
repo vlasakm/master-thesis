@@ -143,6 +143,7 @@ void *
 garena_restore(GArena *arena, size_t pos)
 {
 	arena->pos = pos;
+	ASAN_POISON_MEMORY_REGION(arena->mem + arena->pos, arena->capacity - arena->pos);
 	return &arena->mem[pos];
 }
 
@@ -172,7 +173,9 @@ move_to_arena_(Arena *arena, GArena *garena, size_t start, size_t alignment)
 	if (size == 0) {
 		return NULL;
 	}
-	garena_restore(garena, start);
 	void *old = garena_from(garena, start, alignment);
-	return memcpy(arena_alloc(arena, size), old, size);
+	void *new = arena_alloc(arena, size);
+	memcpy(new, old, size);
+	garena_restore(garena, start);
+	return new;
 }
