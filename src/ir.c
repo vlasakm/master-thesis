@@ -81,7 +81,7 @@ create_unary(Arena *arena, ValueKind kind, Type *type, Value *arg)
 	return &op->base;
 }
 
-static Value NOP = { .type = &TYPE_VOID, .kind = VK_NOP };
+Value NOP = { .type = &TYPE_VOID, .kind = VK_NOP };
 
 Operation *
 insert_phi(Arena *arena, Block *block, Type *type)

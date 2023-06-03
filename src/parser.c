@@ -312,8 +312,6 @@ typedef struct {
 	Value *value;
 } CValue;
 
-Value NOP = { .type = &TYPE_VOID, .kind = VK_NOP };
-
 static Type *
 ctypeof(CValue cvalue)
 {

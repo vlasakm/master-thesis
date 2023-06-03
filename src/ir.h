@@ -122,6 +122,8 @@ typedef struct {
 #define STORE_VALUE(v) (((Operation *) (v))->operands[1])
 #define LOAD_ADDR(v) (((Operation *) (v))->operands[0])
 
+extern Value NOP;
+
 void value_init(Value *value, ValueKind kind, Type *type);
 
 bool value_is_terminator(Value *value);
