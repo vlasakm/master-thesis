@@ -1624,9 +1624,9 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 
 			// mov t18, 3
 			// ...
-			// lea 19, [t18+7]
+			// lea t19, [t18+7]
 			// =>
-			// mov 19, 10
+			// mov t19, 10
 			if (IK(inst) == IK_MOV && IS(inst) == LEA && try_replace_by_immediate(mfunction, inst, IBASE(inst))) {
 				// At this point we know that this isn't
 				// RIP-relative addressing, since IBASE was
