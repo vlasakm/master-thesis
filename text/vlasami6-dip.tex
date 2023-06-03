@@ -539,7 +539,7 @@ register which are needed for a long time are a problem, since they prevent
 register reuse and that because of that even simple examples can get out of
 registers.
 
-\label[sec:spilling]
+\label[sec:regalloc-spilling]
 \secc Spilling
 
 We have to make all values in virtual register available wherever they are
@@ -1341,7 +1341,7 @@ We have already seen a few things that can distinguish different register
 allocation algorithms:
 
 \begitems
-* Handling of spilling (section~\ref[ref:use-of-spilled]),
+* Handling of spilling (section~\ref[sec:use-of-spilled]),
 * Split or no split of allocation and assignment
 (section~\ref[ref:regalloc-formalization]).
 \enditems
@@ -1535,7 +1535,7 @@ the bottom up is able to allocate registers only for a single basic block,
 because it depends on many of the linear aspects of basic blocks, such as that
 the instructions are ordered, live ranges are also ordered and it can be
 determined which is \"furthest away", so that something akin to Bélády's
-algorithm~\ref[Belady1966] can be used. Linear scan register allocation extends
+algorithm~\cite[Belady1966] can be used. Linear scan register allocation extends
 the bottom-up approach to perform global (whole procedure) register allocation
 by imposing an ordering over the instructions by (globally) numbering them. This
 ordering induces a linear sequence, where live ranges can be represented as simple
@@ -1686,7 +1686,7 @@ they effectively have one less interfering node. Like with Chaitin's spilling in
 splits a single node into many temporaries whose interferences are more local
 and hopefully easier to deal with.
 
-As we have seen before (in section~\ref[sec:spilling]), spilling can always be
+As we have seen before (in section~\ref[sec:regalloc-spilling]), spilling can always be
 necessary, reducing the register allocation problem to graph coloring doesn't
 change that. No matter how $k$ is big, there are always graphs which need more
 registers to be colored successfully. Even an exact graph coloring algorithm
