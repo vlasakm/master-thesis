@@ -1,6 +1,7 @@
 #include "arena.h"
 #include "inst.h"
 #include "worklist.h"
+#include "bitset.h"
 #include "utils.h"
 #include "x86-64.h"
 
@@ -42,7 +43,7 @@ struct RegAllocState {
 	u32 *degree;
 
 	// Interference Graph
-	u8 *matrix; // bit map (u8/bool per vreg)
+	BitSet matrix; // bit map (u8/bool per vreg)
 	GArena *adj_list;
 
 	WorkList live_set;
@@ -112,7 +113,7 @@ reg_alloc_state_reset(RegAllocState *ras)
 		GROW_ARRAY(ras->use_cost, ras->vreg_capacity);
 		GROW_ARRAY(ras->unspillable, ras->vreg_capacity);
 		GROW_ARRAY(ras->degree, ras->vreg_capacity);
-		GROW_ARRAY(ras->matrix, ras->vreg_capacity * ras->vreg_capacity);
+		bs_grow(&ras->matrix, ras->vreg_capacity * ras->vreg_capacity);
 		GROW_ARRAY(ras->adj_list, ras->vreg_capacity);
 		ZERO_ARRAY(&ras->adj_list[old_vreg_capacity], ras->vreg_capacity - old_vreg_capacity);
 		wl_grow(&ras->live_set, ras->vreg_capacity);
@@ -141,7 +142,7 @@ reg_alloc_state_reset(RegAllocState *ras)
 	ZERO_ARRAY(ras->use_cost, ras->mfunction->vreg_cnt);
 	ZERO_ARRAY(ras->unspillable, ras->mfunction->vreg_cnt);
 	ZERO_ARRAY(ras->degree, ras->mfunction->vreg_cnt);
-	ZERO_ARRAY(ras->matrix, ras->N);
+	bs_reset(&ras->matrix, ras->N);
 	for (size_t i = 0; i < ras->mfunction->vreg_cnt; i++) {
 		garena_restore(&ras->adj_list[i], 0);
 	}
@@ -174,7 +175,7 @@ reg_alloc_state_free(RegAllocState *ras)
 	FREE_ARRAY(ras->use_cost, ras->vreg_capacity);
 	FREE_ARRAY(ras->unspillable, ras->vreg_capacity);
 	FREE_ARRAY(ras->degree, ras->vreg_capacity);
-	FREE_ARRAY(ras->matrix, ras->vreg_capacity);
+	bs_free(&ras->matrix, ras->vreg_capacity);
 	for (size_t i = 0; i < ras->vreg_capacity; i++) {
 		garena_free(&ras->adj_list[i]);
 	}
@@ -225,6 +226,17 @@ get_alias(RegAllocState *ras, Oper u)
 	return u;
 }
 
+static Oper
+bitmatrix_index(RegAllocState *ras, Oper u, Oper v)
+{
+	if (v < u) {
+		Oper tmp = v;
+		v = u;
+		u = tmp;
+	}
+	return u * ras->n + v;
+}
+
 bool
 are_interfering(RegAllocState *ras, Oper u, Oper v)
 {
@@ -236,10 +248,8 @@ are_interfering(RegAllocState *ras, Oper u, Oper v)
 	if (u == R_NONE || v == R_NONE) {
 		return true;
 	}
-	u8 one = ras->matrix[u * ras->n + v];
-	u8 two = ras->matrix[v * ras->n + u];
-	assert(one == two);
-	return one;
+	Oper index = bitmatrix_index(ras, u, v);
+	return bs_test(&ras->matrix, index);
 }
 
 void
@@ -255,10 +265,9 @@ add_interference(RegAllocState *ras, Oper u, Oper v)
 	fprintf(stderr, " ");
 	print_reg(stderr, v);
 	fprintf(stderr, "\n");
-	assert(ras->matrix[u * ras->n + v] == 0);
-	assert(ras->matrix[v * ras->n + u] == 0);
-	ras->matrix[u * ras->n + v] = 1;
-	ras->matrix[v * ras->n + u] = 1;
+	Oper index = bitmatrix_index(ras, u, v);
+	assert(!bs_test(&ras->matrix, index));
+	bs_set(&ras->matrix, index);
 	// Only populate adjacency lists for vregs. Adjacency lists for physical
 	// regs would be too large. We don't actually need them - color
 	// assigning needs only neighbours of vregs (since we have to choose a
