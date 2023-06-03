@@ -225,6 +225,7 @@ Princip, výhody
 
 Vhodné pro middle end optimalizace
 
+\label[sec:ssa-deconstruction]
 \sec SSA deconstruction
 
 SSA dekonstrukce potřeba alespoň někdy
@@ -339,7 +340,7 @@ LR parsování, ...) a peephole optimalizce (RTL, expanze a komprese)
 Oba přístupy v podstatě to samé, jakmile peephole přestane pracovat s
 instrukcemi, kterou jsou po sobě v CFG, ale začne využívat dataflow
 
-\sec Tiling
+\secc Tiling
 
 Základní idea
 
@@ -349,7 +350,7 @@ Potřebuje DAG nebo tree.
 
 Nevýhody - instrukce s více výstupy.
 
-\sec Peephole
+\secc Peephole
 
 Původní návrh Fraser a Davidson. Jejich cíl bylo mít jednoduchý generátor
 naivního kódu pro každou architekturu, univerzální \"register transfer"
@@ -1110,9 +1111,6 @@ essentially perform live range splitting everywhere. Other algorithms are not
 able to do splitting \"online" and require it to be done as a preprocessing
 step, in that case live range splitting can be even more important.
 
-TODO: live range splitting for machine constraints and ABI
-
-
 \seccc Register constraints
 
 Some instructions require the arguments to be in particular registers or produce
@@ -1237,9 +1235,6 @@ overwrites values the caller has stored. For that purpose registers are
 classified as either caller-saved (caller has to save the registers, if it uses
 them) or callee-saved (callee has to save the registers, if it wants to use
 them).
-
-We ideally would like to model these constraints in a relatively simple
-way, to not introduce special cases. It turns out that 
 
 The fact that a register is caller saved means that when a function performs a
 call, it has to pessimistically assume that the callee changes all the caller
