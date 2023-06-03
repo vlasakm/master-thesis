@@ -1491,14 +1491,19 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 			// lea t32, [t18+t50]
 			// =>
 			// lea t32, [t18+8*t50]
-			if (mode_has_memory(IM(inst)) && !is_rip_relative(inst) && IINDEX(inst) != R_NONE && IK(prev) == IK_IMUL3 && IM(prev) == M_Cri && IREG(prev) == IINDEX(inst) && IIMM(prev) == 8 && ISCALE(inst) == 0 && use_cnt[IREG(prev)] == 1) {
+			if (mode_has_memory(IM(inst)) && !is_rip_relative(inst) && IINDEX(inst) != R_NONE && IK(prev) == IK_IMUL3 && IM(prev) == M_Cri && IREG(prev) == IINDEX(inst) && ISCALE(inst) == 0 && use_cnt[IREG(prev)] == 1) {
+				switch (IIMM(prev)) {
+				case 1: ISCALE(inst) = 0; break;
+				case 8: ISCALE(inst) = 3; break;
+				default: goto skip_imul3;
+				}
 				use_cnt[IREG(prev)]--;
-				ISCALE(inst) = 3;
 				IINDEX(inst) = IREG2(prev);
 				inst->prev = pprev;
 				pprev->next = inst;
 				inst = inst;
 				continue;
+			skip_imul3:;
 			}
 
 			Inst *ppprev = pprev->prev;
@@ -1644,6 +1649,23 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 				continue;
 			}
 
+			// mov rax, 1
+			// ...
+			// lea rcx, [rcx+rax]
+			// =>
+			// lea rcx, [rcx+1]
+			//
+			// mov rax, 1
+			// lea rax, [rdi+8*rax]
+			// =>
+			// lea rax, [rdi+8]
+			if (IK(inst) == IK_MOV && IS(inst) == LEA && try_replace_by_immediate(mfunction, inst, IINDEX(inst))) {
+				IINDEX(inst) = R_NONE;
+				IDISP(inst) += IIMM(inst) << ISCALE(inst);
+				IIMM(inst) = 0;
+				continue;
+			}
+
 			// mov t25, 1
 			// ...
 			// push t25
@@ -1659,7 +1681,7 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 			// mov t26, [t25]
 			// =>
 			// mov t26, [rbp-24]
-			if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_CM && try_combine_memory(mfunction, inst)) {
+			if (IK(inst) == IK_MOV && IS(inst) != LEA && IM(inst) == M_CM && try_combine_memory(mfunction, inst)) {
 				continue;
 			}
 
