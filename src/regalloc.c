@@ -808,12 +808,6 @@ is_precolored(RegAllocState *ras, Oper op)
 }
 
 bool
-is_trivially_colorable(RegAllocState *ras, Oper op)
-{
-	return ras->degree[op] < ras->reg_avail;
-}
-
-bool
 is_significant(RegAllocState *ras, Oper op)
 {
 	return ras->degree[op] >= ras->reg_avail;
@@ -936,7 +930,7 @@ freeze_move(RegAllocState *ras, Oper u, Oper m, Inst *move)
 	Oper op2 = get_alias(ras, move->ops[1]);
 	assert(u == op1 || u == op2);
 	Oper v = op1 != u ? op1 : op2;
-	if (!is_move_related(ras, v) && is_trivially_colorable(ras, v)) {
+	if (!is_move_related(ras, v) && !is_significant(ras, v)) {
 		fprintf(stderr, "Move from freeze to simplify in freeze ");
 		print_reg(stderr, v);
 		fprintf(stderr, "\n");
@@ -1020,7 +1014,7 @@ choose_and_spill_one(RegAllocState *ras)
 void
 add_to_worklist(RegAllocState *ras, Oper op)
 {
-	if (!is_precolored(ras, op) && !is_move_related(ras, op) && is_trivially_colorable(ras, op)) {
+	if (!is_precolored(ras, op) && !is_move_related(ras, op) && !is_significant(ras, op)) {
 		fprintf(stderr, "Move from freeze to simplify ");
 		print_reg(stderr, op);
 		fprintf(stderr, "\n");
@@ -1048,13 +1042,7 @@ significant_neighbour_cnt(RegAllocState *ras, Oper op)
 }
 
 bool
-ok(RegAllocState *ras, Oper t, Oper r)
-{
-	return is_trivially_colorable(ras, t) || is_precolored(ras, t) || are_interfering(ras, t, r);
-}
-
-bool
-precolored_coalesce_heuristic(RegAllocState *ras, Oper u, Oper v)
+george_heuristic(RegAllocState *ras, Oper u, Oper v)
 {
 	assert(v >= R__MAX);
 	GArena *gadj_list = &ras->adj_list[v];
@@ -1065,7 +1053,7 @@ precolored_coalesce_heuristic(RegAllocState *ras, Oper u, Oper v)
 		if (wl_has(&ras->stack, t) || is_alias(ras, t)) {
 			continue;
 		}
-		if (!ok(ras, t, u)) {
+		if (is_significant(ras, t) && !are_interfering(ras, t, u)) {
 			return false;
 		}
 	}
@@ -1073,7 +1061,7 @@ precolored_coalesce_heuristic(RegAllocState *ras, Oper u, Oper v)
 }
 
 bool
-conservative_coalesce_heuristic(RegAllocState *ras, Oper u, Oper v)
+briggs_heuristic(RegAllocState *ras, Oper u, Oper v)
 {
 	size_t n = significant_neighbour_cnt(ras, u) + significant_neighbour_cnt(ras, v);
 	return n < ras->reg_avail;
@@ -1082,11 +1070,14 @@ conservative_coalesce_heuristic(RegAllocState *ras, Oper u, Oper v)
 bool
 are_coalesceble(RegAllocState *ras, Oper u, Oper v)
 {
-	if (u < R__MAX) {
-		return precolored_coalesce_heuristic(ras, u, v);
-	} else {
-		return conservative_coalesce_heuristic(ras, u, v);
+	// At this point `u` may be precolored (physical register) and `v`
+	// definitely isn't. This means that `u`'s list of neighbours may not be
+	// available.
+	bool coalescable = george_heuristic(ras, u, v);
+	if (!coalescable && !is_precolored(ras, u)) {
+		coalescable = briggs_heuristic(ras, u, v);;
 	}
+	return coalescable;
 }
 
 void
