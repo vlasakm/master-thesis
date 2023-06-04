@@ -900,13 +900,18 @@ decrement_degree(RegAllocState *ras, Oper op)
 	print_reg(stderr, op);
 	fprintf(stderr, "\n");
 	assert(ras->degree[op] > 0);
-	ras->degree[op]--;
-	if (is_trivially_colorable(ras, op)) {
-		fprintf(stderr, "%zu %zu\n", (size_t) op, (size_t) R__MAX);
+	if (ras->degree[op]-- == ras->reg_avail) {
 		assert(op >= R__MAX);
 		enable_moves_for_one(ras, op);
 		for_each_adjacent(ras, op, enable_moves_for_one);
-		wl_remove(&ras->spill_wl, op);
+		if (wl_has(&ras->freeze_wl, op)) {
+			// If we are decrementing degree of a move related node,
+			// it becoming insignificant doesn't change it's status,
+			// because it should remain in the freeze worklist until
+			// all the moves are processed.
+			return;
+		}
+		assert(wl_remove(&ras->spill_wl, op));
 		//fprintf(stderr, "Move from spill to %s ", is_move_related(ras, op) ? "freeze" : "simplify");
 		//print_reg(stderr, op);
 		//fprintf(stderr, "\n");
