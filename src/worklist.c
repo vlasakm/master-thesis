@@ -25,9 +25,6 @@ wl_init_all(WorkList *wl, Oper op)
 		wl->dense[i] = i;
 		wl->sparse[i] = i;
 	}
-	for (size_t i = wl->head; i < wl->tail; i++) {
-		assert(wl->sparse[wl->dense[i]] == (Oper) i);
-	}
 }
 
 void
@@ -40,9 +37,6 @@ wl_init_all_reverse(WorkList *wl, Oper op)
 		wl->dense[i] = op - i - 1;
 		wl->sparse[op - i - 1] = i;
 	}
-	for (size_t i = 0; i < op; i++) {
-		assert(wl->sparse[wl->dense[i]] == (Oper) i);
-	}
 }
 
 bool
@@ -53,7 +47,6 @@ wl_has(WorkList *wl, Oper op)
 	} else {
 		return (wl->sparse[op] >= wl->head || wl->sparse[op] < wl->tail) && wl->dense[wl->sparse[op]] == op;
 	}
-	//return wl->sparse[op] >= wl->head && wl->sparse[op] < wl->tail && wl->dense[wl->sparse[op]] == op;
 }
 
 bool
@@ -64,9 +57,6 @@ wl_add(WorkList *wl, Oper op)
 		wl->sparse[op] = wl->tail;
 		wl->dense[wl->tail] = op;
 		wl->tail = (wl->tail + 1) & wl->mask;
-		FOR_EACH_WL_INDEX(wl, i) {
-			assert(wl->sparse[wl->dense[i]] == (Oper) i);
-		}
 		return true;
 	}
 	return false;
@@ -90,9 +80,6 @@ wl_remove(WorkList *wl, Oper op)
 		wl->dense[wl->sparse[op]] = last;
 		wl->sparse[last] = wl->sparse[op];
 		wl->dense[wl->tail] = op;
-		FOR_EACH_WL_INDEX(wl, i) {
-			assert(wl->sparse[wl->dense[i]] == (Oper) i);
-		}
 		return true;
 	}
 	return false;
@@ -160,7 +147,7 @@ wl_eq(WorkList *wl, WorkList *other)
 void
 wl_free(WorkList *wl)
 {
-	free(wl->sparse);
-	free(wl->dense);
+	FREE_ARRAY(wl->sparse, wl->mask + 1);
+	FREE_ARRAY(wl->dense, wl->mask + 1);
 	*wl = (WorkList) {0};
 }
