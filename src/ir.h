@@ -235,7 +235,7 @@ typedef struct {
 
 void print_globals(FILE *f, Module *module);
 
-Field * get_member(Value *value);
+Field *get_member(Value *value);
 
 
 // IR passes (each in its own file)
