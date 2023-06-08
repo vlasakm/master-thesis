@@ -1709,7 +1709,7 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 			// mov [t25], t24
 			// =>
 			// mov [rbp-24], t24
-			if (IK(inst) == IK_MOV && IS(inst) == MOV && (IM(inst) == M_Mr || IM(inst) == M_Mi) && try_combine_memory(mfunction, inst)) {
+			if (IK(inst) == IK_MOV && IS(inst) != LEA && (IM(inst) == M_Mr || IM(inst) == M_Mi) && try_combine_memory(mfunction, inst)) {
 				continue;
 			}
 
