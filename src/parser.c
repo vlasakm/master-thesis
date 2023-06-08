@@ -41,6 +41,7 @@ typedef enum {
 #define TOKENS(KW, PU, OT) \
 	/* token            repr             nud + prec   led + prec + assoc */ \
 	OT(NUMBER,          "a number",      literal,   0, lefterr,  99, LEFT)  \
+	OT(CHARACTER,       "a character",   literal,   0, lefterr,  99, LEFT)  \
 	OT(IDENTIFIER,      "an identifier", ident,     0, lefterr,  99, LEFT)  \
 	OT(STRING,          "a string",      literal,   0, lefterr,  99, LEFT)  \
 	                                                                        \
@@ -163,6 +164,7 @@ lex_next(Lexer *lexer, Token *token)
 			case ALPHA: state = LS_IDENTIFIER; break;
 			case DIGIT: state = LS_NUMBER; break;
 			case '"': state = LS_STRING; start += 1; break;
+			case '\'': state = LS_CHAR; start += 1; break;
 			case '+': state = LS_PLUS; break;
 			case '-': state = LS_MINUS; break;
 			case '<': state = LS_LESS; break;
@@ -203,6 +205,19 @@ lex_next(Lexer *lexer, Token *token)
 		} break;
 		case LS_STRING_ESC: switch (c) {
 			case 'n': case 't': case 'r': case '"': case '\\': state = LS_STRING; break;
+			default: goto err;
+		} break;
+		case LS_CHAR: switch (c) {
+			case ALPHA: case DIGIT: state = LS_CHAR_AFTER; break;
+			case '\\': state = LS_CHAR_ESC; break;
+			default: goto err;
+		} break;
+		case LS_CHAR_ESC: switch (c) {
+			case 'n': case 't': case 'r': case '\'': case '\\': state = LS_CHAR_AFTER; break;
+			default: goto err;
+		} break;
+		case LS_CHAR_AFTER: switch (c) {
+			case '\'': tok = TK_CHARACTER; end_offset = -1; goto done;
 			default: goto err;
 		} break;
 		case LS_PLUS: switch(c) {
@@ -276,6 +291,9 @@ lex_next(Lexer *lexer, Token *token)
 		case LS_NUMBER: tok = TK_NUMBER; goto prev_done;
 		case LS_STRING: goto err;
 		case LS_STRING_ESC: goto err;
+		case LS_CHAR: goto err;
+		case LS_CHAR_ESC: goto err;
+		case LS_CHAR_AFTER: goto err;
 		case LS_PLUS: tok = TK_PLUS; goto prev_done;
 		case LS_MINUS: tok = TK_MINUS; goto prev_done;
 		case LS_LESS: tok = TK_LESS; goto prev_done;
@@ -660,6 +678,21 @@ literal(Parser *parser)
 	}
 	case TK_STRING: {
 		return rvalue(create_string(parser, token.str));
+	}
+	case TK_CHARACTER: {
+		const u8 *str = token.str.str;
+		i64 value = str[0];
+		if (str[0] == 0x5C) { // '\\'
+			switch (str[1]) {
+			case 0x6E: value = 0x0A; break; // '\n'
+			case 0x72: value = 0x0D; break; // '\r'
+			case 0x74: value = 0x09; break; // '\t'
+			case 0x5C: value = 0x5C; break; // '\\'
+			case 0x39: value = 0x39; break; // '\''
+			default: UNREACHABLE();
+			}
+		}
+		return rvalue(create_const(parser, &TYPE_INT, value));
 	}
 	default:
 		  UNREACHABLE();
