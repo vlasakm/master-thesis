@@ -446,7 +446,11 @@ print_inst(FILE *f, MFunction *mfunction, Inst *inst)
 		break;
 	case M_Mi:
 		fprintf(f, " ");
-		fprintf(f, "qword ");
+		if (IK(inst) == IK_MOV && IS(inst) == MOV8) {
+			fprintf(f, "byte ");
+		} else {
+			fprintf(f, "qword ");
+		}
 		print_mem(f, mfunction, inst);
 		fprintf(f, ", ");
 		fprintf(f, "%"PRIi32, IIMM(inst));
