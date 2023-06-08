@@ -63,6 +63,7 @@ struct MFunction {
 
 MFunction *mfunction_create(Arena *arena, Function *function, GArena *labels);
 void mfunction_free(MFunction *mfunction);
+void mfunction_finalize_stack(MFunction *mfunction);
 void print_mfunction(FILE *f, MFunction *mfunction);
 
 MBlock *mblock_create(Arena *arena, Block *block);

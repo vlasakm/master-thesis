@@ -17,6 +17,19 @@ mfunction_create(Arena *arena, Function *function, GArena *labels)
 	return mfunction;
 }
 
+void
+mfunction_finalize_stack(MFunction *mfunction)
+{
+	// Fixup stack space amount reserved at the start of the function
+	Oper stack_space = mfunction->stack_space - 8;
+	// Align the stack space to 16 bytes (mandated by the calling
+	// convention)
+	stack_space = (stack_space + 15) & -16;
+	if (mfunction->make_stack_space) {
+		IIMM(mfunction->make_stack_space) = stack_space;
+	}
+}
+
 MBlock *
 mblock_create(Arena *arena, Block *block)
 {

@@ -130,6 +130,16 @@ add_mov_imm(TranslationState *ts, Oper dest, u64 imm)
 	set_imm64(inst, imm);
 }
 
+static Inst *
+add_binop_imm(TranslationState *ts, X86Group1 op, Oper reg, Oper imm)
+{
+	Inst *inst = add_inst(ts, IK_BINALU, op, M_Ri);
+	inst->writes_flags = true;
+	IREG(inst) = reg;
+	IIMM(inst) = imm;
+	return inst;
+}
+
 static void
 add_set_zero(TranslationState *ts, Oper oper)
 {
@@ -260,6 +270,11 @@ translate_call(TranslationState *ts, Oper res, Oper fun, Oper *args, size_t arg_
 		add_copy(ts, argument_regs[gpr_index], args[i]);
 		gpr_index++;
 	}
+	// Odd number of pushed arguments => have to realign the stack to 16 bytes
+	bool odd_push = arg_cnt > ARRAY_LEN(argument_regs) && arg_cnt & 1;
+	if (odd_push) {
+		add_binop_imm(ts, G1_SUB, R_RSP, 8);
+	}
 	for (size_t i = arg_cnt; i > ARRAY_LEN(argument_regs) - 1; i--) {
 		add_push(ts, args[i - 1]);
 	}
@@ -267,6 +282,14 @@ translate_call(TranslationState *ts, Oper res, Oper fun, Oper *args, size_t arg_
 		add_set_zero(ts, R_RAX);
 	}
 	add_call(ts, fun, gpr_index);
+	// Pop arguments from the stack (if any)
+	if (arg_cnt > ARRAY_LEN(argument_regs)) {
+		Oper pop_size = 8 * (arg_cnt - (ARRAY_LEN(argument_regs) - 1) + odd_push);
+		if (pop_size > 0) {
+			add_binop_imm(ts, G1_ADD, R_RSP, pop_size);
+		}
+	}
+	// Copy return value
 	add_copy(ts, res, R_RAX);
 }
 
@@ -311,18 +334,14 @@ translate_prologue(TranslationState *ts)
 	add_copy(ts, R_RBP, R_RSP);
 
 	// Add instruction to make stack space, since we may spill we don't know
-	// how much stack space to reserve yet, we will replace the dummy '0'
+	// how much stack space to reserve yet, we will replace the dummy '42'
 	// with proper stack space requirement after register allocation. Note
 	// that due to constraints of encoding of this instruction, we can't
 	// address stack frame larger than 2 GiB (32 bit signed relative
 	// offfset). On the x86-64 this is much bigger than the entire available
 	// stack, but on other architectures where immediate offsets are
 	// smaller, this may need more consideration.
-	ts->make_stack_space = add_inst(ts, IK_BINALU, G1_SUB, M_Ri);
-	Inst *inst = ts->make_stack_space;
-	inst->writes_flags = true;
-	IREG(inst) = R_RSP;
-	IIMM(inst) = 0;
+	ts->make_stack_space = add_binop_imm(ts, G1_SUB, R_RSP, 42);
 
 	// Save callee saved registers to temporaries. That way the registers
 	// don't automatically intefere with everything (since they will be
@@ -1981,6 +2000,7 @@ main(int argc, char **argv)
 		print_mfunction(stderr, functions[i]->mfunction);
 		calculate_def_use_info(functions[i]->mfunction);
 		peephole(functions[i]->mfunction, arena, true);
+		mfunction_finalize_stack(functions[i]->mfunction);
 		print_mfunction(stderr, functions[i]->mfunction);
 		//*/
 		//peephole(functions[i]->mfunc, arena);

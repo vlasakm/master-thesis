@@ -405,7 +405,17 @@ is_to_be_spilled(SpillState *ss, Oper t)
 {
 	// NOTE: We make sure that even `to_spill` is in bounds even for vregs
 	// introduced for spill code, see `get_fresh_vreg_for_spill` above.
-	return ss->ras->to_spill[t];
+	//
+	// `to_spill[t]` = 0 => not spilled
+	return ss->ras->to_spill[t] != 0;
+}
+
+Oper
+spill_displacement(SpillState *ss, Oper t)
+{
+	// `to_spill[t]` = 0 => not spilled
+	// `to_spill[t]` > 0 => spilled, displacement is `-to_spill[t]`
+	return -ss->ras->to_spill[t];
 }
 
 Inst *create_inst(Arena *arena, InstKind kind, u8 subkind, X86Mode mode);
@@ -427,12 +437,11 @@ insert_loads_of_spilled(void *user_data, Oper *src)
 	fprintf(stderr, " through ");
 	print_reg(stderr, temp);
 	Inst *load = create_inst(ras->arena, IK_MOV, MOV, M_CM);
-	//Inst *load = make_inst(ras->arena, OP_MOV_RMC, temp, R_RBP, 8 + ras->to_spill[src]);
 	load->prev = inst->prev;
 	load->next = inst;
 	IREG(load) = temp;
 	IBASE(load) = R_RBP;
-	IDISP(load) = - 8 - ras->to_spill[*src];
+	IDISP(load) = spill_displacement(ss, *src);
 
 	inst->prev->next = load;
 	inst->prev = load;
@@ -504,13 +513,12 @@ insert_stores_of_spilled(void *user_data, Oper *dest)
 	print_reg(stderr, temp);
 	fprintf(stderr, "\n");
 
-	//Inst *store = make_inst(ras->arena, OP_MOV_MCR, R_RBP, temp, 8 + ras->to_spill[dest]);
 	Inst *store = create_inst(ras->arena, IK_MOV, MOV, M_Mr);
 	store->prev = inst;
 	store->next = inst->next;
 	IREG(store) = temp;
 	IBASE(store) = R_RBP;
-	IDISP(store) = - 8 - ras->to_spill[*dest];
+	IDISP(store) = spill_displacement(ss, *dest);
 
 	inst->next->prev = store;
 	inst->next = store;
@@ -549,8 +557,7 @@ rewrite_program(RegAllocState *ras)
 					// If this would be essentially:
 					//    mov [rbp+X], [rbp+X]
 					// we can just get rid of the copy.
-					assert(false);
-					if (ras->to_spill[dest] == ras->to_spill[src]) {
+					if (spill_displacement(ss, dest) == spill_displacement(ss, src)) {
 						inst->prev->next = inst->next;
 						inst->next->prev = inst->prev;
 					}
@@ -558,12 +565,12 @@ rewrite_program(RegAllocState *ras)
 					inst->mode = M_Mr;
 					IREG(inst) = src;
 					IBASE(inst) = R_RBP;
-					IDISP(inst) = - 8 - ras->to_spill[dest];
+					IDISP(inst) = spill_displacement(ss, dest);
 				} else if (spill_src) {
 					inst->mode = M_CM;
 					IREG(inst) = dest;
 					IBASE(inst) = R_RBP;
-					IDISP(inst) = - 8 - ras->to_spill[src];
+					IDISP(inst) = spill_displacement(ss, src);
 				}
 				continue;
 			}
@@ -1199,6 +1206,10 @@ assign_registers(RegAllocState *ras)
 		ras->reg_assignment[i] = i;
 	}
 
+	// Align stack offset to register size, so when we spill we allocate
+	// aligned register sized stack slots.
+	mfunction->stack_space = (mfunction->stack_space + 7) & -8;
+
 	Oper u;
 	while (wl_take_back(&ras->stack, &u)) {
 		assert(u >= R__MAX);
@@ -1292,7 +1303,6 @@ assign_registers(RegAllocState *ras)
 
 // Make all caller saved registers interfere with calls.
 
-
 void
 reg_alloc_function(RegAllocState *ras, MFunction *mfunction)
 {
@@ -1329,11 +1339,6 @@ reg_alloc_function(RegAllocState *ras, MFunction *mfunction)
 			break;
 		}
 		rewrite_program(ras);
-	}
-
-	// Fixup stack space amount reserved at the start of the function
-	if (mfunction->make_stack_space) {
-		IIMM(mfunction->make_stack_space) = mfunction->stack_space;
 	}
 	apply_reg_assignment(ras);
 }

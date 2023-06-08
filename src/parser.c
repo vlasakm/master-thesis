@@ -13,6 +13,9 @@ typedef enum {
 	LS_NUMBER,
 	LS_STRING,
 	LS_STRING_ESC,
+	LS_CHAR,
+	LS_CHAR_ESC,
+	LS_CHAR_AFTER,
 
 	LS_PLUS,
 	LS_MINUS,
