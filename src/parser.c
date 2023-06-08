@@ -1440,7 +1440,7 @@ statement(Parser *parser)
 		Type *return_type = ((FunctionType *) pointer_child(parser->current_function->base.type))->ret_type;
 		if (peek(parser) != TK_SEMICOLON) {
 			Value *value = as_rvalue(parser, expression(parser));
-			if (!types_compatible(value->type, return_type)) {
+			if (!types_compatible(return_type, value->type)) {
 				parser_error(parser, tok, false, "Type of returned value does not match nominal type");
 			}
 			add_unary(parser, VK_RET, &TYPE_VOID, value);
