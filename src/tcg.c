@@ -1219,6 +1219,26 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 				continue;
 			}
 
+			// add rax, 0 (and flags not observed)
+			// =>
+			// [deleted]
+			//
+			// add rax, 0 (and flags observed)
+			// =>
+			// test rax, rax
+			if (IK(inst) == IK_BINALU && IM(inst) == M_Ri && (((IS(inst) == G1_ADD || IS(inst) == G1_SUB || IS(inst) == G1_OR || IS(inst) == G1_XOR) && IIMM(inst) == 0) || (IS(inst) == G1_IMUL && IIMM(inst) == 1))) {
+				if (IOF(inst)) {
+					IK(inst) = IK_BINALU;
+					IS(inst) = G1_TEST;
+					IM(inst) = M_rr;
+					IREG2(inst) = IREG(inst);
+				} else {
+					inst->prev->next = inst->next;
+					inst->next->prev = inst->prev;
+				}
+				goto next;
+			}
+
 			// add ..., 1 (and flags not observed)
 			// =>
 			// inc ...
@@ -1999,8 +2019,8 @@ main(int argc, char **argv)
 		reg_alloc_function(ras, functions[i]->mfunction);
 		print_mfunction(stderr, functions[i]->mfunction);
 		calculate_def_use_info(functions[i]->mfunction);
-		peephole(functions[i]->mfunction, arena, true);
 		mfunction_finalize_stack(functions[i]->mfunction);
+		peephole(functions[i]->mfunction, arena, true);
 		print_mfunction(stderr, functions[i]->mfunction);
 		//*/
 		//peephole(functions[i]->mfunc, arena);
