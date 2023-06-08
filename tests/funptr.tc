@@ -1,0 +1,40 @@
+// vim: ft=c et sw=4
+
+int printf(char *, ...);
+
+typedef int (*funtype)(int);
+
+int fn1(int a) {
+	return a + 1;
+}
+
+int fn2(int a) {
+	return a + 2;
+}
+
+funtype select(int cond, funtype f, funtype g) {
+    funtype r;
+    if (cond) {
+        r = f;
+    } else {
+        r = g;
+    }
+    return r;
+}
+
+int call1(funtype f, int arg) {
+    return f(arg);
+}
+
+int call2(funtype f, int arg) {
+    return (*f)(arg);
+}
+
+int main() {
+    // > 204
+    int a = call1(select(0, &fn1, &fn2), 1);
+    int b = call2(select(1, &fn1, &fn2), 1);
+    // > 2 3
+    printf("%ld %ld\n", a, b);
+    return 0;
+}

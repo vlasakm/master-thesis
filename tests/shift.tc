@@ -1,0 +1,29 @@
+// vim: ft=c et sw=4
+
+int printf(char *, ...);
+
+int sll(int a, int b) {
+    return a << b;
+}
+
+int sar(int a, int b) {
+    return a >> b;
+}
+
+int main() {
+    // > 1
+    printf("%ld\n", sll(1, 0));
+    // > 2
+    printf("%ld\n", sll(1, 1));
+    // > 1024
+    printf("%ld\n", sll(1, 10));
+    // > 1
+    printf("%ld\n", sar(1, 0));
+    // > 0
+    printf("%ld\n", sar(1, 1));
+    // > -1
+    printf("%ld\n", sar(-1, 10));
+    // > -8
+    printf("%ld\n", sar(-128, 4));
+    return 0;
+}

@@ -1,0 +1,26 @@
+// vim: ft=c et sw=4
+
+int printf(char *, ...);
+
+char f() {
+	char a = 'a';
+	char one = '1';
+	return a - one;
+}
+
+void check(int cond) {
+    printf("%s\n", cond ? "ok" : "not ok");
+}
+
+int main() {
+    char diff = f();
+    // > ok
+    check(diff == 48);
+    // > ok
+    check('\n' == 10);
+    // > ok
+    check('\r' == 13);
+    // > ok
+    check("\n"[0] == '\n');
+    return 0;
+}
