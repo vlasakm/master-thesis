@@ -583,7 +583,7 @@ as_lvalue(Parser *parser, CValue cvalue, char *msg)
 static Type *
 parse_type(Parser *parser, bool allow_void)
 {
-	Type *type;
+	Type *type = &TYPE_VOID;
 	Token token = discard(parser);
 	switch (token.kind) {
 	case TK_VOID: type = &TYPE_VOID; break;
@@ -597,7 +597,6 @@ parse_type(Parser *parser, bool allow_void)
 		break;
 	}
 	default:
-		type = &TYPE_VOID;
 		parser_error(parser, token, false, "Unexpected token %s in type specifier", tok_repr[token.kind]);
 	}
 
