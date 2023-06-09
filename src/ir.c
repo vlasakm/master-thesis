@@ -47,6 +47,14 @@ replace_value(Value *old, Value *new)
 	new->prev = old->prev;
 }
 
+void
+change_to_identity(Operation *operation, Value *source)
+{
+	assert(value_operand_cnt(&operation->base) >= 1);
+	operation->base.kind = VK_IDENTITY;
+	operation->operands[0] = source;
+}
+
 bool
 value_is_terminator(Value *value)
 {

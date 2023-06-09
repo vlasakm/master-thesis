@@ -530,12 +530,6 @@ translate_operand(TranslationState *ts, Value *operand)
 void
 translate_value(TranslationState *ts, Value *v)
 {
-	if (v->kind == VK_PHI) {
-		// Don't translate phi nor its operands -- they are handled in
-		// the predecessors.
-		return;
-	}
-
 	fprintf(stderr, "Translating: ");
 	print_value(stderr, v);
 
@@ -682,19 +676,7 @@ translate_value(TranslationState *ts, Value *v)
 		break;
 	}
 	case VK_JUMP: {
-		Block *current = ts->block->block;
-		Block *succ = (Block *) ((Operation *) v)->operands[0];
-		size_t pred_index = block_index_of_pred(succ, current);
-		size_t i = 0;
-		FOR_EACH_PHI_IN_BLOCK(succ, phi) {
-			Oper t = translate_operand(ts, phi->operands[pred_index]);
-			add_copy(ts, ops[i++] = ts->index++, t);
-		}
-		i = 0;
-		FOR_EACH_PHI_IN_BLOCK(succ, phi) {
-			add_copy(ts, VINDEX(phi), ops[i++]);
-		}
-		add_jmp(ts, succ->base.index);
+		add_jmp(ts, ops[0]);
 		break;
 	}
 	case VK_BRANCH:
@@ -709,7 +691,8 @@ translate_value(TranslationState *ts, Value *v)
 		translate_return(ts, NULL);
 		break;
 	case VK_PHI: {
-		// Nothing to do. We translate phis in jumps from predecessors.
+		// SSA should have been deconstructed _before_ translation.
+		UNREACHABLE();
 		break;
 	}
 	}
@@ -934,6 +917,32 @@ single_exit(Arena *arena, Function *function)
 
 	// Recompute function->post_order, since we invalidated it.
 	compute_postorder(function);
+}
+
+static void
+deconstruct_ssa(Arena *arena, Function *function)
+{
+	for (size_t b = function->block_cnt; b--;) {
+		Block *block = function->post_order[b];
+		FOR_EACH_PHI_IN_BLOCK(block, phi) {
+			Type *type = phi->base.type;
+			size_t index = function->value_cnt++;
+			size_t i = 0;
+			FOR_EACH_BLOCK_PRED(block, pred_) {
+				Value *pred_block = &(*pred_)->base;
+				Value *copy = create_unary(arena, VK_IDENTITY, type, phi->operands[i++]);
+				copy->index = index;
+				copy->parent = pred_block;
+				// Append copy to the end of the block
+				prepend_value(pred_block->prev, copy);
+			}
+			// Transform the phi into a copy of the virtual register
+			// with `index` (which we do through a dummy operation).
+			Value *dummy = &create_operation(arena, VK_NOP, type, 0)->base;
+			dummy->index = index;
+			change_to_identity(phi, dummy);
+		}
+	}
 }
 
 MFunction *
@@ -2011,6 +2020,8 @@ main(int argc, char **argv)
 		single_exit(arena, functions[i]);
 		print_function(stderr, functions[i]);
 		///*
+		deconstruct_ssa(arena, functions[i]);
+		print_function(stderr, functions[i]);
 		translate_function(arena, &labels, functions[i]);
 		calculate_def_use_info(functions[i]->mfunction);
 		print_mfunction(stderr, functions[i]->mfunction);

@@ -141,6 +141,10 @@ void prepend_value(Value *pos, Value *new);
 
 void remove_value(Value *v);
 
+void replace_value(Value *old, Value *new);
+
+void change_to_identity(Operation *operation, Value *source);
+
 Operation *create_operation(Arena *arena, ValueKind kind, Type *type, size_t operand_cnt);
 
 Value *create_unary(Arena *arena, ValueKind kind, Type *type, Value *arg);
