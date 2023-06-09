@@ -786,7 +786,7 @@ thread_jumps(Arena *arena, Function *function)
 		if (VK(succ->base.next) == VK_PHI) {
 			// If the (only) successors has phi nodes, than bail
 			// out, since we currently are not able to handle it.
-			//continue;
+			continue;
 		}
 		// Block is empty and has only one successor. We can just
 		// forward the jumps from predecessors to the successor.
