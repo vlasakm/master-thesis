@@ -1053,7 +1053,7 @@ try_replace_by_immediate(MFunction *mfunction, Inst *inst, Oper o)
 		return false;
 	}
 	assert(mfunction->def_count[o] == 1);
-	if (!(IK(def) == IK_MOV && IS(def) == MOV && IM(def) == M_CI)) {
+	if (IK(def) != IK_MOV || IS(def) != MOV || IM(def) != M_CI) {
 		return false;
 	}
 	if (!pack_into_oper(get_imm64(def), &IIMM(inst))) {
@@ -1308,10 +1308,10 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 			// mov t26, [t25]
 			// =>
 			// mov t26, [rbp-24]
-			if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_CM && IINDEX(inst) == R_NONE && ISCALE(inst) == 0 && IDISP(inst) == 0 && IK(prev) == IK_MOV && IS(prev) == LEA && IM(prev) == M_CM && IBASE(inst) == IREG(prev) && use_cnt[IREG(prev)] == 1) {
+			if (IK(inst) == IK_MOV && IS(inst) != LEA && IM(inst) == M_CM && IINDEX(inst) == R_NONE && ISCALE(inst) == 0 && IDISP(inst) == 0 && IK(prev) == IK_MOV && IS(prev) == LEA && IM(prev) == M_CM && IBASE(inst) == IREG(prev) && use_cnt[IREG(prev)] == 1) {
 				def_cnt[IREG(prev)]--;
 				use_cnt[IREG(prev)]--;
-				IS(prev) = MOV;
+				IS(prev) = IS(inst);
 				IREG(prev) = IREG(inst);
 				prev->next = inst->next;
 				inst->next->prev = prev;
@@ -1323,7 +1323,7 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 			// add rax, rcx
 			// =>
 			// add rax, [global1]
-			if (IK(inst) == IK_BINALU && IM(inst) == M_Rr && IK(prev) == IK_MOV && IS(prev) == MOV && IM(prev) == M_CM && IREG2(inst) == IREG(prev) && IREG(inst) != IREG2(inst) && use_cnt[IREG(prev)] == 1) {
+			if (IK(inst) == IK_BINALU && IM(inst) == M_Rr && IK(prev) == IK_MOV && IS(prev) != LEA && IM(prev) == M_CM && IREG2(inst) == IREG(prev) && IREG(inst) != IREG2(inst) && use_cnt[IREG(prev)] == 1) {
 				def_cnt[IREG(prev)]--;
 				use_cnt[IREG(prev)]--;
 				IM(prev) = M_RM;
@@ -1340,7 +1340,7 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 			// cmp t13, 10
 			// =>
 			// cmp [rbp-16], 10
-			if (IK(inst) == IK_BINALU && IM(inst) == M_ri && IK(prev) == IK_MOV && IS(prev) == MOV && IM(prev) == M_CM) {
+			if (IK(inst) == IK_BINALU && IM(inst) == M_ri && IK(prev) == IK_MOV && IS(prev) != LEA && IM(prev) == M_CM) {
 				IM(inst) = M_Mi;
 				ISCALE(inst) = ISCALE(prev);
 				IINDEX(inst) = IINDEX(prev);
@@ -1433,7 +1433,7 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 			// =>
 			// mov [G], t27
 			// mov t28, t27
-			if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_CM && IK(prev) == IK_MOV && IS(prev) == MOV && IM(prev) == M_Mr && is_memory_same(inst, prev)) {
+			if (IK(inst) == IK_MOV && IS(inst) != LEA && IM(inst) == M_CM && IK(prev) == IK_MOV && IS(prev) != LEA && IM(prev) == M_Mr && is_memory_same(inst, prev)) {
 				use_cnt[IREG(prev)]++;
 				IM(inst) = M_Cr;
 				IREG2(inst) = IREG(prev);
@@ -1445,7 +1445,7 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 			// mov qword [rax], 3
 			// =>
 			// mov qword [rbp-8], 3
-			if (IK(inst) == IK_MOV && IS(inst) == MOV && (IM(inst) == M_Mi || IM(inst) == M_Mr) && IK(prev) == IK_MOV && IS(prev) == LEA && IINDEX(prev) == R_NONE && ISCALE(prev) == 0 && IBASE(inst) == IREG(prev) && use_cnt[IREG(prev)] == 1) {
+			if (IK(inst) == IK_MOV && IS(inst) != LEA && (IM(inst) == M_Mi || IM(inst) == M_Mr) && IK(prev) == IK_MOV && IS(prev) == LEA && IINDEX(prev) == R_NONE && ISCALE(prev) == 0 && IBASE(inst) == IREG(prev) && use_cnt[IREG(prev)] == 1) {
 				IBASE(inst) = IBASE(prev);
 				IDISP(inst) += IDISP(prev);
 				inst->prev = prev->prev;
@@ -1459,7 +1459,7 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 			// =>
 			// mov qword [t17+8], 5
 			// NOTE: only valid if t17 is not used anywhere
-			if (IK(inst) == IK_MOV && IS(inst) == MOV && (IM(inst) == M_Mi || IM(inst) == M_Mr) && IK(prev) == IK_BINALU && IS(prev) == G1_ADD && IM(prev) == M_Ri && IBASE(inst) == IREG(prev) && use_cnt[IBASE(inst)] == 2) {
+			if (IK(inst) == IK_MOV && IS(inst) != LEA && (IM(inst) == M_Mi || IM(inst) == M_Mr) && IK(prev) == IK_BINALU && IS(prev) == G1_ADD && IM(prev) == M_Ri && IBASE(inst) == IREG(prev) && use_cnt[IBASE(inst)] == 2) {
 				def_cnt[IBASE(inst)]--;
 				use_cnt[IBASE(inst)]--;
 				IDISP(inst) += IIMM(prev);
@@ -1560,7 +1560,7 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 			// mov t21, t18
 			// add t21, t19 ; W
 			// mov [rbp-16], t21
-			if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_Mr && IK(prev) == IK_BINALU && IM(prev) == M_Rr && IREG(prev) == IREG(inst) && IK(pprev) == IK_MOV && IS(pprev) == MOV && IM(pprev) == M_Cr && IREG(pprev) == IREG(inst) && IK(ppprev) == IK_MOV && IS(ppprev) == MOV && IM(ppprev) == M_Mr && IREG(ppprev) == IREG2(pprev) && is_memory_same(inst, ppprev)) {
+			if (IK(inst) == IK_MOV && IS(inst) != LEA && IM(inst) == M_Mr && IK(prev) == IK_BINALU && IM(prev) == M_Rr && IREG(prev) == IREG(inst) && IK(pprev) == IK_MOV && IS(pprev) == MOV && IM(pprev) == M_Cr && IREG(pprev) == IREG(inst) && IK(ppprev) == IK_MOV && IS(ppprev) != LEA && IM(ppprev) == M_Mr && IREG(ppprev) == IREG2(pprev) && is_memory_same(inst, ppprev)) {
 				ppprev->prev->next = pprev;
 				pprev->prev = ppprev->prev;
 				inst = pprev;
@@ -1653,7 +1653,7 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 			// =>
 			//|... t32, ...|
 			// mov [t14], CONST
-			if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_Mr && try_replace_by_immediate(mfunction, inst, IREG2(inst))) {
+			if (IK(inst) == IK_MOV && IS(inst) != LEA && IM(inst) == M_Mr && try_replace_by_immediate(mfunction, inst, IREG2(inst))) {
 				IM(inst) = M_Mi;
 				continue;
 			}
