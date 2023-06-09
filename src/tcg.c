@@ -769,7 +769,7 @@ merge_simple_blocks(Arena *arena, Function *function)
 	}
 
 	// Recompute function->post_order, since we invalidated it.
-	compute_preorder(function);
+	compute_postorder(function);
 }
 
 // NOTE: May introduce critical edges.
@@ -824,7 +824,7 @@ thread_jumps(Arena *arena, Function *function)
 	}
 
 	// Recompute function->post_order, since we invalidated it.
-	compute_preorder(function);
+	compute_postorder(function);
 }
 
 void
@@ -867,7 +867,7 @@ split_critical_edges(Arena *arena, Function *function)
 	}
 
 	// Recompute function->post_order, since we invalidated it.
-	compute_preorder(function);
+	compute_postorder(function);
 }
 
 typedef struct {
@@ -933,7 +933,7 @@ single_exit(Arena *arena, Function *function)
 	garena_free(&gphis);
 
 	// Recompute function->post_order, since we invalidated it.
-	compute_preorder(function);
+	compute_postorder(function);
 }
 
 MFunction *

@@ -1532,7 +1532,7 @@ function_declaration(Parser *parser, Function *function)
 
 	// Complete the function
 	if (!parser->had_error) {
-		compute_preorder(function);
+		compute_postorder(function);
 	}
 	env_pop(&parser->env);
 	parser->current_function = NULL;

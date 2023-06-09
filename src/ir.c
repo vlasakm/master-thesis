@@ -86,6 +86,8 @@ Value NOP = { .type = &TYPE_VOID, .kind = VK_NOP };
 Operation *
 insert_phi(Arena *arena, Block *block, Type *type)
 {
+	// Find the position where to insert the phi. It should be inserted as
+	// the last phi in the group of phis at the start of a block.
 	Value *non_phi;
 	for (non_phi = block->base.next; non_phi != &block->base; non_phi = non_phi->next) {
 		if (VK(non_phi) != VK_PHI) {
@@ -93,6 +95,9 @@ insert_phi(Arena *arena, Block *block, Type *type)
 		}
 	}
 	Operation *phi = arena_alloc(arena, sizeof(*phi) + sizeof(phi->operands[0]) * block_pred_cnt(block));
+	// Due to possible cyclic nature of phis, the operands may be read as
+	// their values are being deteremined. As we don't want unitialized
+	// memory to be read, we initialize the operands iwth dummy NOPs.
 	for (size_t i = 0; i < block_pred_cnt(block); i++) {
 	     phi->operands[i] = &NOP;
 	}
@@ -162,8 +167,10 @@ block_succs(Block *block)
 	Value *last = block->base.prev;
 	switch (VK(last)) {
 	case VK_JUMP:
+		// Jump has just the one succesor operand.
 		return (Block **) &((Operation *) last)->operands[0];
 	case VK_BRANCH:
+		// Branch has the condition and then two successor operands.
 		return (Block **) &((Operation *) last)->operands[1];
 	default:
 		assert(block_succ_cnt(block) == 0);
@@ -434,11 +441,19 @@ function_is_fully_defined(Function *function)
 static void dfs(Block *block, size_t *index, Block **post_order);
 
 void
-compute_preorder(Function *function)
+compute_postorder(Function *function)
 {
+	// Reserve sufficient space in the post order array
 	GROW_ARRAY(function->post_order, function->block_cap);
+	// Reset the number of blocks in the post order array to zero. Depth
+	// first search will only count reachable blocks, thus this value will
+	// become the number of reachable blocks (in the post order array).
 	function->block_cnt = 0;
+	// Perform Depth First Search on the blocks, starting from entry block
+	// and following all successors.
 	dfs(function->entry, &function->block_cnt, function->post_order);
+	// Reset the `visited` flag on blocks, so we can comput post odrer in
+	// the same way next time.
 	for (size_t b = function->block_cnt; b--;) {
 		function->post_order[b]->base.visited = 0;
 	}

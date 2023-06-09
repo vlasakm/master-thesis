@@ -214,7 +214,7 @@ Function *create_function(Arena *arena, Str name, Type *type);
 
 bool function_is_fully_defined(Function *function);
 
-void compute_preorder(Function *function);
+void compute_postorder(Function *function);
 
 void print_function(FILE *f, Function *function);
 
