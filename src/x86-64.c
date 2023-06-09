@@ -157,7 +157,6 @@ static const char *ik_repr[] = {
 	"",
 	"",
 	"",
-	"",
 	"imul",
 	"",
 	"jmp",
@@ -188,7 +187,6 @@ static const char *mov_repr[] = {
 };
 
 static const char **is_repr[] = {
-	no_repr,
 	no_repr,
 	mov_repr,
 	g1_repr,
@@ -320,24 +318,27 @@ void
 copy_memory(Inst *dest, Inst *src)
 {
 	// This copies normal x86-64 addressing mode:
+	//
 	//     [base+scale*index+disp]
+
 	ISCALE(dest) = ISCALE(src);
 	IINDEX(dest) = IINDEX(src);
 	IBASE(dest) = IBASE(src);
 	IDISP(dest) = IDISP(src);
+
 	// The other addressing mode is:
+	//
 	//     [rip+disp]
+	//
 	// It uses IBASE(inst) = R_NONE and the displacement is actually
 	// label+displacement, which are encoded using ILABEL(inst) and
 	// IDISP(inst). Since we copy IBASE IDISP above and ILABEL aliases with
-	// ISCALE, which we also copied above, it works for both cases.
+	// ISCALE, which we also copied above, the code works for both cases.
 }
 
 void
 print_reg(FILE *f, Oper reg)
 {
-	//if (reg <= 0) {
-		//reg = -reg;
 	if (reg < R__MAX) {
 		fprintf(f, "%s", reg_repr[reg]);
 	} else {
@@ -348,8 +349,6 @@ print_reg(FILE *f, Oper reg)
 void
 print_reg8(FILE *f, Oper reg)
 {
-	//if (reg <= 0) {
-		//reg = -reg;
 	if (reg < R__MAX) {
 		fprintf(f, "%s", reg_repr8[reg]);
 	} else {

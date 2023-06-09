@@ -174,8 +174,6 @@ enum {
 };
 
 typedef enum {
-	//IK_HEAD, // Machine Function or Machine Basic Block (head of the doubly linked list)
-	IK_FUNCTION, // Machine Function (head of the doubly linked list)
 	IK_BLOCK, // Machine Basic Block (head of the doubly linked list)
 	IK_MOV, // MOV, LEA, ZX8, SX16, ...
 	IK_BINALU, // ADD, SUB, ...
