@@ -148,6 +148,27 @@ V XX dne XX.\,XX.\,TODO
 
 \chap Introduction
 
+Computers are useful tools that accept programs and input data and produce
+output data. Most computers are based on the binary numeral system---they use zeros
+and ones. Because of this, data and programs also had to be expressed as ones
+and zeros. While representing for example numbers is relatively easy, expressing
+other data, like text is more challenging. Even more so, if the computers
+interact with humans who need to be able to enter data and programs and read
+back results.
+
+Constructing computers with hardwired programs, which essentially can serve only
+a specialized purpose was never feasibly. Compilers are designed to be able to
+read programs as well as the data. This way, they can not just solve different
+variations of the same problem, but different problems altogether.
+
+ISA
+
+Backend vs frontend.
+
+General instructions sets allow the same algorithm to be implemented in many
+ways using many different instructions and their modes. Because we want to use
+the power of our machines to the maximum, another goal of compilers is to
+translate the programs as well as possible.
 
 
 \chap x86-64 architecture
@@ -158,6 +179,7 @@ dlouhá historie
 
 původně 16 bit,
 
+TODO mnemonics vs opcodes
 
 \sec Characteristics
 
@@ -198,6 +220,7 @@ Srovnání s t86
 kapitola o představení teorie za různými částmi překladače a zmínka zavedených
 existujících algoritmů a jejich přístupů
 
+\label[sec:backend]
 \sec Structure of a compiler backend
 
 Instruction selection + Instruction scheduling + Register allocation
@@ -608,6 +631,9 @@ $\phi$-instruction) can be replaced by one representative and the
 $\phi$-instruction eliminated. This means that for example the following code
 (in conventional SSA):
 
+\begtt
+TODO
+\endtt
 
 Can be translated just by \"omitting the versions":
 
@@ -616,34 +642,51 @@ TODO
 \endtt
 
 Importantly, in~\cite[Sreedhar1999] they also consider {\em transformed SSA},
-which doesn't have the {\em phi congruence property} and present three methods
-for transforming transformed SSA into conventional SSA. The three methods
-actually build on top of each other and successive methods make use of liveness
-(described later in section~\ref[liveness]) and interferences (also described in
-a later section, \ref[interference]), but the first method is remarkably
-simple. In addition to the copies in predecessor blocks a copy of the
-$\phi$-instruction is added. But these are different copies than in previous
-algorithms! Here, we are still in the realm of SSA, so these copies can actually
-be considered {\em aliases} for the original values and they obey the single
-assignment property:\fnote{In fact, exactly because these SSA values are aliases, they
-are folded by algorithms like {\em copy folding}, which are the ones producing
-the transformed SSA form, which exhibits problems with naive SSA
+which doesn't have the {\em phi congruence property}, and present three methods
+for transforming transformed SSA into conventional SSA.
+The first method is remarkably simple. In addition to the copies in predecessor
+blocks a copy of the $\phi$-instruction is added. But these are different copies
+than in previous algorithms! Here, we are still in the realm of SSA, so these
+copies can actually be considered {\em aliases} for the original values and they
+obey the single assignment property:\fnote{In fact, exactly because these SSA
+values are aliases, they are folded by algorithms like {\em copy folding}, that
+result in transformed SSA form, which exhibits problems with naive SSA
 deconstruction.}
 
 \begtt
 TODO
 \endtt
 
-
+The next two methods gradually build on top the first one and additionally make
+use of liveness (described later in section~\ref[liveness]) and interferences
+(also described in a later section, \ref[interference]), to prevent inserting
+too many unnecessary copies.
 
 Full SSA deconstruction based on Sreedhar's approach thus consists of
-conventionalization of the SSA form, merge of virtual registers in the same phi
+transformation to conventional SSA form, merge of virtual registers in the same phi
 congruence class (\"drop of versions of variables") and simple deletion of the
 $\phi$-instructions.
 
+The most comprehensive treatment of SSA deconstruction was done
+by~\cite[Boissinot2009]. Their approach highlights more subtle issues with SSA
+deconstruction, and presents an algorithm partly based on~\cite[Sreedhar1999],
+which mainly aims for mainly correctness, but also quality (of the generated
+code) and efficiency (of the SSA deconstruction). The signature of their
+algorithm are three passes, which strictly separate between correctness and
+optimization. Their approach also makes use of some advantages of SSA, like fast
+liveness checking.
 
-
-Since the problems stem from the fact that 
+Copies can be eliminated by {\em coalescing}. Intuitively, if we merge the
+source and destination of a copy instruction into a single virtual register,
+then no copy instruction is needed (since it would be a copy to itself).
+Basic approaches to SSA deconstruction insert copies freely and depend on
+eliminate the copies through coalescing. But doing some coalescing in SSA
+deconstruction stage can help greatly, since many fewer virtual registers need
+to be considered in register allocation stage (speeding up all aspects of it).
+Also, while in SSA form analysis, many analysis are faster and cheaper to
+compute and more information may be available to guide the coalescing. Because
+of these reasons both~\cite[Sreedhar1999] (methods 2 and 3)
+and~\cite[Boissinot2009] do coalescing as part of SSA deconstruction.
 
 Briggs describes extensions to SSA deconstruction that are able to correctly
 translate the two examples, but 
@@ -721,67 +764,328 @@ that has to happen sometimes before machine code is emitted.
 %values to some other secondary information), there is no real semantic reason to
 %do so.
 
-So in SSA form values are produced from other values and these values sometimes
-represent operations, instructions that execute and compute the values,
-otherwise values just represent static objects. In machine code we only have
-a few physical registers and instructions which usually read from registers and
-memory and also write to registers and memory. To translate SSA form we need to
-somehow map the values into registers, translate SSA instructions (value
-computations) to machine instructions, and we also need to somehow translate the
-static objects and be able to take their addresses.
-
-A powerful abstraction that pretty much all compilers have used is, to pretend
-in early stages that there is an infinite amount of registers available, the so
-called \"virtual registers". A later stage, called {\em register
-allocation}, is responsible for translating the use of unlimited amount of
-virtual registers into a fixed amount of physical (machine) registers, which is
-available for the particular kind of processor we are targeting. Even though
-there are techniques which do register allocation in SSA form and deconstruct
-SSA form only after (or during) register allocation, we will focus more on the
-traditional approach of deconstructing SSA form before register allocation and
-thus we will have the luxury of unlimited supply of (virtual) registers. We will
-number the virtual registers from $1$ and we will prefix them with the letter
-\"t" (for {\em temporary})\fnote{Using \"v" as \"virtual register" would be
-possible, but would clash with our notation for numbering SSA {\em values}.} for
-example `t1` represents the first virtual register.
-
-With the constraints given above, translating SSA to something like a three
-address code is relatively straightforward. The first register in three address
-code is the destination, where the result of the computation is written, while
-the other two registers are the sources, the arguments of the instruction. Each
-SSA value (which is an operation) can thus be assigned its own virtual register,
-which will hold the SSA value and like in SSA it will be assigned statically
-just once. But other instructions translated later will be able to refer to
-it through that virtual register. So something like:
-
-\begtt
-v3 = mul v1, v2
-v4 = div v1, v2
-\endtt
-
-Can be translated to:
-
-\begtt
-mul t3, t1, t2
-div t4, t1, t2
-\endtt
-
-For readability purposes, we used one-to-one mapping from value numbers (used
-for the textual notation of SSA form) to virtual registers. This makes it easy
-to follow by human, but the compiler itself doesn't have to do it this way, it
-just has to ensure to use a consistent mapping of values to virtual registers.
-The mapping is not as straightforward as it might seem though, because 
-
-Another so far neglected aspect of SSA form are the $\phi$ instructions. No real
-processors offers something like $\phi$ instruction, so we have to translate
-them specially.
-
-Important question is also {\em when} do 
-
-
-Since no real processor implements something like a $\phi$ instruction, which 
+%So in SSA form values are produced from other values and these values sometimes
+%represent operations, instructions that execute and compute the values,
+%otherwise values just represent static objects. In machine code we only have
+%a few physical registers and instructions which usually read from registers and
+%memory and also write to registers and memory. To translate SSA form we need to
+%somehow map the values into registers, translate SSA instructions (value
+%computations) to machine instructions, and we also need to somehow translate the
+%static objects and be able to take their addresses.
+%
+%A powerful abstraction that pretty much all compilers have used is, to pretend
+%in early stages that there is an infinite amount of registers available, the so
+%called \"virtual registers". A later stage, called {\em register
+%allocation}, is responsible for translating the use of unlimited amount of
+%virtual registers into a fixed amount of physical (machine) registers, which is
+%available for the particular kind of processor we are targeting. Even though
+%there are techniques which do register allocation in SSA form and deconstruct
+%SSA form only after (or during) register allocation, we will focus more on the
+%traditional approach of deconstructing SSA form before register allocation and
+%thus we will have the luxury of unlimited supply of (virtual) registers. We will
+%number the virtual registers from $1$ and we will prefix them with the letter
+%\"t" (for {\em temporary})\fnote{Using \"v" as \"virtual register" would be
+%possible, but would clash with our notation for numbering SSA {\em values}.} for
+%example `t1` represents the first virtual register.
+%
+%With the constraints given above, translating SSA to something like a three
+%address code is relatively straightforward. The first register in three address
+%code is the destination, where the result of the computation is written, while
+%the other two registers are the sources, the arguments of the instruction. Each
+%SSA value (which is an operation) can thus be assigned its own virtual register,
+%which will hold the SSA value and like in SSA it will be assigned statically
+%just once. But other instructions translated later will be able to refer to
+%it through that virtual register. So something like:
+%
+%\begtt
+%v3 = mul v1, v2
+%v4 = div v1, v2
+%\endtt
+%
+%Can be translated to:
+%
+%\begtt
+%mul t3, t1, t2
+%div t4, t1, t2
+%\endtt
+%
+%For readability purposes, we used one-to-one mapping from value numbers (used
+%for the textual notation of SSA form) to virtual registers. This makes it easy
+%to follow by human, but the compiler itself doesn't have to do it this way, it
+%just has to ensure to use a consistent mapping of values to virtual registers.
+%The mapping is not as straightforward as it might seem though, because 
+%
+%Another so far neglected aspect of SSA form are the $\phi$ instructions. No real
+%processors offers something like $\phi$ instruction, so we have to translate
+%them specially.
 
 \sec Instruction selection
+
+Instruction selection is the process which translates a compiler's intermediate
+representation to machine instructions. While compiler middleend intermediate
+representations ({\em IRs}, which are machine independent) are usually made to
+be easily optimizable, machine instructions are usually designed to be
+conveniently executable by a processor.
+
+To ease translation and split concerns instruction selection is usually allowed
+to assume that there is an infinite amount of registers available. A later
+phase, called {\em register allocation}, then.
+
+If the middle end IR and machine instruction set are relatively close, then even
+something as simple as one-to-one mappings are possible. For example, this
+middle end IR:
+
+Can be translated to the following RISC-V code:
+
+
+The mapping is easy, because RISC machine instructions, where all operations are
+done on registers, and only load and store instructions touch memory, closely
+resemble the three address code used by the IR above. Even on CISC
+architectures (which are known by allowing most instructions to use memory
+operands and various addressing modes), translation of RISC-like middleend IRs
+is straightforward, since simple forms of instructions are still available and
+the complex features will simply not be used. For example, this is how the
+piece of IR above could be translated to x86-64:
+
+But use of advanced addressing modes and memory operands in arithmetic
+instructions can improve the generated code considerably:
+
+Even though we can intuitively tell that the code is \"better", it is very
+important to consider exactly why. {\em Fewer instructions} are used, but is the code
+{\em smaller}? Does it execute faster? Does \"faster" consider throughput as well
+as latency? These questions should be considered by instruction selection and
+their answers should guide the instruction selector to find better code. Often,
+instruction selectors operate in a {\em cost} based model, where each
+instruction is given a cost  and, if possible, instructions with the lowest cost
+are chosen. This cost should ideally consider all mentioned factors, but can be
+hard to balance between speed and size trade-off, and since both can be important
+in different scenarios, having different instruction costs for different
+situations can make sense.
+
+Different orders of instructions can have impact on execution speed as well.
+Usually, this problem is not considered as part of instruction selection, and
+separate {\em instruction scheduling} pass is used to reorder instructions to a
+more favorable order. Instruction scheduling is described
+in~\ref[sec:instruction-scheduling].
+
+\secc Techniques
+
+The first two instruction selections presented above, can be done pretty simply
+programatically. Each IR instruction is in turn {\em expanded} into one or more
+machine instructions. Registers (or more precisely {\em virtual registers} in this
+stage before register allocation) are used as means of abstraction---each
+instruction reads operands from registers and writes results to registers.
+Different operand kinds (such as immediates or memory locations) are handled by
+special few instructions that are able to load immediate or perform load from
+memory or store to memory. The use of registers has to be consistent, e.g.
+if an instruction maps to multiple instructions which need a temporary register,
+none of the input registers should be used, since further IR instructions may
+also read from them. Either a fresh virtual register has to be allocated, or one
+of the destination registers can be used, since they will be overwritten
+anyways.
+
+This method produces a simple one-to-many translation. While the instruction
+sequence emitted for each single opcode can be optimal, most of the interesting
+instruction selection opportunities stem from the fact that there are
+instructions which combine several operations. In same cases this means
+many-to-many or even many-to-one mappings.
+
+There are three fundamentally different schools of handling instruction selection.
+Most existing algorithms for instruction selection fall into one of these three
+categories, though even algorithms falling into the same category can differ
+significantly in their speed (how fast they run), quality (how fast does the
+produced code run) and capabilities (e.g. ability to handle multiple
+destinations).
+
+\seccc Peephole optimization
+
+Peephole optimization is a general optimization technique (see
+section~\ref[sec:peephole]). It is applicable to any compiler stage, but in the
+backend peephole optimization is often associated to final improvements to
+machine code after instruction selection, instruction scheduling and register
+allocation. But peephole optimization has been applied even to perform
+instruction selection. To distinguish this, the technique is often called {\em
+instruction selection by peephole optimization}.
+
+The idea for instruction selection by peephole optimization is simple. If the
+naive expansion method produces a simple one-to-many translation, we can improve
+it, by a peephole optimization pass that can find patterns and replace multiple
+instructions with shorter instruction sequences or more efficient ones. Since a
+lot of expansions are mere translations one-to-one even a relatively small
+peephole window can actually examine many instructions in the original IR.
+
+But, while the peephole optimization can be done on the machine instructions
+themselves, they are not much suitable for optimization. Apart from that, they
+are also machine specific, and while improvements to instruction selection are
+machine specific by nature, it is preferable if a single mechanism can drive
+the optimization for many different instruction sets. Also, writing the peephole
+optimization patterns by hand is tedious and does not scale for a compiler
+targeting many architectures.
+
+Influential in this are was the algorithm by Davidson and
+Fraser~\cite[Davidson1980]. Their retargetable peephole optimizer is based on
+{\em register transfers}, which describe simple low level machine
+operations---like actual transfers among registers, but also arithmetic and
+settings of flags. Each machine instruction has an associated {\em register
+transfer list}, which describe the effects of the instruction. Their algorithm
+then operates in three passes:
+
+\begitems \style n
+* Translate all machine instructions to register transfer lists.
+
+* Iterate over the register transfer list backwards and determine the observable
+effects (register transfers) of each list.
+
+* Iterate over the register transfer lists forwards and check for each pair of
+whether there is an instruction whose register transfer list has the combined
+effects of the pair. If there is, it combine the two register transfers.
+
+* Iterate forward over the code and for each register transfer list find an
+instruction that implements it and emit it.
+\enditems
+
+The first step is actually optional, since the compiler can generate the
+register transfers directly, but nominally their algorithm both reads and writes
+machine instructions. The register transfers are only an immediate step, and
+importantly the backwards pass deletes unobservable effects, which don't need to
+be implemented by the combined instructions. The effects are mainly assignments
+to registers and flags, which they both handle in a unified way. Since an
+assigned (virtual) register or a flag may not ever be read before being assigned
+again, it may be deleted. The deletion may take form of either combining into an
+instruction which doesn't have the extraneous effect (in phase 3) or replacement
+by a single final instruction (phase 4) which also doesn't need to have the
+extra effect. This is a form of dead code elimination (since for example an
+empty register transfer list doesn't translate to any instruction) but the
+extraneous assignments are kept if there isn't an instruction that doesn't have
+them (for example, most arithmetic instructions set flags, even if they are not
+needed, there may be no other instruction that doesn't set the flags).
+
+Important aspect of Davidson's and Fraser's approach is that the correspondence
+between register transfers and machine instruction is described by a textual
+file called {\em machine description}. The compiler interprets the file and uses
+it to map instructions to register transfers (phase 1), replace pairs of
+register transfer lists (phase 3) and to map register transfer lists back to
+instructions (phase 4). All of these phases use the textual description and are
+thus based on operations with strings. This has the advantage that the compiler
+is easily retargetable just by swapping out the machine descriptions. Since in
+the last phase register transfer lists are mapped back to instructions the
+algorithm has to obey an invariant, that any produced register transfer list is
+implementable by at least one instruction, this is why phase 3 is guided by the
+machine description and why the machine description has to be written with care.
+In phase 4, if more machine instructions can implement the same register
+transfer list the first one in the machine description is chosen (simply because
+the algorithm tries to match with all instructions one-by-one). This can be used
+to model (relative) costs of instructions with equivalent behavior.
+
+Later improvement of the algorithm by the same authors~\cite[Davidson1984a]
+better formalized the phases of the algorithm (figure~\ref[fig:TODO]). The {\em
+expander} produces register transfers, {\em combiner} combines pairs of
+instructions and {\em assigner} translates register transfers back to machine
+instructions (and in their approach also performs register allocation).
+Combiner and assigner are now improved and based on finite automaton generated at compile
+time of the compiler ({\em compiler-compile time}), making them much faster.
+Though the simulation of combined effects of instructions happens still on
+strings. {\em Cacher} is a new addition and performs (local) common
+subexpression elimination by keeping track of what values are available in what
+registers in a basic block. Another powerful addition was consideration of not
+only {\em lexicographically adjacent} instructions, but also {\em logically
+adjacent} instructions---so instead of considering instructions in their {\em control
+flow} order, they are considered based on {\em data-flow}. This allowed to
+consider simple definitions (like constants) to be folded into instructions,
+even if they fell out of the small peephole window.
+
+Davidson's and Fraser's design turned out to be very influential in the area of
+peephole optimization, in particular the idea of expanding the instructions
+into a machine independent representation, that exposes even the smallest
+operations, performing optimizations and then combining the operations into
+machine instructions. This aspect is kept by a lot of compilers using peephole
+optimization for instruction selection. Even though it makes bigger peephole
+windows necessary, using data-flow helps considerably. The idea of a
+machine description that is preprocessed at compiler-compile time also stuck,
+since it can be slow (as compiler is rarely compiled often by the end user), but
+can speed up the compiler itself tremendously.
+
+Other aspects of the original Davidson and Fraser didn't catch much. For later
+algorithms opted for a {\em fixed set of patterns}, in place of deriving them on
+the fly with symbolic execution. These patterns used to be written by
+hand, but considering the existence of the machine descriptions and symbolic
+executors based on them, Davidson and Fraser~\cite[Davidson1984b] used them to
+derive the patterns. They do this by introducing a set of programs known as the
+{\em training set}, over which they run their classical peephole
+optimizer~\cite[Davidson1984a]. With each (unique) performed optimization they
+write it to a file, which is then used to run a more limited peephole optimizer,
+which operates only based on these patterns. While the files are still text
+based, they use {\em string interning} through a hash based data structure to
+avoid comparing strings and to speed up strings comparisons.
+
+TODO: figure data-flow vs control flow
+
+TODO: examples
+
+%Apart from important improvements to the algorithm itself, in
+%\cite[Davidson1984a] they point out important interactions between the middleend
+%and backend that make their approach work well
+
+%Machines have many specifics and special cases that are just too hard to handle
+%at the code generator ({\em expander}) level. On x86-64 these can for example be
+%zeroing out registers with `xor reg, reg` instead of with `mov reg, 0`, or using
+%the `lea` (intended for address computations) to perform ordinary arithmetic.
+%Handling these specifics in when selecting instructions would mean a lot of case
+%analysis. If instead the code generator is as naive as possible and based on a
+%relatively simple.
+
+%Only the expander depends
+%
+%Though
+%the string operations and no preprocessing of the machine descriptions with
+%combination of symbolic combination of effects of instructions meant that the
+%compiler wasn't that fast.
+%
+%However, k
+%
+%Their peephole optimizer traverses the list of instructions and
+%tries to find for each pair a single instruction that has the combined effects. 
+%
+%Many of these problems have been solved by Davidson and
+%Fraser~\cite[Davidson1980, Davidson1982, Davidson1984]. Their peephole optimizer
+%operates on {\em register transfer lists}, which are a machine independent
+%representation of low level operations performed by instructions, many of which
+%are indeed register transfers, but include also arithmetic and manipulations
+%with flags. The register transfers describe {\em effects} of instructions and
+%their peephole optimizer examines each pair (and later triplet) of instructions
+%and replaces them with a single equivalent instruction if it exists. The
+%combined effects of more instructions are simulated symbolically and
+%single instructions having the combined effects are looked up in a {\em machine
+%description}. 
+%
+%
+%
+%With this machine independent representation, they represent machine
+%dependent instructions---the same representation can be used for many
+%architectures. Additionally, their algorithm is driven by a symbolic machine
+%description, so a single algorithm works for all architectures and support for
+%new architectures can be easily added. The peephole patterns and optimizations
+%themselves are not present in these machine descriptions. The peephole optimizer
+%bases the optimizations entirely on 
+%
+%---as the peephole
+%optimizer goes through the code, it simulates pairs (and triples) of
+%instructions and, if applicable, replaces them by more efficient single
+%instruction.
+%
+%Since the 
+
+
+
+%This late peephole optimization doesn't have many opportunities for
+%optimization, since instructions have already been selected, ordered and
+%registers allocated. On top of that, the three big backend phases in a
+%production grade often use global techniques, but the peephole optimizer has
+%only a too local view. This 
+
+\seccc Covering
+
+\seccc Reduction
 
 Dva hlavní přístupy tiling (tree, DAG, dynamic programming, bottom up rewrite,
 LR parsování, ...) a peephole optimalizce (RTL, expanze a komprese)
@@ -1560,6 +1864,7 @@ essentially perform live range splitting everywhere. Other algorithms are not
 able to do splitting \"online" and require it to be done as a preprocessing
 step, in that case live range splitting can be even more important.
 
+\label[sec:regalloc-constraints]
 \seccc Register constraints
 
 Some instructions require the arguments to be in particular registers or produce
@@ -2376,6 +2681,38 @@ ILP, IBQP
 
 \chap Design and implementation
 
+\begtt
+* Advanced, global, optimizing techniques should be used.
+
+* The source code may be read by students of the NI-GEN course, who have not yet
+written a compiler backend yet.
+
+* The compiler should explore how TinyC features translate to constraints of a
+real architecture.
+
+* Execution on real hardware (x86-64 CPU) and operating system should be
+possible.
+
+* Since programs rarely live in vacuum, the produced code should be able to
+interface with the operating system and foreign code.
+\endtt
+
+After careful evaluation of the thesis task and other circumstances we set the
+following goals for the implementation of a TinyC backend for x86-64 and a
+runtime:
+
+\begtt
+
+* Simplicity of the compiler structure and of the code shall be one of the main
+goals, because the backend will serve as a demonstration of compiling TinyC to a
+real machine architecture.
+
+\endtt
+
+Since this backend will compile to real machine code, comparisons with other
+compilers will be possible and the relative performance of our solution should
+be evaluated.
+
 Přístupnost, jednoduchost =>
 
 C (známé, žádné závisloti, možnost reprezentovat datové struktury přesně podle
@@ -2388,17 +2725,661 @@ pokročilé a dobré algoritmy, ale ne úplně dnešní state of the art
 
 \sec Architecture
 
+Main interest of this thesis is a backend. As introduced in
+section~\ref[sec:backend] the main goal of a compiler backend is to translate
+from a (preferably machine independent) intermediate representation into machine
+instructions that can be executed by the processor.
+
+The popularity of SSA for middleend optimizations and recent developments in the
+field of register allocation on SSA form make it very appealing even for a
+backend. In theory the same SSA representation can be used even for the backend.
+In practice, this can't work well in an optimizing compiler, which should be
+able to optimize based on the machine architecture at hand. 
+
+
+
+The TinyC frontend used in the NI-GEN course
+
 Rozvržení fází, nějaké diagramy, přechody mezi reprezentacemi atd.
 
 \sec Data structures
 
 \secc Middle-end
 
+Even though middle-end is not a direct part of a backend in a compiler, they
+interact with each, since the 
+
 SSA IR, inspirované LLVM
 
 \secc Back-end
 
-Machine independent representation of machine dependent instructions
+This section describes the reasoning, motivation and design of the data
+structures core to the backend.
+
+%Even though compiler backends are usually considered architecture specific,
+%often we wa
+
+%The basic data structure of the backend is a {\em machine instruction},
+%represented in the compiler as struct type `Inst`, whose definition is show in
+%TODO. The name has been kept deliberately short, since {\em everything} in a
+%backend works with instructions. The goal of the `Inst` type is to represent
+%machine instructions.
+
+Machine instructions usually consist of two essential parts:
+
+\begitems
+* opcode
+
+* operands
+\enditems
+
+The opcode usually packs together a few things:
+
+\begitems
+* the operation itself,
+
+* the number of operands and their kinds,
+\enditems
+
+Operand kinds are usually:
+
+\begitems
+ * registers,
+ * immediates
+ * memory locations
+\enditems
+
+One possible representation for instructions contains the opcode and the
+operands, where the operands also encode their kind. In such representations,
+tagged unions can be used with advantage: the `kind` field in a structure
+encodes the operand kind, while the (anonymous) `union` allows the storage for
+the data (\"payloads") of all the different kinds of operands. This
+representation of x86-64 instructions is sketched here TODO:
+
+\begtt
+typedef uint32_t Register;
+typedef uint64_t Immediate;
+
+typedef enum {
+	ML_REG,
+	ML_REG_DISP,
+	ML_BASE_INDEX_DISP,
+	ML_RIP_DISP,
+	[...]
+} MemoryLocationKind;
+
+typedef struct {
+	MemoryLocationKind kind;
+	union {
+		struct {
+			Register reg;
+		} reg;
+		struct {
+			Register reg;
+			Immediate displacement;
+		} reg_disp;
+		struct {
+			Register base;
+			Register index;
+			Immediate displacement;
+		} base_index_disp;
+		struct {
+			Immediate displacement;
+		} rip;
+		[...]
+	};
+} MemoryLocation;
+
+typedef enum {
+	O_REG,
+	O_IMM,
+	O_MEM,
+} OperandKind;
+
+typedef struct {
+	OperandKind kind;
+	union {
+		Register reg;
+		Immediate imm;
+		MemoryLocation mem;
+	};
+} Operand;
+
+typedef enum {
+	[...]
+} OpCode;
+
+typedef struct {
+	OpCode opcode;
+	Operand operands[];
+} Instruction;
+\endtt
+
+Registers and immediates are represented directly with integer types.
+Since we want to use the representation for instructions both {\em before} and
+{\em after} register allocation, the integers representing registers will change
+meaning---before register allocation they could either mean physical or virtual
+registers and after register allocation only references to physical registers
+would be allowed. Physical registers are used even before register allocation to
+express {\em machine constraints} (see section~\ref[sec:regalloc-constraints]).
+
+Operands array is represented with a flexible array member, which means that
+number of allocated operands may be customized for each instruction. On
+x86-64, instructions have at most three operands, so the array could be
+statically sized, if wasting a bit of memory is acceptable for each instruction
+is acceptable.
+
+The number of operands can be usually derived from the opcode. (This also
+implies that two and three operand multiplications have to be distinguished by
+the {\em opcode}, even though they use the same {\em mnemonic} in assembly. See
+section~\ref[x86-instructions] for more details.)
+
+One problem with the representation is, that it allows invalid forms of
+instructions to be easily represented. For example even three memory operands are
+allowed, even though x86-64 only allows at most one memory operand. Since
+`MemoryLocation` is the biggest member of the `union`, this also makes the
+struct larger than necessary if only one memory operand is ever used.
+
+The representation of x86-64 memory locations poses a bit of a problem, since
+there are many ways of specifying a memory location (see
+section~\ref[sec:x86-memory]). In the usual SIB mode essentially all components
+(the base register, index register, scale and displacement) are optional.
+Having a variant for each combination soon becomes unwieldy---not just to list
+the variants, but to work with them. For example a function checking whether the
+memory location uses an index register would have to check whether the kind of
+the instruction is one of the ones that use an index register. Iteration over
+all involved registers is also a bit cumbersome, because the registers are mixed
+with immediates and different variants of the union store registers differently.
+
+Instead a more flat representation, where all the fields are in the struct
+(without any unions) can simplify matters, because it is more uniform:
+
+\begtt
+typedef struct {
+	MemoryLocationKind kind;
+	Register base;
+	Register index;
+	Immediate scale;
+	Immediate displacement;
+} MemoryLocation;
+\endtt
+
+This representation is however also problematic, because the `union` essentially
+became implicit. Not all fields are valid, and this depends on the kind, which
+still has to be investigated. Even iteration didn't become much easier because
+of that. However, the differences between the memory location variants are
+mostly due to fields being optional.
+
+Instead of deriving the validity of the fields from the `kind`, we could reserve
+one special value for each field to mean that the field is actually not present.
+For displacements this is very natural, since absence of a displacement is very
+similar to the displacement being zero.\fnote{It is very different in
+the actual {\em encoding} of the instruction, since modes with displacement need
+the displacement to be present even if it is zero. But this is a detail that can
+be handled by a future stage of the compiler. Just like the fact that on the
+x86-64 the displacement can be either 8 bit or 32 bit. Choosing the 8 bit form
+may be deferred to much later stage of the compilation. This is different with
+64 bit displacements. Since no instruction allows 64 bit displacement, the late
+stage of compilation shouldn't ever need to encode such displacement, this
+should be handled in instruction selection phase, because different {\em
+instructions} have to be used.} For scale, similar thing applies---absence of
+scale and scale being one are essentially equivalent. For registers a special value would
+have to be reserved meaning that the register is not used. Normally, the
+compiler would have to be very careful not to end up with an invalid combination
+of absent fields, but since with x86-64 memory locations {\em all} fields are
+optional, it is not even a problem. The representation could thus be simplified
+to:
+
+\begtt
+typedef struct {
+	Register base;
+	Register index;
+	Immediate scale;
+	Immediate displacement;
+} MemoryLocation;
+\endtt
+
+Iteration over the registers is a bit easier---as long as the invalid register
+value is handled specially everywhere, it is possible to iterate over both
+`base` and `index` unconditionally. Though still it is not ideal, because the
+iterator would either have to be callback based or would have to employ code
+duplication to work on both of the register fields. Arrays are much nicer for
+iteration, which leads to the following idea:
+
+\begtt
+typedef struct {
+	Register reg[2];
+	Immediate imm[2];
+} MemoryLocation;
+\endtt
+
+Arrays are ideal for iteration. Though the problem is now accessing specific
+register or immediate, because hardcoded indices have to be used to access them
+in the arrays. Some kind of nested anonymous `struct` and `union` combination
+would have to be used to make both possible:
+
+\begtt
+typedef struct {
+	union {
+		struct {
+			Register reg[2];
+			Immediate imm[2];
+		};
+		struct {
+			Register base;
+			Register index;
+			Immediate scale;
+			Immediate displacement;
+		};
+	};
+} MemoryLocation;
+\endtt
+
+Or macros could be used to abstract away the ugly indexing:
+
+\begtt
+typedef struct {
+	Register reg[2];
+	Immediate imm[2];
+} MemoryLocation;
+
+#define BASE(mem)         ((mem)->reg[0])
+#define INDEX(mem)        ((mem)->reg[1])
+#define SCALE(mem)        ((mem)->imm[0])
+#define DISPLACEMENT(mem) ((mem)->imm[1))
+\endtt
+
+We have essentially {\em flattened} the memory location representation to a form
+that allows easy addressing of individual fields as well as iteration.
+
+Going back to the full instruction representation, we can apply similar
+flattening principles. In particular, we can also make the representation even
+more uniform, by noticing that even memory locations, the most structured kind
+of operand, are made up of just registers and immediates. And registers as well
+as immediates can be represented by integers. Now the memory locations,
+immediates and registers can all fit into one uniform structure containing an
+array of integer \"operands":
+
+\begtt
+typedef long Operand;
+
+typedef struct {
+	OpCode opcode;
+	Operand operands[];
+} Instruction;
+\endtt
+
+The meaning of individual slots in the operands array could either depend on the
+opcode, or be the same for opcodes if we are willing to sacrifice memory and
+keep representation of all instruction uniform---in that case the flexible array
+member could also be replaced by fixed size array.
+
+In the end, the following representation is what we arrived at:
+
+\begtt
+typedef uint32_t Oper;
+
+typedef struct Inst Inst;
+struct Inst {
+	Inst *next;
+	Inst *prev;
+	uint8_t kind;
+	uint8_t subkind;
+	uint8_t mode;
+	[...]
+	Oper ops[];
+};
+\endtt
+
+The split of opcode into `kind` and `subkind` is beneficial, because there are
+opcodes that have very similar characteristics and handling them all at once
+through the `kind` field is convenient. For example while there are 16 different
+conditional jump opcodes, most of the time we don't care much about the
+particular opcode (`subkind`), just the fact that it is an indirect jump
+(`kind`). Other groups form nicely:
+
+\begitems
+* binary ALU operations,
+* unary ALU operations,
+* shifts,
+* conditional moves,
+* long division and multiplication,
+* etc.
+\enditems
+
+Conveniently conditional jumps, conditional moves, and conditional set
+instructions are all based on the same 16 {\em condition codes} (see
+section~\ref[x86-cc]), so `subkind` can be the condition code for all three of
+these.
+
+The `mode` field is what gives the meaning to the individual slots of `ops`
+(operands). In theory, modes could just differentiate between the kinds of
+operands used. For example, two operand instructions usually have the following
+modes:
+
+\begitems
+* register, register
+* register, memory
+* memory, register
+* memory, immediate
+\enditems
+
+However, for register allocation we want more information about the involved
+registers. In particular, we want to iterate over all the {\em defined} and all
+{\em used} registers separately. Registers used for forming memory locations are
+only used, never defined, even if the instruction is store instruction which
+writes a value---the value is stored to {\em memory}, not the register.
+But other register operands may actually be either just defined, just
+used or both. The  For example, consider the following instructions:
+
+\begtt
+mov rax, 1       ; rax just used
+add rax, 2       ; rax used and then defined
+imul rbx, rax, 4 ; rbx just defined, rax just used
+cmp rax, rbx     ; rax just used, rbx just used
+mov [rax], rcx   ; rax just used, rcx just used
+mov rax, [rcx]   ; rax just defined, rcx just used
+xor [rbp+16], -1 ; rbp just used
+\endtt
+
+Interestingly, `add`  and `cmp` which on the x86-64 are very similar and can be
+grouped under the same `kind` use different mode even in the two register form:
+`cmp` unlike `add` doesn't write to the first register. This is one of the
+benefits of separating `mode` and `kind` instead of grouping them into a single
+`opcode` field.
+
+To save space, `kind`, `subkind` and `mode` are all small integers. And while
+they have their meaning by themselves, other information may be associated with
+them by considering them as indices into arrays with associated information for
+each. Such arrays can be used to hold for example string representations of
+kinds and subkinds.
+
+These \"descriptor arrays" are more interesting for modes. They list for each
+mode which part of the operands correspond to {\em defined} and which to {\em
+used} registers:
+
+\begtt
+typedef struct {
+	uint8_t def_start;
+	uint8_t def_end;
+	uint8_t use_start;
+	uint8_t use_end;
+	[...]
+} ModeDescriptor;
+\endtt
+
+The `def_start` field gives the starting index of {\em defined} registers in `ops`,
+`def_end` the index one past the last defined register. Analogously for {\em
+used} registers. In practice, mode descriptors can look like this:
+
+\begtt
+ModeDescriptor formats[] = {
+	// first only defined, first two used,
+	// e.g. add rax, rcx
+	[M_Rr] = { 0, 1, 0, 2, },
+	// none defined, first two used
+	// e.g. test rax, rcx
+	[M_rr] = { 0, 0, 0, 2, },
+	// first defined, second used
+	// e.g. mov rax, rcx
+	[M_Cr] = { 0, 1, 1, 2, },
+	 // first defined, first three used
+	// e.g. add rax, [rcx+rdx]
+	[M_RM] = { 0, 1, 0, 3, },
+}
+\endtt
+
+The naming convention for modes has one operand per each letter after
+underscore. Here the letter `r` means only used register, `R` used and defined register,
+`C` only defined register and `M` stands for memory. This representation with
+indices is nice for x86-64, because it allows {\em overlap} between the used and
+defined registers. For example, the first mode used and later defines the same
+register, hence it is covered by both ranges.
+
+One of the important aspects of the representation is, that each register
+logically present in an instruction is present {\em only once} in the
+representation. Alternatively a different representation could have forbidden
+any overlap between used and defined registers, and if a register is both used
+and defined, then it would be listed twice in the representation. However, since
+there is only one register logically, only one of these two would get serialized
+(e.g. or printed to assembly) and both of them would have to be kept in sync.
+
+Keeping the two mentions of the same registers in sync is tricky in situations
+like spilling, where uses and definitions of a register are replaced by loads
+and stores through fresh virtual registers. In case a register that is both
+used and defined, a single virtual register has to be used for both the load and
+store.
+
+Actual layout of the `ops` for x86-64 is illustrated by figure TODO. The
+representation fits operands for each mode into just 6 operand slots. Not all modes
+use all 6 slots, but they are allocated with them nonetheless, since it makes it
+universally possible to just change mode and some operands to transform one
+instruction into another. It also simplifies memory management, since the
+it prevents fragmentation of memory and additionally free instructions kept in
+one simple free list.
+
+All 6 operand slots are needed for only one instruction: 3 operand `imul` with
+register (1 slot), memory (2 register and 2 immediate slots) and immediate (1
+slot) arguments. 
+
+Different slots are used for different purposes in different addressing modes.
+But the assignment has been kept consistent as long as possible. For example,
+most modes have one main register, which is always in the first slot. The single
+memory operand always uses the slots 1 through 4. Slot 1 is also used in case
+there are two registers involved---in which case memory operand is not used.
+
+The fact that different slots have different purposes in different modes sadly
+makes the representation a bit harder to understand. On the other hand, most of
+it is hidden behind accessor macros and is really close to the encoding of the
+x86-64 instructions. Of course the actual x86-64 encoding is much more compact.
+But for example the following two instruction (load and store) are encoded in
+the same way in both the backend representation and the actual x86-64 encoding:
+
+\begtt
+mov rax, [rdx+2*rcx]
+mov [rdx+2*rcx], rdx
+\endtt
+
+In x86-64 serialization, the only difference is one bit in the opcode field
+(the {\em direction bit}), while in our backend representation they have different
+mode (`M_CM`, i.e. register and memory vs `M_Mr`, i.e. memory and register).
+
+So far, the fact that `Oper` is defined as 32-bit unsigned integer has been
+neglected. It may seem as a weird choice, considering that when an immediates
+are generally considered signed by the architecture. In practice, there are two
+good reasons for this:
+
+
+%is used as either operand of an arithmetic instruction or as a value to
+%be stored into memory, or as a displacement for a memory location it is
+%understood as {\em signed}, i.e. in 64-bit contexts (both arithmetic and memory
+%calculations) it is {\em sign extended} to 64-bits.
+
+\begitems
+* Immediates for most x86-64 instructions are limited to 32 bits. So limiting
+them to the same range makes it obvious that special handling of larger
+immediates is needed.
+
+* Unsigned integers have defined representation and behaviour in C, as well as
+on the x86-64. With signed integers this is not true: C doesn't define the
+representation of signed numbers, while on the x86-64 signed integers use {two's complement}
+representation. When, for example, evaluating constant expressions in the peephole
+optimizer, the semantics of the x86-64 should be used, {\em not} the semantics
+of machine the compiler is running on. Two's complement semantics should be used
+for immediates, which is easier to do portably on unsigned numbers.
+\enditems
+
+Notably the \"move immediate into register" is the only x86-64 instruction
+supported by our backend, which allows a 64-bit immediate. It stores the immediate
+in two 32-bit operand slots. The large immediate is only accessible through two
+accessor functions, which promote careful handling.
+
+The fields of the `Inst` structure are accessed through macros:
+
+\begtt
+#define IK(inst) ((inst)->kind)
+#define IS(inst) ((inst)->subkind)
+#define IM(inst) ((inst)->mode)
+\endtt
+
+Naming is intentionally very terse, especially the peephole uses them {\em a
+lot}---in our opinion long names would bring no sizeable benefits. The \"`I`"
+prefix on all the macros stands for \"`Inst`", which accomplishes at least some
+namespacing in C.
+
+Another so far neglected aspect of the modes and operands were {\em labels}.
+Even though ultimately all instructions compile out the memory location
+displacements into up to 32-bit numbers, some addresses are {\em logically}
+connected to (often named) objects. In the following example, the address of the
+second field of a global variable has an address relative to the start of the
+global variable:
+
+\begtt
+struct S {
+    int a;
+    int b;
+};
+
+S global_struct;
+
+[...]
+    global_struct.b = 5;
+[...]
+\endtt
+
+As explained in section~\ref[x86-rip], we want to (or even need to) use
+RIP-relative addressing for global variables. RIP-relative addressing uses the
+instruction pointer (\"register" `rip`) and a 32-bit displacement. However, the
+real displacement to `global_struct.b` or even to `global_struct` is not known
+until after the final executable is linked together. As a zero-initialized
+global variable, `global_struct` will be put into the `.bss` section.
+`.bss` sections from all object files are merged into one `.bss` section, so
+the real displacements cannot be known until all object files are linked
+together. Hence earlier compiler stages need to somehow encode relative address
+without knowing the final displacements. Without going into further details, in
+ELF object files this is done through relocations. Assemblers usually support
+labels, for example our target NASM would allow the following:
+
+\begtt
+mov qword [rel global_struct + 8], 5
+\endtt
+
+The `rel` keyword is important, as it forces RIP-relative addressing.
+%
+%RIP-relative addressing
+%is perhaps better illustrated in AT\&T assembly syntax, for example as produced
+%by GCC:
+%
+%\begtt
+%%movl $5, 8+global_struct(%rip)
+%\endtt
+%
+The assembler doesn't write out the \"label plus offset" information into the
+object file, it resolves the address to a relative position in this object
+file's (in this case) `.bss` section. Our compiler has to use the NASM syntax
+with the label. But even if it did produce object files directly, it would be
+necessary to associate the address of global variable's field with the global
+variable itself.
+
+For this {\em labels} are used. Like other `Oper`s, labels are just integers. In
+this case each integer corresponds to an entry in a label array, which has a
+pointer to a `Value`. Hence a label can freely point to global variable,
+function, strings literal, etc. But importantly the label operand is stored
+separately from the displacement operand---in a distinct operand slot. So there
+is still a displacement involved, but only relative to the label. Since labels
+are only interesting in RIP-relative addressing, which doesn't use neither base,
+nor index register or scale, their slots can actually be reused---label is
+stored inside scale's slot and special register value in base's slot is used to
+signalize RIP-relative addressing. Displacement is stored in the same way in
+both addressing modes.
+
+Instructions also contain pointers to the previous and next one. Like `Value` in
+the middle-end, they are linked together in an {\em intrusive linked list}.
+Linked lists allow arbitrary insertions, deletions and reorderings in the middle
+of a sequence of instructions, which are exactly the operation a peephole
+optimizer does. Circular doubly linked list is especially nice for these
+operations, because it has no special cases for insertion or deletions at the
+end or the beginning of the linked list, simply because there is no real start
+or end of the linked---every node may be presumed to be in the middle. For this
+to work nicely, the {\em head} of the linked list (i.e. the pointer to the
+linked list of instructions) should also be part of the linked list itself. With
+our middle-end representation this was fairly easy, since \"instrucions" were
+`Value`s with next and previous links, and basic blocks were values as well, so
+the next and previous links of basic blocks served the purpose of the \"head"
+and \"tail" fields. Similar thing would be needed here to allow machine basic
+block to be the head, but also part of the linked list of instructions. This can
+be achieved by \"inheriting" the `Inst` struct in machine basic block struct:
+
+\begtt
+struct MBlock {
+	Block *block;
+	size_t index;
+	// `insts.next` and `insts.prev` are respectively the head and tail of
+	// circular doubly linked list of instructions
+	Inst insts;
+};
+\endtt
+
+Adding `Inst` as field of `MBlock` means that it is now able to be part of the
+linked list of instructions. The next and prev pointers serve as head and tail
+respectively. Other fields like `mode` or `kind` are also inherited---special
+values can be reserved for them and for example peephole optimizer's pattern
+matching on instructions can then transparently skip machine basic blocks, if it
+gets to them while investigating neighbours of instructions. As a result of the
+representation, the rolling window in the peephole optimizer actually
+transparently skips patterns that would reach out of bounds, because the kind of
+the basic block will match no usual pattern.
+
+Other than that, currently a machine block just links back to a middle-end basic
+block. Since currently the backend lacks the ability to do big changes to
+control flow, it can reuse the control flow (successors and predecessors) of the
+middle-end representation.
+
+Figure TODO shows examples of a few x86-64 as represented in a linked list of
+`Inst` structures together with the head of the linked list an `Inst` in
+`MBlock`.
+
+
+
+%Iteration over all defined and used registers (which is needed by liveness
+%analysis) or even just all registers.
+%
+%Even though most of the fields are common to all addressing modes.
+%
+%The problem with this representation is, that it allows invalid encodings to 
+%
+%Depending on the addressing modes, the operands themselves can be different
+%things: immediate values, registers, memory locations. Though ultimately, they
+%are all made up of just immediates and registers---memory locations are too
+%given by expressions involving registers and immediates.
+%
+%Depending on the addressing modes, the operands can include:
+%
+%\begitems
+%* register,
+%* memory location,
+%* 
+%\enditems
+%
+%The operands themselves are either 
+%
+%The basic idea of the representation is, that all of these can b
+%
+%machine
+%instructions are two things that constitute a machine instruction:
+%
+%
+%
+%
+%
+%However, the representation itself is {\em machine
+%independent} and can actually be for different {\em instruction sets} if the
+%compiler is ever extended.
+%
+%
+%Our backend will be using the classical architecture TODO figure consisting of 
+%
+%Machine independent representation of machine dependent instructions
 
 x86-64 má 6 slotů, teoreticky je variabilní
 
@@ -2519,3 +3500,6 @@ Zkratky:
 DAG
 JIT
 SSA
+RISC
+CISC
+ALU
