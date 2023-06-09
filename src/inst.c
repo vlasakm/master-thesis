@@ -86,7 +86,7 @@ print_mfunction(FILE *f, MFunction *mfunction)
 void
 for_each_def(Inst *inst, void (*fun)(void *user_data, Oper *def), void *user_data)
 {
-	InsFormat *mode = &formats[inst->mode];
+	ModeDescriptor *mode = &mode_descs[inst->mode];
 	for (size_t i = mode->def_start; i < mode->def_end; i++) {
 		fun(user_data, &inst->ops[i]);
 	}
@@ -105,7 +105,7 @@ for_each_def(Inst *inst, void (*fun)(void *user_data, Oper *def), void *user_dat
 void
 for_each_use(Inst *inst, void (*fun)(void *user_data, Oper *use), void *user_data)
 {
-	InsFormat *mode = &formats[inst->mode];
+	ModeDescriptor *mode = &mode_descs[inst->mode];
 	for (size_t i = mode->use_start; i < mode->use_end; i++) {
 		fun(user_data, &inst->ops[i]);
 	}

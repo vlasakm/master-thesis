@@ -9,7 +9,7 @@ struct Inst {
 	Inst *prev;
 	u8 kind;
 	u8 subkind;
-	u8 mode; // index into InsFormat
+	u8 mode; // index into ModeDescriptor array
 	bool writes_flags;
 	bool reads_flags;
 	bool flags_observed;
@@ -32,7 +32,7 @@ typedef struct {
 	bool def_cnt_given_by_arg_cnt;
 	Oper *extra_defs;
 	Oper *extra_uses;
-} InsFormat;
+} ModeDescriptor;
 
 
 

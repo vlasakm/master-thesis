@@ -240,7 +240,7 @@ Oper argument_regs[] = { R_RDI, R_RSI, R_RDX, R_RCX, R_8, R_9, R_NONE };
 //static Oper return_regs[] = { R_RAX, R_RDX };
 
 
-InsFormat formats[] = {
+ModeDescriptor mode_descs[] = {
 	[M_Rr]    = { 0, 1, 0, 2,  0, 0, none, none },
 	[M_rr]    = { 0, 0, 0, 2,  0, 0, none, none },
 	[M_Cr]    = { 0, 1, 1, 2,  0, 0, none, none },

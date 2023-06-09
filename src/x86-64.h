@@ -208,4 +208,4 @@ extern Oper callee_saved[];
 extern Oper saved[5];
 extern Oper caller_saved[];
 extern Oper argument_regs[7];
-extern InsFormat formats[];
+extern ModeDescriptor mode_descs[];

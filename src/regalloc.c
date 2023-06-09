@@ -597,7 +597,7 @@ apply_reg_assignment(RegAllocState *ras)
 		for (Inst *inst = mblock->insts.next; inst != &mblock->insts; inst = inst->next) {
 			// TODO: different number of register slots per target
 			// TODO: store number of registers in mode
-			InsFormat *mode = &formats[inst->mode];
+			ModeDescriptor *mode = &mode_descs[inst->mode];
 			size_t end = mode->use_end > mode->def_end ? mode->use_end : mode->def_end;
 			for (size_t i = 0; i < end; i++) {
 				inst->ops[i] = ras->reg_assignment[get_alias(ras, inst->ops[i])];
