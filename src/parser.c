@@ -1768,20 +1768,6 @@ static NullInfo null_info[] = {
 	#undef TOK_STR
 };
 
-static bool
-at_synchronization_point(Parser *parser)
-{
-	if (parser->prev.kind == TK_EOF) {
-		// nothing to synchronize
-		return true;
-	}
-	if (parser->prev.kind == TK_SEMICOLON && null_info[parser->lookahead.kind].nud != nullerr) {
-		// an expression separator and a token that starts an expression
-		return true;
-	}
-	return false;
-}
-
 typedef struct {
 	CValue (*led)(Parser *, CValue left, int rbp);
 	int lbp;

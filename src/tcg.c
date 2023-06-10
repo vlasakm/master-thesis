@@ -304,16 +304,6 @@ add_load_with_disp(TranslationState *ts, Oper dest, Oper addr, Oper disp)
 	return inst;
 }
 
-static Inst *
-create_store_with_disp(TranslationState *ts, Oper dest, Oper addr, Oper disp)
-{
-	Inst *inst = add_inst(ts, IK_MOV, MOV, M_Mr);
-	IREG(inst) = dest;
-	IBASE(inst) = addr;
-	IDISP(inst) = disp;
-	return inst;
-}
-
 static void
 translate_prologue(TranslationState *ts)
 {
