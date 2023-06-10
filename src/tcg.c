@@ -632,7 +632,7 @@ translate_value(TranslationState *ts, Value *v)
 	case VK_LOAD: {
 		Inst *load = add_load(ts, res, ops[0]);
 		if (pointer_child(LOAD_ADDR(v)->type)->kind == TY_CHAR) {
-			IS(load) = MOVZX8;
+			IS(load) = MOVSX8;
 		}
 		break;
 	}

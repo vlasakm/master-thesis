@@ -182,7 +182,7 @@ static const char *no_repr[] = {
 static const char *mov_repr[] = {
 	"mov",
 	"lea",
-	"movzx",
+	"movsx",
 	"mov",
 };
 
@@ -412,7 +412,7 @@ print_inst(FILE *f, MFunction *mfunction, Inst *inst)
 		fprintf(f, " ");
 		print_reg(f, IREG(inst));
 		fprintf(f, ", ");
-		if (IK(inst) == IK_MOV && IS(inst) == MOVZX8) {
+		if (IK(inst) == IK_MOV && IS(inst) == MOVSX8) {
 			fprintf(f, "byte ");
 		}
 		print_mem(f, mfunction, inst);
