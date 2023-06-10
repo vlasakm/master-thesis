@@ -3,14 +3,13 @@
 
 char *value_kind_repr[] = {
 #define REPR(kind, repr, ...) repr,
-VALUE_KINDS(REPR, REPR, REPR)
+VALUE_KINDS(REPR)
 #undef REPR
 };
 
 u8 value_kind_param_cnt[] = {
 #define OP_PARAM_CNT(kind, repr, param_cnt) param_cnt,
-#define NO_PARAM(...) 0,
-VALUE_KINDS(NO_PARAM, OP_PARAM_CNT, OP_PARAM_CNT)
+VALUE_KINDS(OP_PARAM_CNT)
 #undef OP_PARAM_CNT
 #undef NO_PARAM
 };

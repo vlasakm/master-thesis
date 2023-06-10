@@ -10,59 +10,60 @@ typedef struct MBlock MBlock;
 #include "str.h"
 #include "type.h"
 
-#define VALUE_KINDS(OT, OP, TERM) \
-	OT(UNDEFINED, "undefined") \
-	OT(NOP, "nop") \
-	OT(CONSTANT, "constant") \
-	OT(STRING, "string") \
-	OT(ALLOCA, "alloca") \
-	OT(GLOBAL, "global") \
-	OT(ARGUMENT, "argument") \
-	OT(BLOCK, "block") \
-	OT(FUNCTION, "function") \
+#define VALUE_KINDS(_) \
+	/* constants */              \
+	_(UNDEFINED, "undefined", 0) \
+	_(NOP,       "nop",       0) \
+	_(CONSTANT,  "constant",  0) \
+	_(STRING,    "string",    0) \
+	_(ALLOCA,    "alloca",    0) \
+	_(GLOBAL,    "global",    0) \
+	_(ARGUMENT,  "argument",  0) \
+	_(BLOCK,     "block",     0) \
+	_(FUNCTION,  "function",  0) \
 	\
-	OP(ADD,  "add",  2) \
-	OP(SUB,  "sub",  2) \
-	OP(MUL,  "mul",  2) \
-	OP(UDIV, "udiv", 2) \
-	OP(SDIV, "sdiv", 2) \
-	OP(UREM, "urem", 2) \
-	OP(SREM, "srem", 2) \
-	OP(AND,  "and",  2) \
-	OP(OR,   "or",   2) \
-	OP(SHL,  "shl",  2) \
-	OP(SAR,  "sar",  2) \
-	OP(SLR,  "slr",  2) \
+	_(ADD,  "add",  2) \
+	_(SUB,  "sub",  2) \
+	_(MUL,  "mul",  2) \
+	_(UDIV, "udiv", 2) \
+	_(SDIV, "sdiv", 2) \
+	_(UREM, "urem", 2) \
+	_(SREM, "srem", 2) \
+	_(AND,  "and",  2) \
+	_(OR,   "or",   2) \
+	_(SHL,  "shl",  2) \
+	_(SAR,  "sar",  2) \
+	_(SLR,  "slr",  2) \
 	\
-	OP(NEG,  "neg",  1) \
-	OP(NOT,  "not",  1) \
+	_(NEG,  "neg",  1) \
+	_(NOT,  "not",  1) \
 	\
-	OP(EQ,   "eq",   2)  \
-	OP(NEQ,  "neq",  2) \
-	OP(ULT,  "ult",  2) \
-	OP(ULEQ, "uleq", 2) \
-	OP(UGT,  "ugt",  2) \
-	OP(UGEQ, "ugeq", 2) \
-	OP(SLT,  "slt",  2) \
-	OP(SLEQ, "sleq", 2) \
-	OP(SGT,  "sgt",  2) \
-	OP(SGEQ, "sgeq", 2) \
+	_(EQ,   "eq",   2) \
+	_(NEQ,  "neq",  2) \
+	_(ULT,  "ult",  2) \
+	_(ULEQ, "uleq", 2) \
+	_(UGT,  "ugt",  2) \
+	_(UGEQ, "ugeq", 2) \
+	_(SLT,  "slt",  2) \
+	_(SLEQ, "sleq", 2) \
+	_(SGT,  "sgt",  2) \
+	_(SGEQ, "sgeq", 2) \
 	\
-	OP(IDENTITY, "identity", 1) \
-	OP(LOAD, "load", 1) \
-	OP(STORE, "store", 2) \
-	OP(GET_INDEX_PTR, "get_index_ptr", 2) \
-	OP(GET_MEMBER_PTR, "get_member_ptr", 2) \
-	OP(CALL, "call", 0) \
-	OP(PHI, "phi", 0) \
-	TERM(JUMP, "jump", 1) \
-	TERM(BRANCH, "branch", 3) \
-	TERM(RET, "ret", 1) \
-	TERM(RETVOID, "retvoid", 0) \
+	_(IDENTITY, "identity", 1) \
+	_(LOAD, "load", 1) \
+	_(STORE, "store", 2) \
+	_(GET_INDEX_PTR, "get_index_ptr", 2) \
+	_(GET_MEMBER_PTR, "get_member_ptr", 2) \
+	_(CALL, "call", 0) \
+	_(PHI, "phi", 0) \
+	_(JUMP, "jump", 1) \
+	_(BRANCH, "branch", 3) \
+	_(RET, "ret", 1) \
+	_(RETVOID, "retvoid", 0) \
 
 typedef enum {
 #define ENUM(kind, ...) VK_##kind,
-VALUE_KINDS(ENUM, ENUM, ENUM)
+VALUE_KINDS(ENUM)
 #undef ENUM
 } ValueKind;
 
