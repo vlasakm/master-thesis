@@ -3,7 +3,7 @@
 Type TYPE_VOID = { .kind = TY_VOID };
 Type TYPE_INT = { .kind = TY_INT };
 Type TYPE_CHAR = { .kind = TY_CHAR };
-PointerType TYPE_CHAR_PTR = { .base = (Type) { .kind = TY_POINTER, }, .child = &TYPE_CHAR };
+PointerType TYPE_CHAR_PTR = { .base = { .kind = TY_POINTER, }, .child = &TYPE_CHAR };
 
 size_t
 type_size(Type *type)
