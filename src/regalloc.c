@@ -751,35 +751,13 @@ build_interference_graph(RegAllocState *ras)
 	}
 }
 
-bool
-is_move_related(RegAllocState *ras, Oper i)
-{
-	//fprintf(stderr, "Is move related ");
-	//print_reg(stderr, i);
-	//fprintf(stderr, "\n");
-	//Inst **moves = garena_array(&ras->gmoves, Inst *);
-	GArena *gmove_list = &ras->move_list[i];
-	Oper *move_list = garena_array(gmove_list, Oper);
-	size_t move_cnt = garena_cnt(gmove_list, Oper);
-	for (size_t i = 0; i < move_cnt; i++) {
-		Oper move_index = move_list[i];
-		//Inst *move = moves[move_index];
-		//fprintf(stderr, "Moved in \t");
-		//print_inst(stderr, ras->mfunction, move);
-		//fprintf(stderr, "\n");
-		if (wl_has(&ras->active_moves_wl, move_index) || wl_has(&ras->moves_wl, move_index)) {
-			return true;
-		}
-	}
-	//fprintf(stderr, "Not move related\n");
-	return false;
-}
-
-
 void
 for_each_adjacent(RegAllocState *ras, Oper op, void (*fun)(RegAllocState *ras, Oper neighbour))
 {
+	// We don't keep adjacency lists for physical registers, assert that we
+	// don't try to access them.
 	assert(op >= R__MAX);
+
 	GArena *gadj_list = &ras->adj_list[op];
 	Oper *adj_list = garena_array(gadj_list, Oper);
 	size_t adj_cnt = garena_cnt(gadj_list, Oper);
@@ -792,19 +770,22 @@ for_each_adjacent(RegAllocState *ras, Oper op, void (*fun)(RegAllocState *ras, O
 	}
 }
 
-void
+size_t
 for_each_move(RegAllocState *ras, Oper u, void (*fun)(RegAllocState *ras, Oper u, Oper m, Inst *move))
 {
 	Inst **moves = garena_array(&ras->gmoves, Inst *);
 	GArena *gmove_list = &ras->move_list[u];
 	Oper *move_list = garena_array(gmove_list, Oper);
 	size_t move_cnt = garena_cnt(gmove_list, Oper);
+	size_t cnt = 0;
 	for (size_t i = 0; i < move_cnt; i++) {
 		Oper move_index = move_list[i];
 		if (wl_has(&ras->active_moves_wl, move_index) || wl_has(&ras->moves_wl, move_index)) {
 			fun(ras, u, move_index, moves[move_index]);
+			cnt++;
 		}
 	}
+	return cnt;
 }
 
 bool
@@ -818,6 +799,31 @@ bool
 is_significant(RegAllocState *ras, Oper op)
 {
 	return ras->degree[op] >= ras->reg_avail;
+}
+
+void
+move_related_callback(RegAllocState *ras, Oper u, Oper m, Inst *move)
+{
+	// Nothing to do. A node is move related if there is at least one move
+	// in the move worklist or active moves worklist, and this is decided by
+	// the return value of the iterator.
+	(void) ras;
+	(void) u;
+	(void) m;
+
+	//fprintf(stderr, "Moved in \t");
+	//print_inst(stderr, ras->mfunction, move);
+	//fprintf(stderr, "\n");
+}
+
+bool
+is_move_related(RegAllocState *ras, Oper i)
+{
+	// Node is move related if the callback is called at least once.
+	// NOTE: We could make this faster by keeping number of moves that are
+	// not yet given up (frozen) and not coalesced. But the bookkeeping is
+	// not as straightforward.
+	return for_each_move(ras, i, move_related_callback) > 0;
 }
 
 void
@@ -1296,12 +1302,6 @@ assign_registers(RegAllocState *ras)
 	}
 	return !have_spill;
 }
-
-// Move all arguments and callee saved registers to temporaries at the
-// start of the function. Then restore callee saved registers at the end
-// of the function.
-
-// Make all caller saved registers interfere with calls.
 
 void
 reg_alloc_function(RegAllocState *ras, MFunction *mfunction)
