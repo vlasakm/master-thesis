@@ -1246,9 +1246,6 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 			if (false) {}
 
 			Inst *prev = inst->prev;
-			if (!prev) {
-				goto next;
-			}
 
 			// lea t32, [rbp-16] // IK_MOV ANY M_C*
 			// mov t14, t32
@@ -1469,9 +1466,6 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 			}
 
 			Inst *pprev = prev->prev;
-			if (!pprev) {
-				goto next;
-			}
 
 			// CP
 			// mov t35, 8
