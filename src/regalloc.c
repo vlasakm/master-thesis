@@ -28,6 +28,10 @@ struct RegAllocState {
 	// Parameters
 	size_t reg_avail;
 
+	// Did this function have any spills yet?
+	// (Used to apply coalescing on first potential spill).
+	bool had_spill;
+
 	// Final register allocation
 	Oper *reg_assignment;
 
@@ -209,6 +213,9 @@ reg_alloc_state_init_for_function(RegAllocState *ras, MFunction *mfunction)
 	// Don't need to reset for function, since each iteration of reg alloc
 	// needs reset anyways.
 	//reg_alloc_state_reset(ras);
+
+	// But need to set that this function didn't have yet any spills.
+	ras->had_spill = false;
 }
 
 bool
@@ -342,6 +349,27 @@ add_interference_with(void *user_data, Oper *oper)
 }
 
 void
+add_move(RegAllocState *ras, Inst *inst)
+{
+	Oper dest = inst->ops[0];
+	Oper src = inst->ops[1];
+	if (dest == src) {
+		// If this move is already coalesced (when coalescing
+		// was applied for the first potential spill), we get a move to
+		// itself instruction. Peepholer will definitely remove it, but
+		// we won't do anything useful with it anyways, so just remove
+		// it.
+		inst->prev->next = inst->next;
+		inst->next->prev = inst->prev;
+		return;
+	}
+	size_t index = garena_cnt(&ras->gmoves, Inst *);
+	garena_push_value(&ras->gmoves, Inst *, inst);
+	garena_push_value(&ras->move_list[dest], Oper, index);
+	garena_push_value(&ras->move_list[src], Oper, index);
+}
+
+void
 interference_step(RegAllocState *ras, WorkList *live_set, Inst *inst)
 {
 	// Special handling of moves:
@@ -355,10 +383,7 @@ interference_step(RegAllocState *ras, WorkList *live_set, Inst *inst)
 		for_each_use(inst, remove_from_set, live_set);
 
 		// Accumulate moves.
-		size_t index = garena_cnt(&ras->gmoves, Inst *);
-		garena_push_value(&ras->gmoves, Inst *, inst);
-		garena_push_value(&ras->move_list[inst->ops[0]], Oper, index);
-		garena_push_value(&ras->move_list[inst->ops[1]], Oper, index);
+		add_move(ras, inst);
 	}
 
 
@@ -604,6 +629,18 @@ apply_reg_assignment(RegAllocState *ras)
 			}
 		}
 	}
+}
+
+void
+apply_coalescing(RegAllocState *ras)
+{
+	// Copy the current state of aliasing into register assignemt and then
+	// apply it with the function above.
+	COPY_ARRAY(ras->reg_assignment, ras->alias, ras->mfunction->vreg_cnt);
+	apply_reg_assignment(ras);
+	// Since `assign_registers` expects the register assignment to be zeroed
+	// out, we reset it.
+	ZERO_ARRAY(ras->reg_assignment, ras->mfunction->vreg_cnt);
 }
 
 void
@@ -993,6 +1030,11 @@ choose_and_spill_one(RegAllocState *ras)
 	assert(wl_empty(&ras->simplify_wl));
 	assert(wl_empty(&ras->moves_wl));
 	assert(!wl_empty(&ras->spill_wl));
+
+	if (!ras->had_spill) {
+		apply_coalescing(ras);
+		ras->had_spill = true;
+	}
 
 	fprintf(stderr, "Potential spill\n");
 

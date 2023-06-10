@@ -35,6 +35,11 @@ typedef u32 Oper;
 		memset((array), 0, (count) * sizeof((array)[0])); \
 	} while(0)
 
+#define COPY_ARRAY(dest, src, count) \
+	do { \
+		memcpy((dest), (src), (count) * sizeof((1 ? (dest) : (src))[0])); \
+	} while(0)
+
 #define FREE_ARRAY(array, count) \
 	do { \
 		(void) (count); \
