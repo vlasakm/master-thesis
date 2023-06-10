@@ -59,9 +59,9 @@ create_inst(Arena *arena, InstKind kind, u8 subkind, X86Mode mode)
 }
 
 static void
-add_inst_(TranslationState *ts, Inst *new)
+add_inst_to_block(MBlock *block, Inst *new)
 {
-	Inst *head = &ts->block->insts;
+	Inst *head = &block->insts;
 	Inst *last = head->prev;
 	new->prev = last;
 	new->next = head;
@@ -74,7 +74,7 @@ static Inst *
 add_inst(TranslationState *ts, InstKind kind, u8 subkind, X86Mode mode)
 {
 	Inst *new = create_inst(ts->arena, kind, subkind, mode);
-	add_inst_(ts, new);
+	add_inst_to_block(ts->block, new);
 	return new;
 }
 
