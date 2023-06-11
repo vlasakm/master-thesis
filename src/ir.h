@@ -159,7 +159,6 @@ struct Block {
 	Block **preds_;
 	size_t pred_cnt_;
 	size_t pred_cap_;
-	size_t filled_pred_cnt;
 	size_t depth; // loop nesting depth (0 means outside of all loops)
 
 	GArena incomplete_phis;

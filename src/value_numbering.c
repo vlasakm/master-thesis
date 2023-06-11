@@ -67,6 +67,9 @@ typedef struct {
 	Arena *arena;
 	Function *function;
 	Value ***var_map;
+	// Number of processed predecessors of each block (array indexed by the
+	// block index)
+	size_t *filled_pred_cnt;
 	Value **canonical;
 } ValueNumberingState;
 
@@ -203,7 +206,7 @@ read_variable(ValueNumberingState *vns, Block *block, Value *variable)
 	Value *value = vns->var_map[VINDEX(block)][VINDEX(variable)];
 	if (value) {
 		fprintf(stderr, "Have locally %zu\n", VINDEX(value));
-	} else if (block->filled_pred_cnt != block_pred_cnt(block)) {
+	} else if (vns->filled_pred_cnt[VINDEX(block)] != block_pred_cnt(block)) {
 		fprintf(stderr, "Not sealed\n");
 		assert(block_pred_cnt(block) > 1);
 		// Not all predecessors are filled yet. We only insert a phi,
@@ -265,6 +268,8 @@ do_value_numbering(Arena *arena, Function *function)
 	GROW_ARRAY(vns->canonical, value_cnt);
 	ZERO_ARRAY(vns->canonical, value_cnt);
 
+	GROW_ARRAY(vns->filled_pred_cnt, function->block_cap);
+	ZERO_ARRAY(vns->filled_pred_cnt, function->block_cap);
 	GROW_ARRAY(vns->var_map, function->block_cap);
 	ZERO_ARRAY(vns->var_map, function->block_cap);
 	for (size_t b = 0; b < block_cnt; b++) {
@@ -313,12 +318,14 @@ do_value_numbering(Arena *arena, Function *function)
 			}
 		}
 
-		FOR_EACH_BLOCK_SUCC(block, succ) {
-			if (++(*succ)->filled_pred_cnt == block_pred_cnt((*succ))) {
-				seal_block(vns, (*succ));
+		FOR_EACH_BLOCK_SUCC(block, succ_) {
+			Block *succ = *succ_;
+			if (++vns->filled_pred_cnt[VINDEX(succ)] == block_pred_cnt(succ)) {
+				seal_block(vns, succ);
 			}
 		}
 	}
+	FREE_ARRAY(vns->filled_pred_cnt, value_cnt);
 	FREE_ARRAY(vns->canonical, value_cnt);
 	for (size_t b = 0; b < block_cnt; b++) {
 		Block *block = function->post_order[b];
