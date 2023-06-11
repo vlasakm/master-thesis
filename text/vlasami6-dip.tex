@@ -242,6 +242,7 @@ selection neví jaké registry nakonec budou použity
 
 Klasikcé řešení selection -> scheduling -> regalloc je přijatelný kompromis
 
+\label[sec:SSA]
 \sec SSA form
 
 SSA ({\em static single assignment}) form is a form used by most of today's
@@ -404,6 +405,9 @@ where $\phi$ functions are needed. Their algorithm produces what is known as
 name, even more \"minimal" forms of SSA exist, for example {\em pruned} SSA
 doesn't contain {\em dead} $\phi$ functions.
 
+\label[sec:SSA-value]
+\secc Value-based SSA
+
 An important observation with regards to SSA form is, that since each variable
 is assigned exactly once, and the variables don't get reassigned, there is no
 need for the concept of a {\em variable}. The {\em values} assigned to the
@@ -428,7 +432,7 @@ rest are the arguments, for example we can have function `f` called with 4
 arguments: `call f, 1, 2, 3, 4`.
 \enditems
 
-Even for example function parameters are constants---even though arguments
+Function parameters are constants as well---even though arguments
 (actual parameters) passed to a function may just be results of some operations,
 from the point of view of the function the formal parameters are constant values
 that \"magically" materialize when the function begins its execution.
@@ -472,6 +476,82 @@ order of operations---the only theoretically imposed order is the dependencies
 among the operations themselves. The references of operations to each other
 actually form a {\em direct acyclic graph} (DAG) showing the data
 dependencies---{\em data-flow}. TODO figure
+
+\label[sec:SSA-machine]
+\secc SSA for machine code
+
+Though the {\em value-based} representation of SSA may be useful in some
+contexts, it is not always possible to use it. After all, the resources for
+which we may want to construct SSA form may not represent values at all. Or the
+values may be constrained. In such cases transforming the intermediate
+representation to SSA form is still possible, but has to be based on versions
+and we will call it {version-based} SSA.
+
+One such example is SSA form for {\em machine code} (or assembly). Here, we work
+with registers, and registers no longer {\em represent} values, they {\em store}
+values. Say we want to represent the following x86-64 instructions in SSA form:
+
+\begtt
+mov rcx, rax
+add rcx, rbx
+\endtt
+
+This example represents the addition `rcx = rax + rbx`, where all three
+registers are preserved. Obviously, in this example `rcx` is assigned twice.
+We want to apply the standard SSA versioning construction. The two address
+encoding actually means that `rcx` is in fact both read and written, but the
+read `rcx` is different than the written `rcx`. Thus we also need to extend our
+representation of our instructions to separate the register reads ({\em uses})
+from writes ({\em definitions}):
+
+\begtt \adef!#1{$_{\tt #1}$}
+mov rcx!1 | rax!1
+add rcx!2 | rcx!1, rbx!1
+\endtt
+
+Above we follow the convention where all definitions are written before the
+\"\|" symbol, and all uses after. The representation actually became more
+similar to classic three address code, where operations are non-destructive.
+
+Other snippets of x86-64 code can also produce a bit surprising results:
+
+\begtt \adef!#1{$_{\tt #1}$} \adef>{$\Rightarrow$}
+cmove rdx, rsi   >   cmove rdx!2 | rdx!1, rsi!1
+
+setnz al ; 2)     >   setnz rax!2 | rax!1
+
+xor rcx, rcx     >   xor rcx!1
+\endtt
+
+In the first example we have the conditional move if equal instruction. It moves
+`rsi` to `rdx` only if the zero bit is set in the flags register. For our
+purposes the final value of `rdx` can be `rdx` or `rsi` and with no better
+information, we must pessimistically expect both. So we have two uses and one
+definition.
+
+Second example has a set if not zero instruction, which sets the lowest 8 bits
+of `rax` register if the zero bit is not set in the flags register. Since only
+the lowest bits are set, the instruction actually merges the new low 8 bits with
+the rest of the `rax` register as set previously, and this has to be modelled
+through a use of the previous version of the register.
+
+In the last example, the idiom for zeroing out a register is used. Xoring a
+register with itself produces zero, regardless of the previous value of the
+register. Compared to move of 4-byte immediate zero, this is much shorter, so
+the idiom is very common. But, since the register is overwritten with zero,
+there is actually no reason for the instruction to {\em use} the former value of
+the register--- the previous value doesn't matter. This is why we want to model
+the instruction as only {\em defining} the register. Actually, the processor
+itself doesn't have to wait for the used register, and for example Intel
+considers using xor to zero out a register a {\em
+dependency-breaking-idiom}~\cite[IntelOptimization].
+
+SSA on machine code accomplished its goal---there is now only one assignment to
+each {\em register version}. But the versions of one register are still tied together.
+When the SSA form is deconstructed back into machine code, essentially only the
+version numbers are dropped. So while SSA helped with {\em analysis}, because
+tracking definitions became easier, in reality there are still multiple
+assignments to each resource.
 
 \label[sec:ssa-deconstruction]
 \sec SSA deconstruction
@@ -1129,7 +1209,7 @@ spustit jako cleanup fázi i po register allocation
 Register allocation is the last of the three big conceptual parts of a usual
 compiler backend. Motivation, importance and possible approaches are introduced.
 
-The x86-64 architecture (see \cite[ref:x86]) is what we mainly care about in
+The x86-64 architecture (see \cite[x86]) is what we mainly care about in
 this thesis. Since it is familiar, we will be using it as examples in the
 following sections. It is also a good candidate because it brings some
 challenges not found on other architectures, but shows the general problems just
@@ -2681,7 +2761,7 @@ ILP, IBQP
 
 \chap Design and implementation
 
-\begtt
+\begitems
 * Advanced, global, optimizing techniques should be used.
 
 * The source code may be read by students of the NI-GEN course, who have not yet
@@ -2695,19 +2775,19 @@ possible.
 
 * Since programs rarely live in vacuum, the produced code should be able to
 interface with the operating system and foreign code.
-\endtt
+\enditems
 
 After careful evaluation of the thesis task and other circumstances we set the
 following goals for the implementation of a TinyC backend for x86-64 and a
 runtime:
 
-\begtt
+\begitems
 
 * Simplicity of the compiler structure and of the code shall be one of the main
 goals, because the backend will serve as a demonstration of compiling TinyC to a
 real machine architecture.
 
-\endtt
+\enditems
 
 Since this backend will compile to real machine code, comparisons with other
 compilers will be possible and the relative performance of our solution should
@@ -2750,6 +2830,289 @@ Even though middle-end is not a direct part of a backend in a compiler, they
 interact with each, since the 
 
 SSA IR, inspirované LLVM
+
+The entire middle end is based on control flow graphs (CFGs) the idea of {\em
+value-based SSA form} presented in section~\ref[sec:SSA-value]. Most of the
+things the middle end works with can be represented as values. Including
+functions (represented by their addresses, i.e. they are pointers to code),
+blocks (also pointers to code), static variables (also represented by addresses,
+i.e. pointers to `.data` or `.bss` sections).
+
+Representing everything with values is great, because it is uniform and
+easy to work with. But as there isn't a single kind of value, there are
+potentially very many if we count each kind of distinct operation as a separate
+kind of value. Different languages have different approaches for expressing the
+idea that a type has many different variants. Object oriented
+languages like C++ use {\em inheritance}. There, we would have a top level class
+`Value` and other classes like `Function`, `BasicBlock` or `Constant` that would
+inherit from it. Each subclass holds data ({\em fields}) appropriate for the particular
+kind of value, but also ones inherited from the base class. Not only are
+different subclasses of different sizes, but code often wants to work with them
+opaquely---as such it only works with {\em references} to the values (either
+with real references or pointer as in C++ or through the classes being {\em
+reference types} in Java). Behavior supported for all values is defined in
+methods on the top level `Value` class, but subclasses can override it (or even
+may have to override it, if the method is abstract). Choosing the appropriate
+method for a reference to `Value` that may well be `BasicBlock` or a `Function`
+with different overrides is achieved with {\em dynamic dispatch} often implemented
+with {\em virtual tables}. Adding new value variants means introducing new
+subclass, which overrides the methods from its parent class as appropriate.
+Adding new behavior is not that easy, since possibly all subclasses have to be
+extended to handle the new behavior.
+
+Languages which support algebraic data types support a \"type that has different
+variants" through {\em sum types}. With sum types, we can introduce a (top
+level) `Value` which would be a sum type of the types introduced for all the
+variants (like `Function` or `Constant`). Internally, this is usually
+represented either very similarly as the class hierarchy, with a separate
+representation for the different variants, each having only its fields. But there
+would be also once common field---a {\em discriminator} (small integer) which
+distinguishes the variants. Though sometimes more efficient representation
+consists of a {\em tagged union}---the sum type is big enough to store all the
+variants (like in a C `union`), but also contains the discriminating integer
+(the {\em tag}). Since the representation is uniform and the sum type has enough
+storage for all variants, it can be used to represent the type directly, there
+is no need for a level of indirection (so for example, array of `Value` would be an
+array of structs not array of pointers to structs). Behavior would be
+implemented in functions, which would check the discriminator to choose the
+behavior for the variant at hand. Many languages aid the discriminator checking
+with more powerful pattern matching. Adding new behaviors is easy, since just
+one more functions is added. Adding new variants is not as easy, because all
+functions have to be extended with the behavior for the new variant.
+
+The class hierarchy and sum type approach are essentially complements  each
+other---one makes it easy to add new variants and the other makes it easy to add
+new behavior. This is known as the {\em expression problem} and a lot of common
+languages (including C, C++, Java and Rust and OCaml) don't offer any real
+solution. Since our implementation language is C, which can implement both, we
+can decide on the approach freely and most appropriately to our use case.
+
+Our `Value` type has a relatively {\em fixed set of variants}---there are
+arithmetic operations and constants like functions, basic blocks and global
+variable addresses. Extending with new variants is imaginable, but there isn't a
+large space for extensions here---there are just so many operations that a
+middle end can consider.
+
+On the other hand, there are many different {\em behaviors} for middle end
+values. We want to print them, translate them to potentially many different
+architectures, and most importantly {\em optimize them}. There can be many
+different optimization passes over the middle end. These can be largely
+independent and benefit from being fully contained in a single place (either
+function or module).
+
+For both of the above reasons sum types seem better for this use case. However,
+we can achieve the same with class hierarchy thanks to the {\em visitor
+pattern}. With visitor pattern we introduce a central dispatching place (the
+base `Visitor` class, which makes it hard to introduce new independent variants,
+the benefit of the class hierarchy approach), but allows new behaviours to be
+introduced by subclassing the `Visitor`. Different visitors can be introduced
+independently and also can group all the code implementing a single behavior,
+instead of interspersing it all over the subclasses constituting the variants.
+
+However there is still a difference in the two and it is in how we work with the
+variants and how we {\em distinguish} between them. In our middle end, our
+optimizations often want to check for the nature of the values. For example, a
+peephole optimizer may want to check whether a value is an operation on
+two constants and replace it with the constant equal to the result (to perform
+{\em constant folding}). Elsewhere we may need to check whether a load
+loads from stack slot. This means that apart from checking the variant of a
+single value, we often want {\em nested checks}. Sum types with their
+discriminator allow such checks easily and languages with pattern matching allow
+even nice nested checks. In a class hierarchy for such questions we would have
+to either introduce methods for performing these checks (like `isConstant` or
+`isLoadFromStackSlot`) or employ some mechanism of investigating the variants,
+like with `dynamic_cast` in C++ or `instanceof` in Java (both of which are seen
+as very unidiomatic in their respective languages).
+
+For our use of `Value`s, sum types seem to be better match. But still, there are
+two options of implementation---{\em inheritance} (through struct embedding) and
+{\em tagged unions}. Ultimately we decided to go with inheritance for several
+reasons:
+
+\begitems
+* Values are {\em recursive types}---values contain other values. For example an
+unconditional branch \"contains" (has as a field) the destination of the jump.
+And this is true for essentially all operations which are just values produced
+from other values. Recursive types usually have to be implemented with a layer
+of indirection (in C this is done explicitly with{\em pointers}). Because of
+this, tagged unions which normally allow less indirection are not that
+beneficial.
+
+* The sizes of individual values can differ greatly. For example there are
+usually not that many functions, but we may need to store a lot of information
+about them. On the other hand there may be many numeric constants, which
+essentially store just their tag and the constant itself. Tagged unions would
+have required us to have them all of the same size. Differences in size of
+the variants can be mitigated by adding a level of indirection to same variants
+and represent them with pointers. But having some variants with indirection and
+others not makes the structure slightly less nice to work with and since we need
+the level of indirection because of the recursivity, we may as well go with
+inheritance.
+
+* Tagged unions require all the types used to represent the variants to be
+listed in the `union`. With inheritance new types can be introduced more
+independently, since most consumers of the types don't care about the size of
+a \"`Value`", they work with pointers to values, i.e. \"`Value *`". The benefit
+of this independence is not big, since the tags have to be listed in one central
+place (commonly an `enum` in C).
+\enditems
+
+Currently, the `Value` representation looks like this:
+
+\begtt
+typedef struct Value Value;
+struct Value {
+	ValueKind kind;
+	u8 visited;
+	u8 operand_cnt;
+	Type *type;
+	size_t index;
+	Value *parent;
+	Value *prev;
+	Value *next;
+};
+\endtt
+
+`Value` is the base type other other types used to represent values inherit
+from. As such, it can have fields common to all variants, the obvious one being
+the discriminator, called `kind` in our case. In our implementation
+we found it useful to have also other fields:
+
+\begitems
+* All values have a type (one of the TinyC types, e.g. \"`int`" or \"`char *`").
+
+* Each is given a unique index in its scope. For example, all operations in a
+function have distinct indices in the particular function. Each function has a
+distinct index from all other functions and basic blocks in one function also
+have distinct indices. Indices are assigned from zero and serve a few purposes"
+
+\begitems
+* Textual representation (see section~\ref[sec:ssa]).
+* Assignment to virtual registers (see section~\ref[sec:ssa-deconstruction]).
+* Indices to off the side arrays containing information (temporarily) associated
+with values. Indices can essentially provide much faster and compact way of
+mapping values to something, then for example a hash table could.
+\enditems
+
+Since operations link to each other directly with pointers, the indices don't
+have much {\em semantic} meaning (except for the SSA deconstruction stage). This
+for example means that the assignment of indices to values can be changed
+arbitrarily, without changing the meaning of values.
+
+* Each value contains a link to its parent. For example, operations link to
+basic blocks they are contained in and basic blocks link to the functions they
+are in. This is can sometimes be convenient.
+
+* Each `Value` has a link to next and previous one. This is mostly convenient
+for operations, which due to our control flow graph based representation have to
+be ordered. These links make up the explicit order. Since the linked list is
+contained in the structure itself, this is called an {\em intrusive list}, (as
+opposed to for example something like a `std::list<T>` in C++), which is the
+most convenient way for representing linked lists in C.
+
+* Even though not all values are operations, we still want to associate an
+operand count with each value. For values which are not operations, this count
+is simply zero. For some operations the operand count can be determined
+implicitly from the value's kind---for example multiplication of two values has
+always the operands. But operations like $\phi$ nodes or calls, which can have
+different number of operands (depending on the number of predecessor blocks or
+call arguments respectively) require the number of operands to be determined in
+other way than just with a check of the value's kind.
+
+Originally, we were able to determine the number of operands for $\phi$ nodes
+through parent link to basic block, which stores the number of block
+predecessors. The number of operands of a call operation was determined from the
+type of the first operand (the called function)---it's type also knows the
+number of arguments the function takes. However this became problematic when
+function with variable number of arguments became supported---for them the
+number of {\em parameters} is only lower bound for the number of parameters. So
+the operand count became stored explicitly.
+
+* A `visited` field of values can be used by graph algorithms over values. This
+is used for example by the depth first traversal which computes the postorder
+of basic blocks in a function.
+\enditems
+
+The linked lists deserve a bit of attention. Operations in basic blocks are
+ordered through linked lists, because insertions, deletions and reordering in
+the middle are convenient with them. Since the middle end is incomplete and
+doesn't actually do much, this amount of flexibility is not needed. But linked
+lists are convenient to work with in C, since C for example has no conveniences
+for dynamic arrays.
+
+With ordinary doubly linked lists, there is {\em head} and often also a {\em
+tail} pointer which are like the entry points to the linked list---they are the
+pointers from outside to inside the list. However, these bring several special
+cases to an doubly linked list implementation. For example a deletion of a first
+node in a linked list should (apart from changing the `prev` field of the second
+node) change also the head of the linked list. Even just construction of the lists
+encounters a few special cases.
+
+{\em Circular doubly linked lists} solve most of the problems. Since \"last"
+node points to the first and vice versa, there is no longer a special case. All
+nodes can be treated as if they were in the middle. The problem with circular
+linked lists is that there can not easily be something like a `head` pointer
+from the outside to the linked list---or rather there could be, but it would
+bring back the special cases of non-circular doubly linked list. But in our use
+case, we want to link together operations inside a basic block to a linked list
+rooted in the basic block---the basic block should contain a pointer to the head (or
+also the tail) of the linked list of instructions. Our solution is to make basic
+blocks part of the doubly linked list of instructions they contain. This can be
+done, since basic blocks inherit from `Value` as well and thus have `next` and
+`prev` fields and can be part of the list. But in that case actually `next` and
+`prev` of the basic block serve as the `head` and `tail` pointers to the list of
+instructions. But thanks to the linked list being circular, they are updated
+transparently.
+
+Because the `next` and `prev` fields of basic blocks are used for holding the
+instruction lists, they may not be used to link together all basic blocks in a
+function, thus we need to handle it differently. We also often don't want to
+iterate over the blocks in some random order they were created in. But we want
+to iterate over them in an order that is beneficial for performed analysis and
+optimization passes. Often this order is either reverse postorder (where all
+non-cyclic successors are visited {\em after} the block itself) or postorder
+(where a block is visited {\em after} all its non-cyclic predecessors).
+Postorder is easily computed with depth first search, and an array with
+(pointers to) basic blocks is stored in functions. Iteration over the postorder
+either is possible also easily possible in reverse, so in a way a reverse
+postorder is simultaneously also available. TODO cite dragon book.
+
+Here we show how some concrete value variants are represented:
+
+\begtt
+typedef struct {
+	Value base;
+	i64 k;
+} Constant;
+
+typedef struct {
+	Value base;
+	Str name;
+	Value *init;
+} Global;
+
+typedef struct {
+	Value base;
+	Value *operands[];
+} Operation;
+\endtt
+
+Both `Constant` (which represents actual integer or character constants, number
+literals) and `Global` represent constant values. Their fields should identify
+them sufficiently. For numeric constants, this can be done with a single field
+holding a 64-bit integer (the largest size supported by TinyC). Global values
+are more interesting as they are named. With external linkage, we need to
+preserve their names. Also, unlike normal variables allocated on the stack,
+global values are special, because they may only be initialized with {\em
+constants}. For simplicity, we store the initializer with the `Global`. If there
+is no initializer (`init` is `NULL`), then the global variable should be
+zero initialized. This is the same behavior as in the C programming
+language.\fnote{If a global variable were to be initialized with a non-constant
+value it would be questionable {\em when} the value should actually be
+evaluated---for example the global variables should certainly be initialized
+before `main` runs, but in what order, and how to run code before `main`? For
+instance C++ allows non-constant initializers and runs them through hooks
+running before `main` offered by the C runtime which is the one calling `main`.}
 
 \secc Back-end
 
@@ -3503,3 +3866,4 @@ SSA
 RISC
 CISC
 ALU
+CFG
