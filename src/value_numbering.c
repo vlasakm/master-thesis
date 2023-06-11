@@ -67,9 +67,10 @@ typedef struct {
 	Arena *arena;
 	Function *function;
 	Value ***var_map;
-	// Number of processed predecessors of each block (array indexed by the
-	// block index)
+	// Number of processed predecessors of each block.
 	size_t *filled_pred_cnt;
+	// A dynamic array of incomplete phis for each block.
+	GArena *incomplete_phis;
 	Value **canonical;
 } ValueNumberingState;
 
@@ -216,7 +217,7 @@ read_variable(ValueNumberingState *vns, Block *block, Value *variable)
 			.phi = insert_phi(vns->arena, block, pointer_child(variable->type)),
 			.variable = variable,
 		};
-		garena_push_value(&block->incomplete_phis, IncompletePhi, phi);
+		garena_push_value(&vns->incomplete_phis[VINDEX(block)], IncompletePhi, phi);
 		value = &phi.phi->base;
 	} else if (block_pred_cnt(block) == 1) {
 		fprintf(stderr, "Single pred\n");
@@ -243,13 +244,14 @@ read_variable(ValueNumberingState *vns, Block *block, Value *variable)
 static void
 seal_block(ValueNumberingState *vns, Block *block)
 {
-	size_t incomplete_phi_cnt = garena_cnt(&block->incomplete_phis, IncompletePhi);
-	IncompletePhi *incomplete_phis = garena_array(&block->incomplete_phis, IncompletePhi);
+	GArena *gincomplete_phis = &vns->incomplete_phis[VINDEX(block)];
+	size_t incomplete_phi_cnt = garena_cnt(gincomplete_phis, IncompletePhi);
+	IncompletePhi *incomplete_phis = garena_array(gincomplete_phis, IncompletePhi);
 	for (size_t i = 0; i < incomplete_phi_cnt; i++) {
 		IncompletePhi *inc = &incomplete_phis[i];
 		add_phi_operands(vns, inc->phi, block, inc->variable);
 	}
-	garena_free(&block->incomplete_phis);
+	garena_free(gincomplete_phis);
 }
 
 static void
@@ -270,6 +272,8 @@ do_value_numbering(Arena *arena, Function *function)
 
 	GROW_ARRAY(vns->filled_pred_cnt, function->block_cap);
 	ZERO_ARRAY(vns->filled_pred_cnt, function->block_cap);
+	GROW_ARRAY(vns->incomplete_phis, function->block_cap);
+	ZERO_ARRAY(vns->incomplete_phis, function->block_cap);
 	GROW_ARRAY(vns->var_map, function->block_cap);
 	ZERO_ARRAY(vns->var_map, function->block_cap);
 	for (size_t b = 0; b < block_cnt; b++) {
@@ -325,7 +329,9 @@ do_value_numbering(Arena *arena, Function *function)
 			}
 		}
 	}
+
 	FREE_ARRAY(vns->filled_pred_cnt, value_cnt);
+	FREE_ARRAY(vns->incomplete_phis, value_cnt);
 	FREE_ARRAY(vns->canonical, value_cnt);
 	for (size_t b = 0; b < block_cnt; b++) {
 		Block *block = function->post_order[b];
