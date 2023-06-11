@@ -123,6 +123,13 @@ type_function_param_cnt(Type *type)
 }
 
 Type *
+type_function_return_type(Type *type)
+{
+	FunctionType *fun_type = type_as_function(type);
+	return fun_type->ret_type;
+}
+
+Type *
 type_struct(Arena *arena, Field *fields, size_t field_cnt)
 {
 	StructType *struct_type = arena_alloc(arena, sizeof(*struct_type));

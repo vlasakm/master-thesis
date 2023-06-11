@@ -660,7 +660,7 @@ translate_value(TranslationState *ts, Value *v)
 	}
 	case VK_CALL: {
 		Operation *call = (void *) v;
-		bool vararg = type_as_function(call->operands[0]->type)->vararg;
+		bool vararg = type_as_function(CALL_FUN(call)->type)->vararg;
 		size_t arg_cnt = value_operand_cnt(v) - 1;
 		translate_call(ts, res, ops[0], &ops[1], arg_cnt, vararg);
 		break;
@@ -674,12 +674,11 @@ translate_value(TranslationState *ts, Value *v)
 		add_jcc(ts, CC_Z, ops[2]);
 		add_jmp(ts, ops[1]);
 		break;
-	case VK_RET:
-		translate_return(ts, &ops[0]);
+	case VK_RET: {
+		Oper *return_value = v->operand_cnt == 1 ? &ops[0] : NULL;
+		translate_return(ts, return_value);
 		break;
-	case VK_RETVOID:
-		translate_return(ts, NULL);
-		break;
+	}
 	case VK_PHI: {
 		// SSA should have been deconstructed _before_ translation.
 		UNREACHABLE();
@@ -851,15 +850,17 @@ typedef struct {
 void
 single_exit(Arena *arena, Function *function)
 {
+	bool ret_void = type_function_return_type(function->base.type) == &TYPE_VOID;
+
 	GArena gphis = {0};
 	for (size_t b = function->block_cnt; b--;) {
 		Block *block = function->post_order[b];
 		Value *value = NULL;
 		switch (VK(block->base.prev)) {
 		case VK_RET:
-			value = ((Operation *) block->base.prev)->operands[0];
-			break;
-		case VK_RETVOID:
+			if (!ret_void) {
+				value = OPER(block->base.prev, 0);
+			}
 			break;
 		default:
 			continue;
@@ -874,8 +875,6 @@ single_exit(Arena *arena, Function *function)
 	}
 	Block *ret_block = create_block(arena, function);
 
-	bool ret_void = VK(phis[0].block->base.prev) == VK_RETVOID;
-
 	for (size_t i = 0; i < phi_cnt; i++) {
 		PendingPhi *phi = &phis[i];
 		Block *pred = phi->block;
@@ -889,7 +888,7 @@ single_exit(Arena *arena, Function *function)
 
 	Value *ret_inst;
 	if (ret_void) {
-		ret_inst = &create_operation(arena, VK_RETVOID, &TYPE_VOID, 0)->base;
+		ret_inst = &create_operation(arena, VK_RET, &TYPE_VOID, 0)->base;
 	} else {
 		Type *type = phis[0].value->type;
 		Operation *phi = insert_phi(arena, ret_block, type);

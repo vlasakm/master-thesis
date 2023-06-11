@@ -1437,7 +1437,7 @@ statement(Parser *parser)
 	}
 	case TK_RETURN: {
 		Token tok = discard(parser);
-		Type *return_type = ((FunctionType *) pointer_child(parser->current_function->base.type))->ret_type;
+		Type *return_type = type_function_return_type(parser->current_function->base.type);
 		if (peek(parser) != TK_SEMICOLON) {
 			Value *value = as_rvalue(parser, expression(parser));
 			if (!types_compatible(return_type, value->type)) {
@@ -1445,7 +1445,7 @@ statement(Parser *parser)
 			}
 			add_unary(parser, VK_RET, &TYPE_VOID, value);
 		} else if (return_type == &TYPE_VOID) {
-			add_operation(parser, VK_RETVOID, &TYPE_VOID, 0);
+			add_operation(parser, VK_RET, &TYPE_VOID, 0);
 		} else {
 			parser_error(parser, tok, false, "Expected some value to be 'return'ed");
 		}
@@ -1486,7 +1486,7 @@ is_function_terminated(Parser *parser)
 static void
 function_declaration(Parser *parser, Function *function)
 {
-	FunctionType *fun_type = (FunctionType *) pointer_child(function->base.type);
+	FunctionType *fun_type = type_as_function(function->base.type);
 	Parameter *params = fun_type->params;
 	size_t param_cnt = fun_type->param_cnt;
 
@@ -1524,7 +1524,7 @@ function_declaration(Parser *parser, Function *function)
 
 	if (!is_function_terminated(parser)) {
 		if (fun_type->ret_type->kind == TY_VOID) {
-			add_operation(parser, VK_RETVOID, &TYPE_VOID, 0);
+			add_operation(parser, VK_RET, &TYPE_VOID, 0);
 		} else {
 			parser_error(parser, parser->prev, false, "Missing return in function returning non-void");
 		}

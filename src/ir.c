@@ -7,13 +7,6 @@ VALUE_KINDS(REPR)
 #undef REPR
 };
 
-u8 value_kind_param_cnt[] = {
-#define OP_PARAM_CNT(kind, repr, param_cnt) param_cnt,
-VALUE_KINDS(OP_PARAM_CNT)
-#undef OP_PARAM_CNT
-#undef NO_PARAM
-};
-
 void
 value_init(Value *value, ValueKind kind, Type *type)
 {
@@ -61,7 +54,6 @@ value_is_terminator(Value *value)
 	case VK_JUMP:
 	case VK_BRANCH:
 	case VK_RET:
-	case VK_RETVOID:
 		return true;
 	case VK_BLOCK:
 	     // fallthrough
@@ -77,6 +69,7 @@ create_operation(Arena *arena, ValueKind kind, Type *type, size_t operand_cnt)
 	value_init(&op->base, kind, type);
 	op->base.kind = kind;
 	op->base.type = type;
+	op->base.operand_cnt = operand_cnt;
 	return op;
 }
 
@@ -162,7 +155,6 @@ block_succ_cnt(Block *block)
 	case VK_BRANCH:
 		return 2;
 	case VK_RET:
-	case VK_RETVOID:
 	default:
 		return 0;
 	}
@@ -231,11 +223,7 @@ append_to_block(Block *block, Value *new)
 size_t
 value_operand_cnt(Value *value)
 {
-	size_t operand_cnt = value_kind_param_cnt[value->kind];
-	if (operand_cnt == 0) {
-		return value->operand_cnt;
-	}
-	return operand_cnt;
+	return value->operand_cnt;
 }
 
 Value **

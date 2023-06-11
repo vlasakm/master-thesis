@@ -79,6 +79,8 @@ FunctionType *type_as_function(Type *type);
 
 size_t type_function_param_cnt(Type *type);
 
+Type *type_function_return_type(Type *type);
+
 Type *type_struct(Arena *arena, Field *fields, size_t field_cnt);
 Type *type_struct_forward(Arena *arena);
 Type *type_struct_define(Type *struct_type, Field *fields, size_t field_cnt);

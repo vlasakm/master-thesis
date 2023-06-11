@@ -12,54 +12,57 @@ typedef struct MBlock MBlock;
 
 #define VALUE_KINDS(_) \
 	/* constants */              \
-	_(UNDEFINED, "undefined", 0) \
-	_(NOP,       "nop",       0) \
-	_(CONSTANT,  "constant",  0) \
-	_(STRING,    "string",    0) \
-	_(ALLOCA,    "alloca",    0) \
-	_(GLOBAL,    "global",    0) \
-	_(ARGUMENT,  "argument",  0) \
-	_(BLOCK,     "block",     0) \
-	_(FUNCTION,  "function",  0) \
+	_(UNDEFINED, "undefined") \
+	_(NOP,       "nop") \
+	_(CONSTANT,  "constant") \
+	_(STRING,    "string") \
+	_(ALLOCA,    "alloca") \
+	_(GLOBAL,    "global") \
+	_(ARGUMENT,  "argument") \
+	_(BLOCK,     "block") \
+	_(FUNCTION,  "function") \
 	\
-	_(ADD,  "add",  2) \
-	_(SUB,  "sub",  2) \
-	_(MUL,  "mul",  2) \
-	_(UDIV, "udiv", 2) \
-	_(SDIV, "sdiv", 2) \
-	_(UREM, "urem", 2) \
-	_(SREM, "srem", 2) \
-	_(AND,  "and",  2) \
-	_(OR,   "or",   2) \
-	_(SHL,  "shl",  2) \
-	_(SAR,  "sar",  2) \
-	_(SLR,  "slr",  2) \
+	/* binary arithmetic */ \
+	_(ADD,  "add") \
+	_(SUB,  "sub") \
+	_(MUL,  "mul") \
+	_(UDIV, "udiv") \
+	_(SDIV, "sdiv") \
+	_(UREM, "urem") \
+	_(SREM, "srem") \
+	_(AND,  "and") \
+	_(OR,   "or") \
+	_(SHL,  "shl") \
+	_(SAR,  "sar") \
+	_(SLR,  "slr") \
 	\
-	_(NEG,  "neg",  1) \
-	_(NOT,  "not",  1) \
+	/* unary arithmetic */ \
+	_(NEG,  "neg") \
+	_(NOT,  "not") \
 	\
-	_(EQ,   "eq",   2) \
-	_(NEQ,  "neq",  2) \
-	_(ULT,  "ult",  2) \
-	_(ULEQ, "uleq", 2) \
-	_(UGT,  "ugt",  2) \
-	_(UGEQ, "ugeq", 2) \
-	_(SLT,  "slt",  2) \
-	_(SLEQ, "sleq", 2) \
-	_(SGT,  "sgt",  2) \
-	_(SGEQ, "sgeq", 2) \
+	/* comparisons */  \
+	_(EQ,   "eq") \
+	_(NEQ,  "neq") \
+	_(ULT,  "ult") \
+	_(ULEQ, "uleq") \
+	_(UGT,  "ugt") \
+	_(UGEQ, "ugeq") \
+	_(SLT,  "slt") \
+	_(SLEQ, "sleq") \
+	_(SGT,  "sgt") \
+	_(SGEQ, "sgeq") \
 	\
-	_(IDENTITY, "identity", 1) \
-	_(LOAD, "load", 1) \
-	_(STORE, "store", 2) \
-	_(GET_INDEX_PTR, "get_index_ptr", 2) \
-	_(GET_MEMBER_PTR, "get_member_ptr", 2) \
-	_(CALL, "call", 0) \
-	_(PHI, "phi", 0) \
-	_(JUMP, "jump", 1) \
-	_(BRANCH, "branch", 3) \
-	_(RET, "ret", 1) \
-	_(RETVOID, "retvoid", 0) \
+	/* special values */ \
+	_(IDENTITY, "identity") \
+	_(LOAD, "load") \
+	_(STORE, "store") \
+	_(GET_INDEX_PTR, "get_index_ptr") \
+	_(GET_MEMBER_PTR, "get_member_ptr") \
+	_(CALL, "call") \
+	_(PHI, "phi") \
+	_(JUMP, "jump") \
+	_(BRANCH, "branch") \
+	_(RET, "ret") \
 
 typedef enum {
 #define ENUM(kind, ...) VK_##kind,
@@ -68,8 +71,6 @@ VALUE_KINDS(ENUM)
 } ValueKind;
 
 extern char *value_kind_repr[];
-
-extern u8 value_kind_param_cnt[];
 
 typedef struct Value Value;
 
@@ -116,12 +117,18 @@ typedef struct {
 	Value *operands[];
 } Operation;
 
-#define VK(v) (((Value *) (v))->kind)
-#define VINDEX(v) (((Value *) (v))->index)
-#define VTYPE(v) (((Value *) (v))->type)
-#define STORE_ADDR(v) (((Operation *) (v))->operands[0])
-#define STORE_VALUE(v) (((Operation *) (v))->operands[1])
-#define LOAD_ADDR(v) (((Operation *) (v))->operands[0])
+#define VK(v)      (((Value *) (v))->kind)
+#define VINDEX(v)  (((Value *) (v))->index)
+#define VTYPE(v)   (((Value *) (v))->type)
+#define OPER(v, i) (((Operation *) (v))->operands[i])
+
+#define STORE_ADDR(v)  OPER(v, 0)
+#define STORE_VALUE(v) OPER(v, 1)
+
+#define LOAD_ADDR(v) OPER(v, 0)
+
+#define CALL_FUN(v)  OPER(v, 0)
+#define CALL_ARGS(v) (&OPER(v, 1))
 
 extern Value NOP;
 
@@ -129,7 +136,7 @@ void value_init(Value *value, ValueKind kind, Type *type);
 
 bool value_is_terminator(Value *value);
 
-Value ** value_operands(Value *value);
+Value **value_operands(Value *value);
 size_t value_operand_cnt(Value *value);
 
 #define FOR_EACH_OPERAND(value, op) \
