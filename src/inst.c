@@ -30,27 +30,6 @@ mfunction_finalize_stack(MFunction *mfunction)
 	}
 }
 
-MBlock *
-mblock_create(Arena *arena, Block *block)
-{
-	MBlock *mblock = arena_alloc(arena, sizeof(*mblock));
-	*mblock = (MBlock) {
-		.block = block,
-		// head of the linked list of instructions
-		.insts = (Inst) {
-			.kind = IK_BLOCK,
-			.subkind = 0,
-			.mode = M_NONE,
-			.next = &mblock->insts,
-			.prev = &mblock->insts,
-		},
-	};
-
-	block->mblock = mblock;
-
-	return mblock;
-}
-
 void
 mfunction_free(MFunction *mfunction)
 {
@@ -81,6 +60,27 @@ print_mfunction(FILE *f, MFunction *mfunction)
 			fprintf(f, "\n");
 		}
 	}
+}
+
+MBlock *
+mblock_create(Arena *arena, Block *block)
+{
+	MBlock *mblock = arena_alloc(arena, sizeof(*mblock));
+	*mblock = (MBlock) {
+		.block = block,
+		// head of the linked list of instructions
+		.insts = (Inst) {
+			.kind = IK_BLOCK,
+			.subkind = 0,
+			.mode = M_NONE,
+			.next = &mblock->insts,
+			.prev = &mblock->insts,
+		},
+	};
+
+	block->mblock = mblock;
+
+	return mblock;
 }
 
 void
