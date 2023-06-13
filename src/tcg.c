@@ -819,20 +819,20 @@ split_critical_edges(Arena *arena, Function *function)
 			// predecessors). We split it by introducing a new
 			// block.
 			fprintf(stderr, "Splitting critical edge from block%zu to block%zu\n", VINDEX(pred), VINDEX(succ));
-			Block *new = create_block(arena, function);
-			block_add_pred(new, pred);
+			Block *new_block = create_block(arena, function);
+			block_add_pred(new_block, pred);
 			Value *jump = create_unary(arena, VK_JUMP, &TYPE_VOID, &succ->base);
-			jump->parent = &new->base;
+			jump->parent = &new_block->base;
 			jump->index = function->value_cnt++;
-			prepend_value(&new->base, jump);
+			prepend_value(&new_block->base, jump);
 			FOR_EACH_BLOCK_SUCC(pred, s) {
 				if (*s == succ) {
-					*s = new;
+					*s = new_block;
 				}
 			}
 			FOR_EACH_BLOCK_PRED(succ, p) {
 				if (*p == pred) {
-					*p = new;
+					*p = new_block;
 				}
 			}
 		}
