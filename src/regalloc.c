@@ -443,8 +443,6 @@ spill_displacement(SpillState *ss, Oper t)
 	return -ss->ras->to_spill[t];
 }
 
-Inst *create_inst(Arena *arena, InstKind kind, u8 subkind, X86Mode mode);
-
 void
 insert_loads_of_spilled(void *user_data, Oper *src)
 {
@@ -565,9 +563,6 @@ rewrite_program(RegAllocState *ras)
 	print_mfunction(stderr, mfunction);
 	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
 		MBlock *mblock = mfunction->mblocks[b];
-		if (!mblock) {
-			continue;
-		}
 		for (Inst *inst = mblock->insts.next; inst != &mblock->insts; inst = inst->next) {
 			ss->inst = inst;
 			fprintf(stderr, "\n");
@@ -616,9 +611,6 @@ apply_reg_assignment(RegAllocState *ras)
 	MFunction *mfunction = ras->mfunction;
 	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
 		MBlock *mblock = mfunction->mblocks[b];
-		if (!mblock) {
-			continue;
-		}
 		for (Inst *inst = mblock->insts.next; inst != &mblock->insts; inst = inst->next) {
 			// TODO: different number of register slots per target
 			// TODO: store number of registers in mode
@@ -702,9 +694,6 @@ calculate_spill_cost(RegAllocState *ras)
 
 	for (Oper b = 0; b < mfunction->mblock_cnt; b++) {
 		MBlock *mblock = mfunction->mblocks[b];
-		if (!mblock) {
-			continue;
-		}
 		ras->mblock = mblock;
 		Block *block = mblock->block;
 		get_live_out(ras, block, live_set);
@@ -734,9 +723,6 @@ liveness_analysis(RegAllocState *ras)
 	Oper b;
 	while (wl_take(&ras->block_work_list, &b)) {
 		MBlock *mblock = mfunction->mblocks[b];
-		if (!mblock) {
-			continue;
-		}
 		Block *block = mblock->block;
 		get_live_out(ras, block, live_set);
 		fprintf(stderr, "Live out %zu: ", mblock->block->base.index);
@@ -769,9 +755,6 @@ build_interference_graph(RegAllocState *ras)
 
 	for (Oper b = 0; b < mfunction->mblock_cnt; b++) {
 		MBlock *mblock = mfunction->mblocks[b];
-		if (!mblock) {
-			continue;
-		}
 		Block *block = mblock->block;
 		get_live_out(ras, block, live_set);
 		for (Inst *inst = mblock->insts.prev; inst != &mblock->insts; inst = inst->prev) {
