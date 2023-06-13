@@ -247,7 +247,7 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 			// =>
 			//|mov t34, 3|
 			// mov [t14], 3
-			if (IK(inst) == IK_MOV && IM(inst) == M_Mr && IK(prev) == IK_MOV && IS(prev) == MOV && IM(prev) == M_CI && IREG(prev) == IREG(inst) && pack_into_oper(get_imm64(prev), &IIMM(inst))) {
+			if (IK(inst) == IK_MOV && IS(inst) != LEA && IM(inst) == M_Mr && IK(prev) == IK_MOV && IS(prev) == MOV && IM(prev) == M_CI && IREG(prev) == IREG(inst) && pack_into_oper(get_imm64(prev), &IIMM(inst))) {
 				IM(inst) = M_Mi;
 				if (--use_cnt[IREG(prev)] == 0) {
 					--def_cnt[IREG(prev)];
@@ -277,7 +277,7 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 			// add rax, rcx
 			// =>
 			// add rax, [global1]
-			if (IK(inst) == IK_BINALU && IM(inst) == M_Rr && IK(prev) == IK_MOV && IS(prev) != LEA && IM(prev) == M_CM && IREG2(inst) == IREG(prev) && IREG(inst) != IREG2(inst) && use_cnt[IREG(prev)] == 1) {
+			if (IK(inst) == IK_BINALU && IM(inst) == M_Rr && IK(prev) == IK_MOV && IS(prev) == MOV && IM(prev) == M_CM && IREG2(inst) == IREG(prev) && IREG(inst) != IREG2(inst) && use_cnt[IREG(prev)] == 1) {
 				def_cnt[IREG(prev)]--;
 				use_cnt[IREG(prev)]--;
 				IM(prev) = M_RM;
@@ -294,7 +294,7 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 			// cmp t13, 10
 			// =>
 			// cmp [rbp-16], 10
-			if (IK(inst) == IK_BINALU && IM(inst) == M_ri && IK(prev) == IK_MOV && IS(prev) != LEA && IM(prev) == M_CM) {
+			if (IK(inst) == IK_BINALU && IM(inst) == M_ri && IK(prev) == IK_MOV && IS(prev) == MOV && IM(prev) == M_CM) {
 				IM(inst) = M_Mi;
 				ISCALE(inst) = ISCALE(prev);
 				IINDEX(inst) = IINDEX(prev);
@@ -389,6 +389,7 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 			// mov t28, t27
 			if (IK(inst) == IK_MOV && IS(inst) != LEA && IM(inst) == M_CM && IK(prev) == IK_MOV && IS(prev) != LEA && IM(prev) == M_Mr && is_memory_same(inst, prev)) {
 				use_cnt[IREG(prev)]++;
+				IS(inst) = MOV;
 				IM(inst) = M_Cr;
 				IREG2(inst) = IREG(prev);
 				inst = inst;
@@ -449,7 +450,7 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 			// =>
 			// mov t23, ...
 			// add t23, [H]
-			if (IK(inst) == IK_BINALU && IM(inst) == M_Rr && IK(prev) == IK_MOV && IS(prev) == MOV && IREG(prev) == IREG(inst) && IREG(pprev) == IREG2(inst) && use_cnt[IREG(pprev)] == 1 && def_cnt[IREG(inst)] == 2 && ((IM(pprev) == M_CI && pack_into_oper(get_imm64(pprev), &IIMM(pprev)))|| IM(pprev) == M_Cr || IM(pprev) == M_CM)) {
+			if (IK(inst) == IK_BINALU && IM(inst) == M_Rr && IK(prev) == IK_MOV && IS(prev) == MOV && IREG(prev) == IREG(inst) && IK(pprev) == IK_MOV && IS(pprev) == MOV && IREG(pprev) == IREG2(inst) && use_cnt[IREG(pprev)] == 1 && def_cnt[IREG(inst)] == 2 && ((IM(pprev) == M_CI && pack_into_oper(get_imm64(pprev), &IIMM(pprev))) || IM(pprev) == M_Cr || IM(pprev) == M_CM)) {
 				// We made sure that def_cnt of t23 is 2, which
 				// is the two definitions we see in this
 				// peephole. This should guarantee us, that t23
