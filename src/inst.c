@@ -120,3 +120,73 @@ for_each_use(Inst *inst, void (*fun)(void *user_data, Oper *use), void *user_dat
 		}
 	}
 }
+
+void
+increment_count(void *user_data, Oper *oper)
+{
+	u8 *count = user_data;
+	count[*oper]++;
+}
+
+void
+decrement_count(void *user_data, Oper *oper)
+{
+	u8 *count = user_data;
+	count[*oper]--;
+}
+
+typedef struct {
+	Inst *inst;
+	Inst **only_def;
+	u8 *def_cnt;
+} LastDefState;
+
+static void
+track_last_def(void *user_data, Oper *oper)
+{
+	LastDefState *lds = user_data;
+	// It is important that we set this to NULL if any second definition
+	// exists, otherwise decrements of the def count might make it seem
+	// like there was only one definition.
+	lds->only_def[*oper] = lds->def_cnt[*oper] == 1 ? lds->inst : NULL;
+}
+
+void
+calculate_def_use_info(MFunction *mfunction)
+{
+	GROW_ARRAY(mfunction->def_count, mfunction->vreg_cnt);
+	GROW_ARRAY(mfunction->use_count, mfunction->vreg_cnt);
+	GROW_ARRAY(mfunction->only_def, mfunction->vreg_cnt);
+	ZERO_ARRAY(mfunction->def_count, mfunction->vreg_cnt);
+	ZERO_ARRAY(mfunction->use_count, mfunction->vreg_cnt);
+	ZERO_ARRAY(mfunction->only_def, mfunction->vreg_cnt);
+
+	GROW_ARRAY(mfunction->block_use_count, mfunction->func->block_cap);
+	ZERO_ARRAY(mfunction->block_use_count, mfunction->func->block_cap);
+
+	LastDefState lds = { .only_def = mfunction->only_def, .def_cnt = mfunction->def_count };
+	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
+		MBlock *mblock = mfunction->mblocks[b];
+		if (!mblock) {
+			continue;
+		}
+		bool flags_needed = false;
+		for (Inst *inst = mblock->insts.prev; inst != &mblock->insts; inst = inst->prev) {
+			lds.inst = inst;
+			for_each_def(inst, increment_count, mfunction->def_count);
+			for_each_def(inst, track_last_def, &lds);
+			for_each_use(inst, increment_count, mfunction->use_count);
+			inst->flags_observed = flags_needed;
+			if (inst->writes_flags) {
+				flags_needed = false;
+			}
+			if (inst->reads_flags) {
+				flags_needed = true;
+			}
+
+			if (IM(inst) == M_L) {
+				mfunction->block_use_count[ILABEL(inst)]++;
+			}
+		}
+	}
+}

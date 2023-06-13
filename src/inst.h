@@ -70,3 +70,8 @@ MBlock *mblock_create(Arena *arena, Block *block);
 
 void for_each_def(Inst *inst, void (*fun)(void *user_data, Oper *def), void *user_data);
 void for_each_use(Inst *inst, void (*fun)(void *user_data, Oper *use), void *user_data);
+
+void increment_count(void *user_data, Oper *oper);
+void decrement_count(void *user_data, Oper *oper);
+
+void calculate_def_use_info(MFunction *mfunction);

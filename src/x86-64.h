@@ -199,8 +199,6 @@ typedef enum {
 
 MFunction *translate_function(Arena *arena, GArena *labels, Function *function);
 
-void calculate_def_use_info(MFunction *mfunction);
-
 void peephole(MFunction *mfunction, Arena *arena, bool last_pass);
 
 Inst *create_inst(Arena *arena, InstKind kind, u8 subkind, X86Mode mode);
