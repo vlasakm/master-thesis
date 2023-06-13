@@ -54,6 +54,7 @@ exe = executable('tcg',
 		'src/regalloc.c',
 		'src/parser.c',
 		'src/x86-64.c',
+		'src/lower.c',
 		'src/tcg.c',
 	),
 	include_directories: include_directories(

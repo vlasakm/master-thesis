@@ -197,6 +197,10 @@ typedef enum {
 	IK__MAX,
 } InstKind;
 
+MFunction *translate_function(Arena *arena, GArena *labels, Function *function);
+
+Inst *create_inst(Arena *arena, InstKind kind, u8 subkind, X86Mode mode);
+
 void print_reg(FILE *f, Oper reg);
 void print_inst(FILE *f, MFunction *mfunction, Inst *inst);
 bool mode_has_memory(X86Mode m);

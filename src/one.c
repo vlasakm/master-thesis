@@ -10,6 +10,7 @@
 #include "regalloc.c"
 #include "parser.c"
 #include "x86-64.c"
+#include "lower.c"
 
 #include "value_numbering.c"
 #include "merge_blocks.c"
