@@ -2,7 +2,7 @@
 #include "utils.h"
 
 char *value_kind_repr[] = {
-#define REPR(kind, repr, ...) repr,
+#define REPR(kind, repr) repr,
 VALUE_KINDS(REPR)
 #undef REPR
 };

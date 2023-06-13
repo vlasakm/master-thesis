@@ -847,6 +847,7 @@ move_related_callback(RegAllocState *ras, Oper u, Oper m, Inst *move)
 	(void) ras;
 	(void) u;
 	(void) m;
+	(void) move;
 
 	//fprintf(stderr, "Moved in \t");
 	//print_inst(stderr, ras->mfunction, move);
