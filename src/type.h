@@ -48,6 +48,7 @@ typedef struct {
 	Type base;
 	bool complete;
 	size_t size;
+	size_t alignment;
 	size_t field_cnt;
 	Field *fields;
 } StructType;
@@ -58,6 +59,7 @@ extern Type TYPE_CHAR;
 extern PointerType TYPE_CHAR_PTR;
 
 size_t type_size(Type *type);
+size_t type_alignment(Type *type);
 
 bool type_is_numeric(Type *type);
 

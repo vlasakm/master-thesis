@@ -463,7 +463,7 @@ translate_operand(TranslationState *ts, Value *operand)
 	case VK_ALLOCA: {
 		Alloca *alloca = (Alloca *) operand;
 		res = ts->index++;
-		add_lea(ts, res, R_RBP, - 8 - alloca->size);
+		add_lea(ts, res, R_RBP, alloca->stack_offset);
 		break;
 	}
 	default:
@@ -471,6 +471,14 @@ translate_operand(TranslationState *ts, Value *operand)
 		break;
 	}
 	return res;
+}
+
+Oper
+reserve_stack_space(TranslationState *ts, size_t size, size_t alignment)
+{
+	ts->stack_space = align(ts->stack_space, alignment);
+	ts->stack_space += size;
+	return -ts->stack_space;
 }
 
 void
@@ -499,8 +507,7 @@ translate_value(TranslationState *ts, Value *v)
 	case VK_ALLOCA: {
 		Alloca *alloca = (Alloca *) v;
 		size_t size = alloca->size;
-		alloca->size = ts->stack_space;
-		ts->stack_space += size;
+		alloca->stack_offset = reserve_stack_space(ts, size, type_alignment(v->type));
 		break;
 	}
 	case VK_CONSTANT:
@@ -652,7 +659,7 @@ translate_function(Arena *arena, GArena *labels, Function *function)
 		.arena = arena,
 		.labels = labels,
 		.index = function->value_cnt,
-		.stack_space = 8,
+		.stack_space = 0,
 		.block = NULL,
 		.function = mfunction,
 	};

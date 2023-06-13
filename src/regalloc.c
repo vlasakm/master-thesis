@@ -1257,7 +1257,7 @@ assign_registers(RegAllocState *ras)
 
 	// Align stack offset to register size, so when we spill we allocate
 	// aligned register sized stack slots.
-	mfunction->stack_space = (mfunction->stack_space + 7) & -8;
+	mfunction->stack_space = align(mfunction->stack_space, 8);
 
 	Oper u;
 	while (wl_take_back(&ras->stack, &u)) {
@@ -1321,9 +1321,9 @@ assign_registers(RegAllocState *ras)
 			fprintf(stderr, "Out of registers at ");
 			print_reg(stderr, u);
 			fprintf(stderr, "\n");
+			mfunction->stack_space += 8;
 			ras->to_spill[u] = mfunction->stack_space;
 			assert(mfunction->stack_space < 512);
-			mfunction->stack_space += 8;
 			have_spill = true;
 		}
 		done:

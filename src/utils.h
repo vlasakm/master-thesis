@@ -82,6 +82,7 @@ void __asan_unpoison_memory_region(void const volatile *addr, size_t size);
 #define USE_VALGRIND
 
 
+size_t align(size_t pos, size_t alignment);
 
 #define UNREACHABLE() unreachable(__FILE__, __LINE__)
 _Noreturn void unreachable(char *file, size_t line);

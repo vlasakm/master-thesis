@@ -23,6 +23,24 @@ type_size(Type *type)
 	UNREACHABLE();
 }
 
+size_t
+type_alignment(Type *type)
+{
+	switch (type->kind) {
+	case TY_VOID:
+	case TY_CHAR:
+	case TY_INT:
+	case TY_POINTER:
+		return type_size(type);
+	case TY_FUNCTION:
+		UNREACHABLE();
+		break;
+	case TY_STRUCT:
+		return ((StructType *) type)->alignment;
+	}
+	UNREACHABLE();
+}
+
 bool
 type_is_numeric(Type *type)
 {
@@ -137,16 +155,21 @@ type_struct(Arena *arena, Field *fields, size_t field_cnt)
 	struct_type->fields = fields;
 	struct_type->field_cnt = field_cnt;
 
-	// TODO: alignment
 	size_t offset = 0;
+	size_t max_alignment = 0;
 
 	for (size_t i = 0; i < field_cnt; i++) {
-		// TODO: align
+		size_t field_align = type_alignment(fields[i].type);
+		if (field_align > max_alignment) {
+			max_alignment = field_align;
+		}
+		offset = align(offset, field_align);
 		fields[i].offset = offset;
 		offset += type_size(fields[i].type);
 	}
 
 	struct_type->size = offset;
+	struct_type->alignment = max_alignment;
 
 	return &struct_type->base;
 }

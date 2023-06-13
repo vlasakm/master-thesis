@@ -98,6 +98,7 @@ typedef struct {
 typedef struct {
 	Value base;
 	size_t size;
+	Oper stack_offset;
 	bool optimizable;
 } Alloca;
 
