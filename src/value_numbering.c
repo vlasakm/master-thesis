@@ -220,23 +220,30 @@ read_variable(ValueNumberingState *vns, Block *block, Value *variable)
 		garena_push_value(&vns->incomplete_phis[VINDEX(block)], IncompletePhi, phi);
 		value = &phi.phi->base;
 	} else if (block_pred_cnt(block) == 1) {
+		// We only have one predecesssor. Read from it (recursively).
 		fprintf(stderr, "Single pred\n");
 		Block *pred = block_preds(block)[0];
 		value = read_variable(vns, pred, variable);
 	} else {
 		fprintf(stderr, "Merge\n");
-		// We already filled all predecessors.
+		// We already filled all predecessors, but there are multiple of
+		// them. Which means that we need to introduce a phi and add the
+		// phi operands right now.
 		Operation *phi = insert_phi(vns->arena, block, pointer_child(variable->type));
-		// Memoize the phi as the definition in the current block.
-		// Because even though we are iterating in reverse
+		// Memoize the phi as the definition in the current block,
+		// before recursively reading from predecessor blocks,
+		// because even though we are iterating in reverse
 		// post order, there may be a cycle which can lead us back here.
+		// In that case we want to use the phi as the definition for the
+		// current block.
 		write_variable(vns, block, variable, &phi->base);
 		value = add_phi_operands(vns, phi, block, variable);
 	}
+	// If the value can be canonicalized, canonicalize it.
 	if (VINDEX(value) > 0 && vns->canonical[VINDEX(value)]) {
 		value = vns->canonical[VINDEX(value)];
 	}
-	// Memoize
+	// Memoize.
 	write_variable(vns, block, variable, value);
 	return value;
 }
