@@ -11,6 +11,7 @@
 #include "parser.c"
 #include "x86-64.c"
 #include "lower.c"
+#include "peephole.c"
 
 #include "value_numbering.c"
 #include "merge_blocks.c"
@@ -19,5 +20,5 @@
 #include "single_exit.c"
 #include "deconstruct_ssa.c"
 
-#include "tcg.c"
+#include "main.c"
 #include "bitset.c"
