@@ -1261,6 +1261,8 @@ statement(Parser *parser)
 		eat(parser, TK_RPAREN);
 		eat(parser, TK_LBRACE);
 		add_jump(parser, cascading_block);
+		// The following code is unreachable, until we encounter a label
+		// (case or default)
 		switch_to_block(parser, NULL);
 		while (!try_eat(parser, TK_RBRACE)) {
 			switch (peek(parser)) {
