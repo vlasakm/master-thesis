@@ -524,11 +524,29 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 			// mov [rbp-24], rax
 			// =>
 			// add [rbp-24], 1
-			if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_Mr && ((IK(prev) == IK_BINALU && (IM(prev) == M_Ri || IM(prev) == M_Rr)) || (IK(prev) == IK_UNALU && IM(prev) == M_R)) && IK(pprev) == IK_MOV && IS(pprev) == MOV && IM(pprev) == M_CM && IREG(prev) == IREG(pprev) && IREG(inst) == IREG(prev) && is_memory_same(pprev, inst)) {
+			if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_Mr && ((IK(prev) == IK_BINALU && (IM(prev) == M_Ri || IM(prev) == M_Rr)) || (IK(prev) == IK_UNALU && IM(prev) == M_R) || (IK(prev) == IK_MOV && IS(prev) == LEA && IM(prev) == M_CM)) && IK(pprev) == IK_MOV && IS(pprev) == MOV && IM(pprev) == M_CM && IREG(prev) == IREG(pprev) && IREG(inst) == IREG(prev) && is_memory_same(pprev, inst)) {
+				if (IK(prev) == IK_MOV) { // lea
+					if (IREG(prev) != IBASE(prev) || IBASE(prev) == R_NONE || ISCALE(prev) != 0) {
+						goto skip_mem_arith;
+					}
+					if (IDISP(prev) != 0 && IINDEX(prev) != R_NONE) {
+						goto skip_mem_arith;
+					}
+					IK(prev) = IK_BINALU;
+					IS(prev) = G1_ADD;
+					if (IDISP(prev)) {
+						IM(prev) = M_Ri;
+						IIMM(prev) = IDISP(prev);
+					} else if (IINDEX(prev)) {
+						IM(prev) = M_Rr;
+						IREG2(prev) = IINDEX(prev);
+					}
+				}
 				switch (IM(prev)) {
 				case M_Ri: IM(prev) = M_Mi; break;
 				case M_Rr: IM(prev) = M_Mr; break;
 				case M_R:  IM(prev) = M_M;  break;
+				case M_CM: IM(prev) = M_Mi; break;
 				default: UNREACHABLE();
 				}
 				copy_memory(prev, inst);
@@ -538,6 +556,7 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 				inst->next->prev = prev;
 				inst = prev;
 				continue;
+			skip_mem_arith:;
 			}
 
 			// imul t36, t44 ; W
