@@ -801,10 +801,10 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 		// 	mov rdx, rsi
 		// .L4:
 		// =>
-		//      cmovz rdx, rsi
+		//      cmovnz rdx, rsi
 		if (IK(last) == IK_MOV && IS(last) == MOV && IM(last) == M_Cr && IK(prev) == IK_JCC && ILABEL(prev) == next->block->base.index) {
 			IK(last) = IK_CMOVCC;
-			IS(last) = IS(prev);
+			IS(last) = cc_invert(IS(prev));
 			prev->prev->next = prev->next;
 			prev->next->prev = prev->prev;
 			block_use_cnt[next_block_index]--;

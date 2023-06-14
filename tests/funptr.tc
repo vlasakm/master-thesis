@@ -33,7 +33,7 @@ int call2(funtype f, int arg) {
 int main() {
     int a = call1(select(0, &fn1, &fn2), 1);
     int b = call2(select(1, &fn1, &fn2), 1);
-    // > 2 3
+    // > 3 2
     printf("%ld %ld\n", a, b);
     return 0;
 }
