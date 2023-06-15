@@ -361,6 +361,14 @@ copy_memory(Inst *dest, Inst *src)
 }
 
 void
+copy_flags(Inst *dest, Inst *src)
+{
+	IRF(dest) = IRF(src);
+	IWF(dest) = IWF(src);
+	IOF(dest) = IOF(src);
+}
+
+void
 print_reg(FILE *f, Oper reg)
 {
 	if (reg < R__MAX) {

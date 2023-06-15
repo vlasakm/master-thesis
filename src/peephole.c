@@ -461,6 +461,7 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 				use_cnt[IREG(pprev)]--;
 				IK(pprev) = IK(inst);
 				IS(pprev) = IS(inst);
+				copy_flags(pprev, inst);
 				switch (IM(pprev)) {
 				case M_CI: IM(pprev) = M_Ri; break;
 				case M_Cr: IM(pprev) = M_Rr; break;
