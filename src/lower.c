@@ -137,7 +137,9 @@ static void
 add_shift(TranslationState *ts, X86Group2 op, Oper op1, Oper op2)
 {
 	Inst *inst = add_inst(ts, IK_SHIFT, op, M_Rr);
-	inst->writes_flags = true;
+	// Don't mark this instruction as writing flags. The instruction doesn't
+	// write flags if the shift amount is zero.
+	//inst->writes_flags = true;
 	IREG1(inst) = op1;
 	IREG2(inst) = op2;
 	assert(op2 == R_RCX);
