@@ -507,7 +507,8 @@ translate_value(TranslationState *ts, Value *v)
 	case VK_ALLOCA: {
 		Alloca *alloca = (Alloca *) v;
 		size_t size = alloca->size;
-		alloca->stack_offset = reserve_stack_space(ts, size, type_alignment(v->type));
+		size_t alignment = type_alignment(v->type);
+		alloca->stack_offset = reserve_stack_space(ts, size, alignment);
 		break;
 	}
 	case VK_CONSTANT:
@@ -622,8 +623,7 @@ translate_value(TranslationState *ts, Value *v)
 		break;
 	}
 	case VK_CALL: {
-		Operation *call = (void *) v;
-		bool vararg = type_as_function(CALL_FUN(call)->type)->vararg;
+		bool vararg = type_as_function(CALL_FUN(v)->type)->vararg;
 		size_t arg_cnt = value_operand_cnt(v) - 1;
 		translate_call(ts, res, ops[0], &ops[1], arg_cnt, vararg);
 		break;
