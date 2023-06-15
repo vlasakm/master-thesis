@@ -663,16 +663,10 @@ literal(Parser *parser)
 	case TK_NUMBER: {
 		const u8 *pos = token.str.str;
 		const u8 *end = pos + token.str.len;
-		bool negative = 0;
-		while (*pos == '-') {
-			negative = !negative;
-			pos += 1;
-		}
 		i64 value = 0;
 		for (; pos < end; pos++) {
 			value = value * 10 + (*pos - '0');
 		}
-		value = (i32) (negative ? -value : value);
 		return rvalue(create_const(parser, &TYPE_INT, value));
 	}
 	case TK_STRING: {
