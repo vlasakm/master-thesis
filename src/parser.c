@@ -983,6 +983,10 @@ call(Parser *parser, CValue cleft, int rbp)
 		}
 	}
 
+	if (parser->had_error) {
+		  return rvalue(&NOP);
+	}
+
 	Value **arguments = garena_array_from(parser->scratch, start, Value *);
 	size_t argument_cnt = garena_cnt_from(parser->scratch, start, Value *);
 
