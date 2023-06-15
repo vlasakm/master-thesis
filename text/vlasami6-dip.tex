@@ -2988,7 +2988,7 @@ middle end, in the back end we work with machine instructions, which work with
 {\em registers}. Also, we need a place, where we replace $\phi$ functions with
 equivalent copies.
 
-* {\em Code generator}. Translating from middle end to back end IR is often
+* {\em Code generation}. Translating from middle end to back end IR is often
 in general called {\em lowering}, because often we transform from a higher level
 representation to a lower level one. However, in our case, since back end IR
 represent the machine instructions directly, we can just call the phase {\em
@@ -3106,17 +3106,6 @@ optimizer.
 %designed such that each single node in the IR corresponds to at least one
 %instruction or 
 
-\seccc SSA deconstruction
-
-In the middle end we use value-based SSA (introduced in
-section~\ref[ssa:value]) and also $\phi$-functions. In the back end we work with
-machine instructions and virtual and physical registers. Thus we need to map
-values to virtual registers (to be mapped to physical register later) and
-replace uses of $\phi$-functions with copy (`mov`) instructions.
-
-The transition from values is not as straightforward
-as it may seem. 
-
 \seccc Lowering
 
 \seccc Peephole optimization
@@ -3208,6 +3197,7 @@ pokročilé a dobré algoritmy, ale ne úplně dnešní state of the art
 
 \sec Data structures
 
+\label[sec:data-structures-middle-end]
 \secc Middle-end
 
 Even though middle-end is not a direct part of a backend in a compiler, they
@@ -3602,7 +3592,7 @@ evaluates to false (zero) is the third argument.
 
 * {\em Return}. There are actually two kinds of returns---those that return a
 value (i.e. `operand_cnt` is 1) and those that don't return a value
-(`operand_cnt` is 0). Absence of a return value could also be represented with a
+(i.e. `operand_cnt` is 0). Absence of a return value could also be represented with a
 return of a unit value of the unit type, but this was again rejected to stay
 in line with the TinyC type system.
 \enditems
@@ -3708,9 +3698,218 @@ very distinct from `Argument`.
 
 Critical edges and their implications for SSA deconstruction are explained in
 section~\ref[sec:ssa-deconstruction]. In our implementation we chose to split
-all critical edges. 
+all critical edges.
 
+The splitting can be realized in a single linear pass over all basic blocks in a
+function. For each block, if it has multiple predecessors, we check for each
+predecessor whether it has multiple successors---if it does, we have found 
+critical edge. The edge is split by introducing a new basic block, which
+contains just one jump operation into the successor, and has one successor---the
+original predecessor of the edge. The new block has to also be set as the new
+successor to the original predecessor and new predecessor to the original
+successor.
 
+Full implementation critical edge splitting in our implementation is shown in
+listing~\ref[TODO]. The algorithm is rather simple and shows the use of our
+design and data structures.
+
+A few key points in the implementation deserve a mention:
+
+\begitems
+
+* Iteration over blocks is based on reverse post order, by iterating over the
+precomputed post order in reverse. New blocks are {\em not} added to the post
+order on the fly. We don't need to visit them in our algorithm, since they are
+created without critical edges.
+
+* Since the post order isn't updated during the run of the algorithm, it is
+updated after it finishes.
+
+* Adding an operation to the end of a basic block can be realized with a
+`prepend_value` function, which prepends a value to a doubly linked list of
+values. Since the block serves is part of the circular doubly linked list of
+instructions, anything prepended to it will become the last instruction.
+
+* We have to iterate linearly to find a predecessor/successor to replace in the
+list of them.
+
+\enditems
+
+\begtt
+void split_critical_edges(Arena *arena, Function *function) {
+	for (size_t b = function->block_cnt; b--;) {
+		Block *succ = function->post_order[b];
+		if (block_pred_cnt(succ) <= 1)
+			continue;
+
+		FOR_EACH_BLOCK_PRED(succ, pred_) {
+			Block *pred = *pred_;
+			if (block_succ_cnt(pred) <= 1)
+				continue;
+
+			Block *new_block = create_block(arena, function);
+			block_add_pred(new_block, pred);
+			Value *jump = create_unary(arena, VK_JUMP, &TYPE_VOID, &succ->base);
+			jump->parent = &new_block->base;
+			jump->index = function->value_cnt++;
+			prepend_value(&new_block->base, jump);
+
+			FOR_EACH_BLOCK_SUCC(pred, s)
+				if (*s == succ)
+					*s = new_block;
+
+			FOR_EACH_BLOCK_PRED(succ, p)
+				if (*p == pred)
+					*p = new_block;
+		}
+	}
+
+	compute_postorder(function);
+}
+\endtt
+
+We don't have to split {\em all} critical edges. From the perspective of our
+back end, only edges to blocks with $\phi$ functions are problematic (see
+sections~\ref[ssa-deconstruction, impl-ssa-deconstruction]). TODO
+
+\secc SSA deconstruction
+
+In the middle end we use value-based SSA (introduced in
+section~\ref[ssa:value]) and also $\phi$-functions. In the back end we work with
+machine instructions and virtual and physical registers. Thus we need to map
+values to virtual registers (to be mapped to physical register later) and
+replace uses of $\phi$-functions with copy (`mov`) instructions.
+
+Assignment of virtual registers is simple in our representation. Since we
+already assign an index to a `Value` for printing and array indexing purposes
+(see section~\ref[sec:data-structures-middle-end]), then we can use the integer
+indices directly as virtual registers. Since the virtual registers are assigned
+directly from SSA form, the virtual registers will obey the single assignment
+property and thus also correspond to {\em live ranges} for which we want to
+allocate registers.
+
+In our design we will do SSA deconstruction on the value-based representation
+with method 1 from~\ref[Sreedhar1999] (see section~\ref[sec:ssa-deconstruction]
+for more details). Doing it one the middle end value-based representation turns
+out to be more straightforward and is also how Sreedhar's method nominally
+works.
+
+Sreedhar's method 1 consists of adding a copy instruction to each predecessor of
+the block holding the $\phi$-operation and also an extra copy after the $\phi$
+itself. Next all virtual registers involved in the $\phi$-instruction itself are
+given the same virtual register and the $\phi$-instruction can be safely
+removed.
+
+In our implementation we operate with {\em values}, not instructions themselves.
+So realizing copy instructions is not possible in the strict sense. Though we
+can introduce {\em identity} operations. These are operations with single
+operand, that just copy the operand. Since we will also be using the `index`
+field of values as the virtual registers, we can assign the same virtual
+registers to all the identity operations (to-be copy instructions), and also
+replace the $\phi$-operation itself with a copy instruction, which copies from
+the same virtual register by inserting a dummy value with the right index.
+
+Consider for example the following function `f`, which returns 4 or 3 depending
+on the truthiness of the first integer argument:
+
+\beggtt
+f:
+        v0: int = argument 0
+block0:
+        branch v0, block2, block5
+block5: block0
+        jump block4
+block2: block0
+        jump block4
+block4: block2, block5
+        v4: int = phi 4, 3
+        ret v4
+\endtt
+
+We deconstruct the phi by introducing copies to block 2 and block 5 and changing
+the phi to be a copy itself. All the copies need to be based on the same index
+(which will become a virtual register):
+
+\begtt
+f:
+        v0: int = argument 0
+block0:
+        branch v0, block2, block5
+block5: block0
+        v6: int = identity 3
+        jump block4
+block2: block0
+        v6: int = identity 4
+        jump block4
+block4: block2, block5
+        v4: int = identity v6
+        ret v4
+\endtt
+
+Our value based SSA form always stays in SSA, since values can't be assigned.
+But by making the indices semantically meaningful, we can deconstruct the SSA
+with essentially copy operations.
+
+Doing the SSA deconstruction on the SSA form has one significant advantage over
+doing it on the machine form---the control flow graph is fully built already,
+and we can easily just insert copies into predecessors. Doing it in the code
+generator would not be as straightforward. We plan our code generator to be very
+simple and single pass. Requiring copies in predecessor blocks becomes
+troublesome in such generator, because at the time of lowering a block with
+$\phi$-operations the predecessor block may have not been translated yet and
+there may be no place for the $\phi$ insertion! Alternatively, we could flip the
+idea of SSA deconstruction, and instead of inserting copies into predecessors
+while processing the block, we can insert the copies to the predecessors, while
+lowering {\em them}---this is easier, since we base this on the existence of
+$\phi$-operations in {\em successor} blocks in the middle end representation.
+However, in Sreedhar's method we have to introduce a new virtual register for
+the copies, and suddenly coordinating when and how the virtual register is
+allocated becomes more messy than doing it in the middle end IR.
+
+We considered even doing the two step copying method (see
+section~\ref[ssa-deconstruction]), which works well even when done when
+processing the predecessors---the two rounds of copies are fully self contained
+in the predecessors, no indexes have to be changed or coordinated elsewhere.
+However, as the two copy method puts a lot of unnecessary burden on register
+coalescing, we decided to go with Sreedhar's method 1 instead. Other methods are
+able to save even more on future coalescing by inserting the copies in a smarter
+way, by essentially doing the coalescing in the SSA deconstruction stage, but we
+haven't yet found the need to justify a much more complicated algorithm for not
+as that many benefits.
+
+%We shall highlight one issue our simple $\phi$ deconstruction would have if we
+%didn't split critical edges. Split critical edges guarantee us, that a block
+%with multiple predecessors (i.e. a block which {\em can} have a
+%$\phi$-operation), those predecessors only have {\em one successor}---the block
+%with the $\phi$. In other words, all the predecessors end with a `jump`, not
+%`branch`. If we had something like our example above, but without the split of
+%critical edge:
+%
+%\begtt
+%f:
+%        v0: int = argument 0
+%block0:
+%        branch v0, block2, block4
+%block2: block0
+%        jump block4
+%block4: block2, block0
+%        v3: int = phi 4, 3
+%        ret v3
+%\endtt
+%
+%\begtt
+%f:
+%        v0: int = argument 0
+%block0:
+%        v5: int = identity 3
+%        branch v0, block2, block4
+%block2: block0
+%        v5: int = identity 4
+%        jump block4
+%block4: block2, block0
+%        v3: int = identity v5
+%        ret v3
+%\endtt
 
 \label[sec:data-backend]
 \secc Back-end
@@ -4316,6 +4515,296 @@ Figure TODO shows examples of a few x86-64 as represented in a linked list of
 `Inst` structures together with the head of the linked list an `Inst` in
 `MBlock`.
 
+\sec Lowering
+
+Code generation or {\em lowering} is the stage where we go from middle end
+machine independent representation of values to machine dependent instructions.
+We intended our code generator to be simple, with no case analysis. It receives
+as input a RISC-like value based IR and will transform it to RISC-like x86-64
+machine instructions.
+
+We mostly solved SSA deconstruction in
+section~\ref[sec:impl-ssa-deconstruction] and thus have already assigned virtual
+registers. The lowering step should then simply go over the values in the
+control flow graph one by one and translate them to corresponding instructions.
+For following analysis in register allocation, we will preserve the basic
+blocks, and as we don't have to add any new basic blocks, the translation is
+done one-to-one in terms of basic blocks. Not as much with instructions, where
+one middle end operation may require multiple x86-64 instructions.
+
+In section about implementation of SSA deconstruction
+(\ref[sec:impl-ssa-deconstruction]) we claimed that for values we simply use
+their index as the virtual register. So in order to transform an operation like
+the following addition:
+
+\begtt
+v5: int = add v3, v4
+\endtt
+
+We would like to emit an add instruction adding virtual register 3 and virtual
+register 4 into virtual register 5. However, there is no such instruction on the
+x86-64. We only have available two address code instructions (see
+section~\ref[x86-two-address-code] for more details), where the result is put
+into the first source register. Thus we can add virtual register 3 and virtual
+register 4 into virtual register 3\fnote{Notice that we use the letter `t` as in
+\"temporary" for virtual registers to distinguish them from values which are
+prefixed with letter `v`, however for readability and ease of implementation we
+keep the indices themselves mostly the same.}:
+
+\begtt
+add t3, t4
+\endtt
+
+To move the result into `t5` we could add a copy instruction after:
+
+\begtt
+add t3, t4
+mov t5, t3
+\endtt
+
+However, to also preserve the original value of `t3` (since in general it may be
+needed elsewhere), we do the copy {\em before}:
+
+\begtt
+mov t5, t3
+add t5, t4
+\endtt
+
+We do similar translations for most of the ordinary binary operations. Unary
+operations are very similar, we go from:
+
+\begtt
+v3: int = neg v2
+\endtt
+
+to:
+
+\begtt
+mov t3, t2
+neg t3
+\endtt
+
+Instructions which have special register constraints are realized through copies
+to or from the required registers (see section~\ref[sec:regalloc-constraints]),
+thus effectively we perform {\em live range splitting} (explained more
+thoroughly in section~\ref[sec:regalloc-splitting]). For example shifts which
+require the shift amount to be in register `cl`:
+
+\begtt
+v3 = shl v1, v2
+\endtt
+
+\begtt
+mov t3, t1
+mov rcx, t2
+shl t3, cl
+\endtt
+
+Or (signed) division which essentially requires the dividend to be 128
+bits: lower 64 bits in `rax`, upper in `rdx`. Since we only need 64-bit
+division, we can move the 64-bit dividend into `rax` and sign extend it into
+`rdx` with the special purpose instruction `cqo` (\"convert quadword to
+octoword"). After the division, the quotient is in `rax` and we need to move it
+to a temporary as well:
+
+\begtt
+v3 = sdiv v1, v2
+\endtt
+
+\begtt
+mov rax, v1
+cqo
+idiv v2
+mov t3, rax
+\endtt
+
+
+In a RISC-like fashion, we base our operations on registers and don't
+investigate whether we can use a more suitable addressing mode. One addressing
+mode allows immediate values to be added to registers, i.e. for example we could
+translate:
+
+\begtt
+v7: int = add v6, 1
+\endtt
+
+to:
+
+\begtt
+mov t7, v6
+add t7, 1
+\endtt
+
+However, here we encounter a problem which we have so far neglected: how are
+{\em constants} assigned virtual registers? Operations are embedded in the
+concrete places in control flow graph and represent the {\em value} resulting
+from an operation, which is only valid in the function (and to be concrete
+speaking only in operations {\em strictly dominated} by the operation).
+
+Integer constants are represented with the `Constant` struct (see
+section~\ref[sec:data-structures-middle-end]). There are two practical problems
+with assigning them virtual registers:
+
+\begitems
+* Our virtual register assignments are not global across all functions
+functions, but only per-function.
+
+* Even if we did for example assign the constant `4` the virtual register 4
+across all functions, later we would have to assign it a {\em physical
+register}. Blocking a physical for storing constants is unacceptable, if only
+because much more constants can be used than there physical registers available.
+\enditems
+
+As opposed to operations, constants are {\em always} available. Because they are
+also {\em compile time constants}, instead of assigning virtual registers to
+constants, we can materialize the constants to registers {\em on demand}, when
+needed---and each time into a new, fresh, virtual register. This way, we not
+only keep the constants close to their uses (allowing easier peephole
+optimization), but also keep the fresh virtual registers very short lived. This
+way we alleviate much of the need for {\em rematerialization of constants} in register
+allocation (see section~\ref[regalloc-rematerialization]---due to being short
+lived, they are not great candidates for spilling, and many constants are easily
+folded into other instructions through the use of better addressing modes.
+
+For these reasons we don't put constants like integers into control flow graph
+like other operations, i.e. addition for two numbers wouldn't be represented as:
+
+\begtt
+v1: int = constant 1
+v2: int = constant 2
+v3: int = add v1, v2
+\endtt
+
+But as:
+
+\begtt
+v3: int = add 1, 2
+\endtt
+
+For many of the constants (like functions, globals and string literals) we can
+also choose either form, e.g. for functions:
+
+\begtt
+v4: *(int) -> int = function f
+[...]
+v6: int = call v4, v5
+\endtt
+
+But also:
+
+\begtt
+v6: int = call f, v5
+\endtt
+
+Materialization of constants has to be done every time we encounter the constant
+being used as an operand. As our code generator doesn't do any case analysis, it
+suffices to materialize the constant into a register. For example, we would
+translate
+
+\begtt
+v3 = add 1, 2
+v4 = call f, v3, 1, 2
+\endtt
+
+To the following:
+
+\begtt
+mov t10, 1
+mov t11, 2
+mov t3, t10
+add t3, t11
+
+lea t12, [f]
+mov t13, 1
+mov t14, 2
+
+mov rdi, t3
+mov rsi, t13
+mov rdx, t14
+
+call t12
+\endtt
+
+Above, the first group instructions realizes the addition including the
+materialization of constants. In the second group, the constants for the call
+are materialized---the address of the functions is loaded into a register, just
+as well as the constants. In the third group, there are copies to registers imposed by the
+calling registers---i.e. first argument to `rdi`, etc. And finally in the last
+instruction the function is called indirectly through a function pointer.
+
+The code generated by our simple code generator is very inefficient, but
+produces correct, obvious code, that can be improved upon in the peephole
+optimization stage. The peepholer is not only more suited to do case analysis,
+but it can also do it across the code expansions of more operations. For
+example, we could make the code generator generate direct function calls
+(\"label calls") instead of indirect calls (\"register calls"), but we want to
+transform indirect calls to direct even in the case they didn't seem as direct
+at first, but only appeared so after other (peephole) optimizations.
+
+Even use of immediates in instructions isn't without case analysis: generally
+only 32-bit immediates (which are sign extended) are allowed for instructions.
+For example the following the additions have different possible {\em optimized}
+versions:
+
+\begtt
+v7: int = add v6, 2147483647
+
+v9: int = add v8, 2147483648
+\endtt
+
+\begtt
+lea t7, [t6 + 2147483647]
+
+mov t10, 2147483648
+mov t9, t8
+add t9, t10
+\endtt
+
+The code generation is mainly driven by a function called `translate_value`,
+which is responsible for translating the {\em operations}. Before any operation
+is translated, the {\em operands} are translated with
+`translate_operand`---mainly translation of operands involves materialization of
+constants. Parts of the functions are illustrated below with some of the utility
+functions.
+
+\begtt
+void translate_value(TranslationState *ts, Value *v) {
+	Oper ops[256];
+	Value **operands = value_operands(v);
+	size_t operand_cnt = value_operand_cnt(v);
+	for (size_t i = 0; i < operand_cnt; i++)
+		ops[i] = translate_operand(ts, operands[i]);
+
+	Oper res = v->index;
+
+	switch (v->kind) {
+		[...]
+	}
+}
+\endtt
+
+\begtt
+TODO
+\endtt
+
+\sec Register allocation
+
+Register allocation by graph coloring and in particular the Iterated register
+coalescing~\cite[George1996] algorithm we implement, does not consist of one
+simple step, but of multiple, iterated {\em phases}, which are shown in
+figure~\ref[fig:todo], and explained in the following subsections.
+
+\secc Liveness analysis
+
+
+
+
+\begitems \style n
+
+* {\em Liveness analysis}. Before we are able to construct the interference
+graph on which we perform 
+
+\enditems
 
 
 %Iteration over all defined and used registers (which is needed by liveness
@@ -4358,24 +4847,295 @@ Figure TODO shows examples of a few x86-64 as represented in a linked list of
 %
 %Machine independent representation of machine dependent instructions
 
-\sec Lowering
-
-Jednoduchá \"makro expanze" a SSA dekonstrukce (předpokládá absenci kritických
-hran)
-
-Problémy s 64 bit immediates, atd. Radši žádná case analysis, stejně ji musí
-dělat peephole a ten je stejně povolanější, protože spojuje instrukce nehledě na
-to z který middle end IR kód pochází
-
 \sec Peephole optimization
 
+In our compiler, peephole optimization serves the roles of both the instruction
+selection and the classic peephole optimization that runs as the last step of
+the backend for code cleanup. This is because we chose to use a single back end
+representation---machine instructions. Our peephole optimizer shall look at
+sequences of instructions and replace them with {\em better} alternatives, where
+better is often faster, shorter, or even just more canonical to allow subsequent
+optimizations. We should also be careful about optimizations that transform code
+that {\em doesn't} allow subsequent optimizations.
+
+In the next few subsections, we will look at optimizations applicable to x86-64
+machine instructions (or in general) and also into the implementation in our
+back end (section~\ref[imp-peephole-imp]).
+
 \secc Local optimizations
+
+Local optimizations are the classic peephole optimizations based on small
+windows {\em peepholes} into instructions. They are very limited, since they
+have only very local knowledge about the code.
+
+As mentioned when discussing coalescing (section~\ref[regalloc-coalescing]), the
+register allocator tries to assign virtual registers involved in the same move
+instruction the same physical register. In that case we can end up with
+instruction like:
+
+\begtt
+mov rax, rax
+\endtt
+
+Copy instruction where the source is the same as destination can be deleted
+freely, because they have no effect---they don't even set flags. Due to our
+handling of callee saved registers, even for the simplest functions, like one
+returning the integer 1:
+
+\begtt
+one:
+block0:
+        ret 1
+\endtt
+
+We generate code that generally looks like this:
+
+\begtt
+one:
+.L0:
+        ; entry
+        push rbp
+        mov rbp, rsp
+        sub rsp, 42
+        mov t19, rbx
+        mov t20, r12
+        mov t21, r13
+        mov t22, r14
+        mov t23, r15
+        mov t24, 1
+        mov rax, t24
+        mov rbx, t19
+        mov r12, t20
+        mov r13, t21
+        mov r14, t22
+        mov r15, t23
+        mov rsp, rbp
+        pop rbp
+        ret
+\endtt
+
+In most functions with low register pressure, often none of the 5 callee saved
+are spilled. Thus after register allocation we get:
+
+\begtt
+one:
+.L0:
+        ; entry
+        push rbp
+        mov rbp, rsp
+        sub rsp, 42
+        mov rbx, rbx
+        mov r12, r12
+        mov r13, r13
+        mov r14, r14
+        mov r15, r15
+        mov t24, 1
+        mov rax, t24
+        mov rbx, rbx
+        mov r12, r12
+        mov r13, r13
+        mov r14, r14
+        mov r15, r15
+        mov rsp, rbp
+        pop rbp
+        ret
+\endtt
+
+Which we simplify to:
+
+\begtt
+one:
+.L0:
+        ; entry
+        push rbp
+        mov rbp, rsp
+        sub rsp, 42
+        mov rax, 1
+        mov rsp, rbp
+        pop rbp
+        ret
+\endtt
+
+For an implementation of this particular peephole pattern, we need to match the
+{\em exact opcode}. In this case we need to match a `mov` from register to
+register. In our representation of instruction (described thoroughly in
+section~\ref[sec:data-backend]), we split the opcode information into three
+parts: {\em kind}, {\em subkind} and {\em mode}. This split is especially
+targeted at peephole patterns, where we can get a lot of patterns sharing the
+same kind, but with different subkinds, or the patterns can be applicable to
+same instruction with different modes (or perhaps with slight adjustments for
+each mode).
+
+Kind (\"instruction kind", `IK`) for this pattern would be `IK_MOV`, subkind
+`MOV`\fnote{There are multiple variations of the `mov` opcode, in particular for
+different sizes (i.e. 8-bit vs 64-bit loads/stores).} and mode `M_Cr` (i.e.
+first register only written, second register only read). And we also need to
+check whether the two registers are the same. These checks don't need to occur
+in the order described here---as long as they all succeed, they can be done in
+any order, however filtering first based on the kind and subkind can quickly
+filter out instructions not worth checking.
+
+The entire implementation of the pattern could be the following:
+
+\begtt
+if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_Cr
+		&& IREG(inst) == IREG2(inst)) {
+	inst->prev->next = inst->next;
+	inst->next->prev = inst->prev;
+}
+\endtt
+
+Here, the macros `IK`, `IS` and `IM` respectively allow terse access to the
+`kind`, `subkind` and `mode` fields of the instructions. If the pattern matches,
+we can remove the instruction by unlinking it from the circular doubly linked
+list by pointing the previous node's next field to the next instruction and
+likewise for the `prev` field of the next instruction.
+
+There are more single instruction peephole patterns that are possible. For
+example. For example a comparison of a register with a 0:
+
+\begtt
+cmp t12, 0
+\endtt
+
+Is the same as using `test` instruction (which performs bitwise and of the two
+operands and sets flags based on the result) on the register with itself:
+
+\begtt
+test t12, t12
+\endtt
+
+This saves 4 bytes on the immediate 0. The implementation of the pattern can
+look like this:
+
+\begtt
+if (IK(inst) == IK_BINALU && IS(inst) == G1_CMP && IM(inst) == M_ri
+		&& IIMM(inst) == 0) {
+	IS(inst) = G1_TEST;
+	IM(inst) = M_rr;
+	IREG2(inst) = IREG(inst);
+}
+\endtt
+
+We check for kind, subkind, mode and then the special properties we are looking
+for, in this case that the 32-bit immediate is zero. To realize the replacement
+of the instruction we don't have to allocate a new one and free the old one. We
+can use the existing instruction and modify it in place. This saves as quite a
+bit of relinking we would have to, but more importantly it allows us to keep
+some fields {\em unchanged}. Here we for example don't need to change the first
+register---it stays the same for both instructions. In more complicated patterns
+this can be more interesting---often we e.g. don't care about how the address of
+a load instruction is calculated, but just that it is a load instruction.
+
+When considering peephole patterns we don't just need to find just {\em useful}
+patterns, they need to be {\em reachable} as well. For example, the
+transformation of comparison with zero to `test` presented above is useful
+(produces shorter instruction encoding), but it as of now, it is not
+reachable---our code generator never generates comparisons with immediates.
+
+In this case, immediate operands are in fact very common, because they can be
+created with simple peephole optimization like this one:
+
+\begtt
+mov t13, 0
+cmp t12, t13
+
+cmp t12, 0
+\endtt
+
+This pattern is more general---certainly we don't need it to be limited to just
+zero. But we need to consider the fact, that on the x86-64 immediate operands
+can be at most 32-bit signed values, so \"small" positive and negative
+immediates (which are the most common ones) are applicable. The pattern is also
+not limited to the `cmp` instruction---the pattern will also work with `add` or
+`sub`. All of these are conveniently in the `IK_BINALU` subkind, since they
+have very similar addressing modes. But the mode is different---`cmp` like
+`test`, but unlike e.g. `add` {\em doesn't} write to any register---it just
+changes the flags. Thus we don't need to match for any particular {\em subkind},
+but we need to check for one of the two {\em modes}. Here an implementation
+could look like this:
+
+
+\begtt
+if (IK(inst) == IK_BINALU && (IM(inst) == M_Rr || IM(inst) == M_rr)
+		&& IK(prev) == IK_MOV && IS(prev) == MOV
+		&& IM(prev) == M_CI && IREG(prev) == IREG2(inst)
+		&& pack_into_oper(get_imm64(prev), &IIMM(inst))) {
+	inst->mode = IM(inst) == M_Rr ? M_Ri : M_ri;
+	IREG2(inst) = R_NONE;
+}
+\endtt
+
+As hinted above, we check the current instruction (`inst`) for the right kind
+and mode, but we also investigate the previous instruction (here already in the
+local variable `prev`). We expect it to be a `mov` with mode `M_CI`, i.e. we
+write an immediate into a register. The big letter `I` signifies a 64-bit
+immediate---moves of immediates into registers are one of the very few
+instructions where 64-bit moves are allowed. Hence before applying this pattern
+we also need to check whether the immediate from the `mov` instruction actually
+fits into 32-bit with the sign bit. Here we do that, with helper functions which
+extract the 64-bit immediate from two 32-bit `Oper` slots, and then try to fit
+it into the 32-bit `Oper` of the arithmetic instruction. Since the function
+performs side effect, but returns a boolean indicating success, we run it last.
+Then we update the mode of the instruction accordingly---we will use `i` for the
+second operand (since it is now a 32-bit to-be sign extended immediate), but we
+need to preserve the read or write property on the first register. Also, since
+generally we keep unset fields set to zero, we also set the (now unused) second
+register field to 0 (or the symbolic constant `R_NONE` which is defined to be
+0)---we don't need to do this, since as long as the mode doesn't need the slot,
+it is not going to be read, but the zero-initialized property is sometimes
+useful and we chose to preserve it.
+
+Unfortunately, the pattern shown above is still not very useful---it expects two
+the immediate move and arithmetic instructions to immediately follow each other.
+But for example subtractions are lowered into code like this:
+
+\begtt
+mov t13, 10
+mov t14, t12
+sub t14, t13
+\endtt
+
+The copy in the middle prevents the pattern to match. Though if `t14` and `t12`
+get coalesced:
+
+\begtt
+mov rax, 10
+mov rcx, rcx
+sub rcx, rax
+\endtt
+
+The pattern will match after the previous redundant copy applies:
+
+\begtt
+sub rcx, 10
+\endtt
+
+Though the code is better, and uses a better addressing mode, we missed an
+optimization---by waiting until after register allocation, we had to allocate
+a physical register for the short lived temporary. This could have caused a long
+lived temporary to get spilled or at least makes the register allocation problem
+harder by keeping more interferences, etc. Thus we really do want to make
+optimizations in the first peephole pass {\em before} register allocation. Here
+we can notice the pattern with the move in the middle and introduce a three
+instruction pattern. The new pattern should probably check fully that the middle
+instruction is a `mov` in the form we expect, or at least it has to make sure,
+that the register with the immediate isn't {\em overwritten} in the middle
+instruction, which would make it invalid.
+
+
+
+Apart from register or immediate operands, instructions can also have one memory
+operand. 
 
 \secc Flag based optimizations
 
 \secc Use-def based optimizations
 
 \secc Inter-block optimizations
+
+\label[imp-peephole-imp]
+\secc Implementation
 
 \sec Register allocation
 
