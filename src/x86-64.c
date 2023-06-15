@@ -317,7 +317,8 @@ is_imm32(Inst *inst)
 bool
 pack_into_oper(u64 value, Oper *op)
 {
-	if (value > UINT32_MAX) {
+	// Most instructions allow 32-bit signed immediates.
+	if ((i64) value > INT32_MAX || (i64) value < INT32_MIN) {
 		return false;
 	}
 	*op = (u32) value;
