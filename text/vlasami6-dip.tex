@@ -4515,6 +4515,7 @@ Figure TODO shows examples of a few x86-64 as represented in a linked list of
 `Inst` structures together with the head of the linked list an `Inst` in
 `MBlock`.
 
+\label[sec:imp-lower]
 \sec Lowering
 
 Code generation or {\em lowering} is the stage where we go from middle end
@@ -4860,8 +4861,9 @@ that {\em doesn't} allow subsequent optimizations.
 
 In the next few subsections, we will look at optimizations applicable to x86-64
 machine instructions (or in general) and also into the implementation in our
-back end (section~\ref[imp-peephole-imp]).
+back end (section~\ref[sec:imp-peephole-imp]).
 
+\label[imp-peephole-local]
 \secc Local optimizations
 
 Local optimizations are the classic peephole optimizations based on small
@@ -5121,21 +5123,369 @@ we can notice the pattern with the move in the middle and introduce a three
 instruction pattern. The new pattern should probably check fully that the middle
 instruction is a `mov` in the form we expect, or at least it has to make sure,
 that the register with the immediate isn't {\em overwritten} in the middle
-instruction, which would make it invalid.
-
-
+instruction, which would make the optimization invalid.
 
 Apart from register or immediate operands, instructions can also have one memory
-operand. 
+operand. Instructions often use operands in memory---C variables are nominally
+stored on the stack, just like spilled registers. Addresses of variables on the
+stack (through `alloca` instructions) are {\em constants} in our implementation,
+hence are often very close to their use, making it possible for simple peephole
+patterns to optimize the memory access. For example, a load from a local
+variable might look like this:
 
+\begtt
+lea t25, [rbp-24]
+mov t26, [t25]
+\endtt
+
+And can be easily optimized to this:
+
+\begtt
+mov t26, [rbp-24]
+\endtt
+
+The address computation in a `lea` (\"load effective address") instruction uses
+the same memory addressing as all other instructions referencing memory. Similar
+memory addressing optimizations are also applicable for stores and operands of
+arithmetic instructions.
+
+Peephole optimizations don't only involve simple identities or addressing mode
+changes. Opportunities arise for example for eliminate a load from a just stored
+address:
+
+\begtt
+mov [G], t27
+mov t28, [G]
+\endtt
+
+Instead of loading from the global variable `G`, it is possible to use the
+register `t27`. However, all uses of `t28` currently refer to `t28` and we can't
+easily changed them without additional bookkeeping. Merging the registers into
+one practically is just like coalescing, and we can encourage the register
+allocator to coalesce just by rewriting the load into a copy:
+
+\begtt
+mov [G], t27
+mov t28, t27
+\endtt
+
+The advantage to leaving the coalescing to the register allocator is, that it
+has the knowledge about interferences and will not combine `t28` with `t27` if
+they {\em interfere} (see section~\ref[regalloc-graph-coloring]).
+
+\label[sec:imp-peephole-flag]
 \secc Flag based optimizations
+
+Well known arithmetic identities like addition of zero or multiplication by one
+are often folded in the middle end. Though, with an optimizing back end,
+opportunities for such optimizations often arise again. Hence our peephole
+optimizer should be able to do them as well. They are not as straightforward
+though. Take as an example addition with zero:
+
+\begtt
+add rax, 0
+\endtt
+
+While the register `rax` isn't changed by the instruction at all, the {\em
+flags} register gets updated based on the {\em result} of addition---in this
+case based on `rax`. If a later instruction depends on the flags, we can't just
+delete this instruction.
+
+Similar need for flags prevents the use of `lea` for arithmetic, because unlike
+arithmetic instructions the `lea` instruction {\em doesn't} set flags. I.e. the
+following addition:
+
+\begtt
+mov t26, t18
+add t26, t34
+\endtt
+
+Can only be optimized to `lea` if the flags are not observed after the `add`:
+
+\begtt
+lea t26, [t18+t34]
+\endtt
+
+Normally our code generator doesn't generate `lea` instructions except for
+materialization of constants (see section~\ref[sec:imp-lower]). However, as shown in
+the previous section (section~\ref[sec:imp-peephole-local]), we are able to
+transform uses of `lea`s in for example loads and stores or other instructions
+that allow memory operands. So transforming address calculations involving `add`
+or `imul` into `lea` instructions is important to allow these better addressing
+modes. Transforming even ordinary arithmetic (i.e. not address calculations)
+into `lea` instructions is also almost always an improvement---`lea` unlike most
+other instructions can write a different register than any of the read
+registers, so its use may constrain register allocation less.
+
+As our code generator doesn't do any case analysis, it inserts explicit `cmp`
+instructions for setting the flags. Thus we could perform the optimizations
+described above freely. But then we would have to give up the optimizations that
+are able to {\em use} the flags. For example a loop might be decrementing a
+register until it becomes zero:
+
+\begtt
+sub rax, 1
+test rax, rax
+jz .L3
+\endtt
+
+Using `test` to set flags according to `rax`'s value is redundant, since the
+flags are already set by the previous arithmetic instruction. We have shown like
+optimizations can replace comparison with zero to `test` with itself in previous
+the previous section (section~\ref[imp-peephole-local]).
+
+Ideally we would like to support both kinds of optimizations---removing
+redundant settings of flags when the flags are already set by arithmetic
+instructions, as well as making use of instructions not setting the flags if the
+flags are not needed. For this we need to track whether flags set by an
+instruction are {\em observed} later. We do that by introducing three flags to
+each instruction:
+
+\begtt
+struct Inst {
+	[...]
+	bool writes_flags;
+	bool reads_flags;
+	bool flags_observed;
+	[...]
+};
+\endtt
+
+And then compute the `flags_observed` property based on how the instructions
+read and write flags in a single backwards pass over a basic block:
+
+\begtt
+bool flags_needed = false;
+for (Inst *inst = mblock->insts.prev; inst != &mblock->insts; inst = inst->prev) {
+	inst->flags_observed = flags_needed;
+
+	if (inst->writes_flags)
+		flags_needed = false;
+
+	if (inst->reads_flags)
+		flags_needed = true;
+}
+\endtt
+
+This way instructions which set flags which are needed in the future, as well as
+instructions through which needed flags pass through are marked. More
+complicated data-flow analysis is not needed, since we don't ever assume
+anything about the state of flags at basic block starts and can thus assume the
+flags are not needed at the end of a basic block.
+
+The boolean flags on `Inst` are flexible, but unnecessarily since whether the
+instruction writes or reads flags can be determined by the instruction {\em
+kind}, so it would be possible to have an array mapping kinds (as indices) to
+the boolean flags. But since in our implementation instructions had spare space
+for the two flags due to alignment, we didn't yet find the need for such
+improvement.
+
+Now with sufficient information, we may realize simple arithmetic identities
+like addition of zero or multiplication by one: depending on whether the flags
+are observed, we can either remove the instruction completely, or change it to
+`test` of the register with itself, which is a better way of setting the flags
+then an arithmetic instruction, if only because it doesn't involve an immediate.
+
+The information about flag observation can be used for even more optimizations.
+For example, `cmp` and `test` instructions can be removed if the flags set by
+them are not observed:
+
+\begtt
+cmp t3, t5 // can be deleted if flags not observed
+\endtt
+
+Some instructions are problematic with regards to flags. For example `inc` and
+`dec` instruction don't set the carry flag, but do set other flags and shift
+instructions (like `shl`) don't set the flags when the shift amount is equal to
+zero. The special behavior of `inc` and `dec` isn't that problematic, since we
+currently don't use the carry flag for anything. Shifts are more problematic,
+since if we expect them to set flags and optimize based on that like above, we
+might actually get into situation where the flags are not set and instead a
+previous incorrect value of the flag register would be read. For this reason we
+don't set `writes_flags` for shift instructions. This way, if flags are needed
+after the instruction, the peephole optimizer will be forced to leave the `cmp`
+instruction inserted by the code generator. Though this will then be marked as flags
+pass-through of flags by our algorithm above, though this isn't a problem with
+code patterns generated by our generator, where we always set flags and read
+flags in the same expansion, not across expansions.
 
 \secc Use-def based optimizations
 
+In section~\ref[sec:imp-peephole-local] we showed an addressing mode
+optimization, which took an immediate move instruction or `lea` loading an
+address of local or global variable and folded the constant into other
+instruction. For example from:
+
+\begtt
+mov t13, 0
+cmp t12, t13
+\endtt
+
+To:
+
+\begtt
+cmp t12, 0
+\endtt
+
+However, there are a few problems with this optimization:
+
+\begitems
+
+* The optimization is actually incorrect. We can't remove the definition of
+`t13`, since there may be other uses of the register. In practice, since during
+code generation we {\em materialize constants} for each use (see
+section~\ref[imp-lowering]), there are {\em no} other uses of the constants. But
+other optimizations can change that.
+
+* It is not powerful enough. The optimization only takes place when there are
+two (physically) consecutive instructions.
+\enditems
+
+We can improve on both points by tracking {\em uses} and {\em definitions}. We
+call this {\em use-def} based peephole optimization. Our approach and idea are
+pretty simple: for each register we track the number of definitions, the number
+of uses and if there is only one definition, the defining instruction. These
+properties are precalculated once, before the peephole pass, and in the
+implementation we actually do it as part of the backwards pass over blocks where
+we track flag information.
+
+This information about the number of definitions and uses allows us to remove
+instructions that define a register with no uses (provided that the instruction
+doesn't have other side effects). Such peephole pattern may be even as abstract
+as this:
+
+\begtt
+if ((IM(inst) == M_CI || IM(inst) == M_Cr || IM(inst) == M_CM
+		|| IM(inst) == M_Cn) && use_cnt[IREG(inst)] == 0) {
+	def_cnt[IREG(inst)]--;
+	for_each_use(inst, decrement_count, use_cnt);
+	inst->prev->next = inst->next;
+	inst->next->prev = inst->prev;
+}
+\endtt
+
+Here we check the {\em mode} of the instruction and if is one of those that
+define the first register, and the register has no uses, then we can remove the
+definition by unlinking the instructions and decrementing the definition count
+of the register. To allow further optimizations, we also decrement the use
+counts of the registers used in this instruction---which may in effect
+lead to them being unused---though the implications of this on the peephole
+optimization are only discussed later, in section~\ref[sec:imp-peephole-imp].
+
+The tracking of the single definition is more interesting for thorough
+addressing mode improvements. For example, we can for an instruction in one
+addressing mode (say using only registers) check, whether e.g. the second
+register is defined as an immediate that fits into 32-bits, or a memory location
+computed using `lea`, etc. and use these definitions directly in the instruction
+with a better addressing mode. Additionally, if the original register with the
+constant is used only once, the definition can be deleted. With a right set of
+functions abstracting the check for constant definition and the folding, we can
+specify the peephole optimization patterns in a pretty terse way. Just for
+illustration:
+
+\begtt
+if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_Mr
+		&& try_replace_by_immediate(mfunction, inst, IREG2(inst))) {
+	IM(inst) = M_Mi;
+}
+\endtt
+
+Above, if the instruction is a store instruction (moving a value from register
+to memory location) and the register is actually a 32-bit constant, then we can
+change the addressing mode to \"memory-immediate". The helper function takes
+care of checking the (single) constant definition and packing the immediate into
+`IIMM(inst)`, which can of course fail if the constant cannot be expressed as a
+32-bit signed number. And just for completeness, the folding of memory locations
+can be done like this:
+
+\begtt
+if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_CM
+		&& try_combine_memory(mfunction, inst)) {
+	// nothing to do
+}
+\endtt
+
+This pattern can fold the memory location of the address in a load instruction.
+I.e. to go from the following:
+
+\begtt
+lea t25, [rbp-24]
+mov t26, [t25]
+\endtt
+
+To:
+
+\begtt
+mov t26, [rbp-24]
+\endtt
+
+The function `try_combine_memory` is actually pretty involved, because it not
+only allows folds of constants, it tries to combine any two memory locations
+together. The function doesn't care about the actual addressing mode of the
+instruction the peephole executes on (i.e. the fact that it is a load in the
+example above), it only looks at the memory specification. If the {\em base}
+register used in the specification (`t25` above) has only one unique definition,
+which is a `lea` instruction and the {\em base} register of the `lea` (`rbp`
+above) is either `R_NONE` (meaning that RIP-relative, i.e. label addressing is
+used) or `rbp` or other register with {\em one unique definition} then it will
+try to combine the base, index, scale and displacement fields of the two memory
+locations. So for example, even the following two would get folded:
+
+\begtt
+lea t27, [a-4]
+mov t28, [t27+8]
+
+lea t29, [4*t25] // say t25 has only one definition
+mov [t29+16], 1
+\endtt
+
+The implementation currently doesn't support all possibilities that {\em could}
+be optimized. But sufficient number of them found in real programs using the
+advanced addressing modes are supported.
+
+Similar function is used to transform `lea` instructions loading function
+addresses and indirect calls into direct calls:
+
+\begtt
+if (IK(inst) == IK_CALL && IM(inst) == M_rCALL && try_combine_label(mfunction, inst)) {
+	IM(inst) = M_LCALL;
+}
+\endtt
+
+I.e. this goes from:
+
+\begtt
+lea rax, [function]
+call rax
+\endtt
+
+To:
+
+\begtt
+call function
+\endtt
+
+
 \secc Inter-block optimizations
 
-\label[imp-peephole-imp]
+\label[sec:imp-peephole-imp]
 \secc Implementation
+
+ 
+
+This \"cascading" effect of dead instructions is not
+that common---we much rather prefer to always remove instruction in peephole
+patterns where we find them dead, because these removals change what falls into
+a peephole window and thus may lead to other optimizations---
+
+\secc Practical findings
+
+move forwarding - surprisingly important
+
+`inc` --- not worth it
+
+deletions of long distanced values can bring other optimizations
+
 
 \sec Register allocation
 
