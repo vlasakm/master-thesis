@@ -3,6 +3,7 @@
 #include "str.c"
 #include "table.c"
 #include "environment.c"
+#include "bitset.c"
 #include "utils.c"
 #include "type.c"
 #include "ir.c"
@@ -21,4 +22,3 @@
 #include "deconstruct_ssa.c"
 
 #include "main.c"
-#include "bitset.c"
