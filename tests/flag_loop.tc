@@ -1,0 +1,15 @@
+// vim: ft=c et sw=4
+
+int printf(char *, ...);
+
+void f(int n) {
+	while (--n > 0)
+		printf("%ld\n", n);
+}
+
+int main() {
+    // > 2
+    // > 1
+    f(3);
+    return 0;
+}
