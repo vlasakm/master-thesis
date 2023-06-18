@@ -203,6 +203,12 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 			// https://www.agner.org/optimize/microarchitecture.pdf
 			if (false) {}
 
+			if (last_pass && IK(inst) == IK_ENTRY) {
+				inst->prev->next = inst->next;
+				inst->next->prev = inst->prev;
+				goto next;
+			}
+
 			Inst *prev = inst->prev;
 
 			// lea t32, [rbp-16] // IK_MOV ANY M_C*
