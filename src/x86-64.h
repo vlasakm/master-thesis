@@ -84,7 +84,6 @@ typedef enum {
 	R_RSP,
 	R_RBP,
 
-	R__RIP,
 	R__MAX,
 } Reg;
 
