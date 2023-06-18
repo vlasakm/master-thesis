@@ -26,8 +26,8 @@ struct RegAllocState {
 	size_t move_capacity;
 
 	// Parameters
-	size_t reg_avail;
-	size_t first_vreg;
+	Oper reg_avail;
+	Oper first_vreg;
 
 	// Did this function have any spills yet?
 	// (Used to apply coalescing on first potential spill).
@@ -221,15 +221,15 @@ reg_alloc_state_init_for_function(RegAllocState *ras, MFunction *mfunction)
 }
 
 static bool
-is_physical(RegAllocState *ras, Oper op)
+is_physical(RegAllocState *ras, Oper u)
 {
-	return op < ras->first_vreg;
+	return u < ras->first_vreg;
 }
 
 static bool
-is_significant(RegAllocState *ras, Oper op)
+is_significant(RegAllocState *ras, Oper u)
 {
-	return ras->degree[op] >= ras->reg_avail;
+	return ras->degree[u] >= ras->reg_avail;
 }
 
 
@@ -685,8 +685,8 @@ detect_interrupting_deaths(void *user_data, Oper *use_)
 	if (!wl_has(&ras->live_set, use)) {
 		WorkList *uninterrupted = &ras->uninterrupted;
 		FOR_EACH_WL_INDEX(uninterrupted, i) {
-			Oper op = uninterrupted->dense[i];
-			bs_set(&ras->ever_interrupted, op);
+			Oper u = uninterrupted->dense[i];
+			bs_set(&ras->ever_interrupted, u);
 		}
 		wl_reset(uninterrupted);
 	}
@@ -790,21 +790,21 @@ build_interference_graph(RegAllocState *ras)
 }
 
 void
-for_each_adjacent(RegAllocState *ras, Oper op, void (*fun)(RegAllocState *ras, Oper neighbour))
+for_each_adjacent(RegAllocState *ras, Oper u, void (*fun)(RegAllocState *ras, Oper adj))
 {
 	// We don't keep adjacency lists for physical registers, assert that we
 	// don't try to access them.
-	assert(!is_physical(ras, op));
+	assert(!is_physical(ras, u));
 
-	GArena *gadj_list = &ras->adj_list[op];
+	GArena *gadj_list = &ras->adj_list[u];
 	Oper *adj_list = garena_array(gadj_list, Oper);
 	size_t adj_cnt = garena_cnt(gadj_list, Oper);
 	for (size_t i = 0; i < adj_cnt; i++) {
-		Oper neighbour = adj_list[i];
-		if (wl_has(&ras->stack, neighbour) || is_alias(ras, neighbour)) {
+		Oper adj = adj_list[i];
+		if (wl_has(&ras->stack, adj) || is_alias(ras, adj)) {
 			continue;
 		}
-		fun(ras, neighbour);
+		fun(ras, adj);
 	}
 }
 
@@ -843,13 +843,13 @@ move_related_callback(RegAllocState *ras, Oper u, Oper m, Inst *move)
 }
 
 bool
-is_move_related(RegAllocState *ras, Oper i)
+is_move_related(RegAllocState *ras, Oper u)
 {
 	// Node is move related if the callback is called at least once.
 	// NOTE: We could make this faster by keeping number of moves that are
 	// not yet given up (frozen) and not coalesced. But the bookkeeping is
 	// not as straightforward.
-	return for_each_move(ras, i, move_related_callback) > 0;
+	return for_each_move(ras, u, move_related_callback) > 0;
 }
 
 void
@@ -872,39 +872,39 @@ initialize_worklists(RegAllocState *ras)
 	wl_reset(&ras->inactive_moves_wl);
 
 	size_t vreg_cnt = ras->mfunction->vreg_cnt;
-	for (size_t i = ras->first_vreg; i < vreg_cnt; i++) {
-		GArena *gadj_list = &ras->adj_list[i];
+	for (Oper u = ras->first_vreg; u < vreg_cnt; u++) {
+		GArena *gadj_list = &ras->adj_list[u];
 		size_t adj_cnt = garena_cnt(gadj_list, Oper);
-		assert(adj_cnt == ras->degree[i]);
-		if (is_significant(ras, i)) {
-			wl_add(&ras->spill_wl, i);
+		assert(adj_cnt == ras->degree[u]);
+		if (is_significant(ras, u)) {
+			wl_add(&ras->spill_wl, u);
 			fprintf(stderr, "Starting in spill ");
-			print_reg(stderr, i);
-			fprintf(stderr, " (%zu)\n", (size_t) ras->degree[i]);
-		} else if (is_move_related(ras, i)) {
+			print_reg(stderr, u);
+			fprintf(stderr, " (%zu)\n", (size_t) ras->degree[u]);
+		} else if (is_move_related(ras, u)) {
 			fprintf(stderr, "Starting in freeze ");
-			print_reg(stderr, i);
-			wl_add(&ras->freeze_wl, i);
-			fprintf(stderr, " (%zu)\n", (size_t) ras->degree[i]);
+			print_reg(stderr, u);
+			wl_add(&ras->freeze_wl, u);
+			fprintf(stderr, " (%zu)\n", (size_t) ras->degree[u]);
 		} else {
-			wl_add(&ras->simplify_wl, i);
+			wl_add(&ras->simplify_wl, u);
 			fprintf(stderr, "Starting in simplify ");
-			print_reg(stderr, i);
-			fprintf(stderr, " (%zu)\n", (size_t) ras->degree[i]);
+			print_reg(stderr, u);
+			fprintf(stderr, " (%zu)\n", (size_t) ras->degree[u]);
 		}
 	}
 }
 
 double
-spill_metric(RegAllocState *ras, Oper i)
+spill_metric(RegAllocState *ras, Oper u)
 {
-	if (bs_test(&ras->unspillable, i)) {
+	if (bs_test(&ras->unspillable, u)) {
 		return 0.0;
 	}
-	double cost = (double) ras->degree[i] / (ras->def_cost[i] + ras->use_cost[i]);
+	double cost = (double) ras->degree[u] / (ras->def_cost[u] + ras->use_cost[u]);
 	fprintf(stderr, "Spill cost for ");
-	print_reg(stderr, i);
-	fprintf(stderr, " degree: %"PRIu32", defs: %zu, uses: %zu, unspillable: %d, cost: %f\n", ras->degree[i], (size_t) ras->def_cost[i], (size_t) ras->use_cost[i], (int) bs_test(&ras->unspillable, i), cost);
+	print_reg(stderr, u);
+	fprintf(stderr, " degree: %"PRIu32", defs: %zu, uses: %zu, unspillable: %d, cost: %f\n", ras->degree[u], (size_t) ras->def_cost[u], (size_t) ras->use_cost[u], (int) bs_test(&ras->unspillable, u), cost);
 	return cost;
 }
 
@@ -921,37 +921,37 @@ enable_move(RegAllocState *ras, Oper u, Oper m, Inst *move)
 }
 
 void
-enable_moves_for_one(RegAllocState *ras, Oper op)
+enable_moves_for_one(RegAllocState *ras, Oper u)
 {
-	for_each_move(ras, op, enable_move);
+	for_each_move(ras, u, enable_move);
 }
 
 void
-decrement_degree(RegAllocState *ras, Oper i)
+decrement_degree(RegAllocState *ras, Oper u)
 {
 	fprintf(stderr, "Removing interference with ");
-	print_reg(stderr, i);
+	print_reg(stderr, u);
 	fprintf(stderr, "\n");
-	assert(ras->degree[i] > 0);
-	if (ras->degree[i]-- == ras->reg_avail) {
-		assert(!is_physical(ras, i));
-		enable_moves_for_one(ras, i);
-		for_each_adjacent(ras, i, enable_moves_for_one);
-		if (wl_has(&ras->freeze_wl, i)) {
+	assert(ras->degree[u] > 0);
+	if (ras->degree[u]-- == ras->reg_avail) {
+		assert(!is_physical(ras, u));
+		enable_moves_for_one(ras, u);
+		for_each_adjacent(ras, u, enable_moves_for_one);
+		if (wl_has(&ras->freeze_wl, u)) {
 			// If we are decrementing degree of a move related node,
 			// it becoming insignificant doesn't change it's status,
 			// because it should remain in the freeze worklist until
 			// all the moves are processed.
 			return;
 		}
-		assert(wl_remove(&ras->spill_wl, i));
+		assert(wl_remove(&ras->spill_wl, u));
 		//fprintf(stderr, "Move from spill to %s ", is_move_related(ras, i) ? "freeze" : "simplify");
 		//print_reg(stderr, i);
 		//fprintf(stderr, "\n");
-		if (is_move_related(ras, i)) {
-			wl_add(&ras->freeze_wl, i);
+		if (is_move_related(ras, u)) {
+			wl_add(&ras->freeze_wl, u);
 		} else {
-			wl_add(&ras->simplify_wl, i);
+			wl_add(&ras->simplify_wl, u);
 		}
 	}
 }
@@ -988,29 +988,29 @@ freeze_moves(RegAllocState *ras, Oper u)
 }
 
 void
-freeze_one(RegAllocState *ras, Oper i)
+freeze_one(RegAllocState *ras, Oper u)
 {
 	assert(wl_empty(&ras->simplify_wl));
 	assert(wl_empty(&ras->active_moves_wl));
 
 	fprintf(stderr, "Freezing node ");
-	print_reg(stderr, i);
+	print_reg(stderr, u);
 	fprintf(stderr, "\n");
 
-	wl_add(&ras->simplify_wl, i);
-	freeze_moves(ras, i);
+	wl_add(&ras->simplify_wl, u);
+	freeze_moves(ras, u);
 }
 
 void
-simplify_one(RegAllocState *ras, Oper i)
+simplify_one(RegAllocState *ras, Oper u)
 {
-	assert(!is_alias(ras, i));
+	assert(!is_alias(ras, u));
 	fprintf(stderr, "Pushing ");
-	print_reg(stderr, i);
+	print_reg(stderr, u);
 	fprintf(stderr, "\n");
 
-	wl_add(&ras->stack, i);
-	for_each_adjacent(ras, i, decrement_degree);
+	wl_add(&ras->stack, u);
+	for_each_adjacent(ras, u, decrement_degree);
 }
 
 void
@@ -1031,16 +1031,16 @@ choose_and_spill_one(RegAllocState *ras)
 	double max = 0.0;
 	WorkList *spill_wl = &ras->spill_wl;
 	FOR_EACH_WL_INDEX(spill_wl, j) {
-		Oper i = spill_wl->dense[j];
-		double curr = spill_metric(ras, i);
+		Oper u = spill_wl->dense[j];
+		double curr = spill_metric(ras, u);
 		// Prefer for spill either more beneficial candidates (with
 		// bigger metric) or "earlier" vregs ("smaller index"). This
 		// comes in handy for spilling callee saved registers, where we
 		// want to spill `rbx` first, since encoding it is (sometimes)
 		// shorter.
-		if (curr > max || (curr == max && i < candidate)) {
+		if (curr > max || (curr == max && u < candidate)) {
 			max = curr;
-			candidate = i;
+			candidate = u;
 		}
 	}
 
@@ -1056,23 +1056,23 @@ choose_and_spill_one(RegAllocState *ras)
 }
 
 void
-decrement_move_cnt(RegAllocState *ras, Oper op)
+decrement_move_cnt(RegAllocState *ras, Oper u)
 {
-	if (!is_physical(ras, op) && !is_move_related(ras, op) && !is_significant(ras, op)) {
+	if (!is_physical(ras, u) && !is_move_related(ras, u) && !is_significant(ras, u)) {
 		fprintf(stderr, "Move from freeze to simplify ");
-		print_reg(stderr, op);
+		print_reg(stderr, u);
 		fprintf(stderr, "\n");
-		wl_remove(&ras->freeze_wl, op);
-		wl_add(&ras->simplify_wl, op);
+		wl_remove(&ras->freeze_wl, u);
+		wl_add(&ras->simplify_wl, u);
 	}
 }
 
 size_t
-significant_neighbour_cnt(RegAllocState *ras, Oper op)
+significant_neighbour_cnt(RegAllocState *ras, Oper u)
 {
 	size_t n = 0;
-	assert(op >= ras->first_vreg);
-	GArena *gadj_list = &ras->adj_list[op];
+	assert(u >= ras->first_vreg);
+	GArena *gadj_list = &ras->adj_list[u];
 	Oper *adj_list = garena_array(gadj_list, Oper);
 	size_t adj_cnt = garena_cnt(gadj_list, Oper);
 	for (size_t j = 0; j < adj_cnt; j++) {
@@ -1262,9 +1262,9 @@ assign_registers(RegAllocState *ras)
 		Oper *adj_list = garena_array(gadj_list, Oper);
 		size_t adj_cnt = garena_cnt(gadj_list, Oper);
 		for (size_t j = 0; j < adj_cnt; j++) {
-			Oper neighbour = get_alias(ras, adj_list[j]);
-			if (!wl_has(&ras->stack, neighbour) && ras->reg_assignment[neighbour] != R_NONE) {
-				used |= 1 << (ras->reg_assignment[neighbour] - 1);
+			Oper adj = get_alias(ras, adj_list[j]);
+			if (!wl_has(&ras->stack, adj) && ras->reg_assignment[adj] != R_NONE) {
+				used |= 1 << (ras->reg_assignment[adj] - 1);
 			}
 		}
 
