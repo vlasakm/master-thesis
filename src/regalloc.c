@@ -1196,7 +1196,7 @@ coalesce_move(RegAllocState *ras, Oper m)
 
 	Oper u = get_alias(ras, move->ops[0]);
 	Oper v = get_alias(ras, move->ops[1]);
-	if (v < ras->first_vreg) {
+	if (v < u) {
 		Oper tmp = u;
 		u = v;
 		v = tmp;
