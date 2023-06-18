@@ -27,6 +27,7 @@ struct RegAllocState {
 
 	// Parameters
 	size_t reg_avail;
+	size_t first_vreg;
 
 	// Did this function have any spills yet?
 	// (Used to apply coalescing on first potential spill).
@@ -75,6 +76,7 @@ reg_alloc_state_create(Arena *arena)
 	*ras = (RegAllocState) {
 		.arena = arena,
 		.reg_avail = 14,
+		.first_vreg = R__MAX,
 	};
 	return ras;
 }
@@ -281,10 +283,10 @@ add_interference(RegAllocState *ras, Oper u, Oper v)
 	// color distinct from neighbours), and for coalescing heuristic we use
 	// George's test, which doesn't use adjacency lists, unlike Briggs'
 	// test (which we use for vregs).
-	if (u >= R__MAX) {
+	if (u >= ras->first_vreg) {
 		garena_push_value(&ras->adj_list[u], Oper, v);
 	}
-	if (v >= R__MAX) {
+	if (v >= ras->first_vreg) {
 		garena_push_value(&ras->adj_list[v], Oper, u);
 	}
 	ras->degree[u]++;
@@ -649,7 +651,7 @@ mark_defs_with_uninterrupted_uses_unspillable(void *user_data, Oper *def_)
 	// interruptions.
 	if (wl_remove(&ras->uninterrupted, def) && !bs_test(&ras->ever_interrupted, def)) {
 		bs_set(&ras->ever_interrupted, def);
-		if (def >= R__MAX) {
+		if (def >= ras->first_vreg) {
 			fprintf(stderr, "Marking ");
 			print_reg(stderr, def);
 			fprintf(stderr, " as unspillable\n");
@@ -762,13 +764,14 @@ build_interference_graph(RegAllocState *ras)
 		get_live_out(ras, block, live_set);
 		for (Inst *inst = mblock->insts.prev; inst != &mblock->insts; inst = inst->prev) {
 			interference_step(ras, live_set, inst);
+			live_step(live_set, mfunction, inst);
 		}
 	}
 
 	// Physical registers are initialized with infinite degree. This makes
 	// sure that simplification doesn't ever see tham transition to
 	// non-significant degree and thus pushing them on the stack.
-	for (size_t i = 0; i < R__MAX; i++) {
+	for (size_t i = 0; i < ras->first_vreg; i++) {
 		ras->degree[i] = ras->mfunction->vreg_cnt + ras->reg_avail;
 	}
 }
@@ -778,7 +781,7 @@ for_each_adjacent(RegAllocState *ras, Oper op, void (*fun)(RegAllocState *ras, O
 {
 	// We don't keep adjacency lists for physical registers, assert that we
 	// don't try to access them.
-	assert(op >= R__MAX);
+	assert(op >= ras->first_vreg);
 
 	GArena *gadj_list = &ras->adj_list[op];
 	Oper *adj_list = garena_array(gadj_list, Oper);
@@ -814,7 +817,7 @@ bool
 is_precolored(RegAllocState *ras, Oper op)
 {
 	(void) ras;
-	return op < R__MAX;
+	return op < ras->first_vreg;
 }
 
 bool
@@ -869,7 +872,7 @@ initialize_worklists(RegAllocState *ras)
 	wl_reset(&ras->active_moves_wl);
 
 	size_t vreg_cnt = ras->mfunction->vreg_cnt;
-	for (size_t i = R__MAX; i < vreg_cnt; i++) {
+	for (size_t i = ras->first_vreg; i < vreg_cnt; i++) {
 		GArena *gadj_list = &ras->adj_list[i];
 		size_t adj_cnt = garena_cnt(gadj_list, Oper);
 		assert(adj_cnt == ras->degree[i]);
@@ -924,31 +927,31 @@ enable_moves_for_one(RegAllocState *ras, Oper op)
 }
 
 void
-decrement_degree(RegAllocState *ras, Oper op)
+decrement_degree(RegAllocState *ras, Oper i)
 {
 	fprintf(stderr, "Removing interference with ");
-	print_reg(stderr, op);
+	print_reg(stderr, i);
 	fprintf(stderr, "\n");
-	assert(ras->degree[op] > 0);
-	if (ras->degree[op]-- == ras->reg_avail) {
-		assert(op >= R__MAX);
-		enable_moves_for_one(ras, op);
-		for_each_adjacent(ras, op, enable_moves_for_one);
-		if (wl_has(&ras->freeze_wl, op)) {
+	assert(ras->degree[i] > 0);
+	if (ras->degree[i]-- == ras->reg_avail) {
+		assert(i >= ras->first_vreg);
+		enable_moves_for_one(ras, i);
+		for_each_adjacent(ras, i, enable_moves_for_one);
+		if (wl_has(&ras->freeze_wl, i)) {
 			// If we are decrementing degree of a move related node,
 			// it becoming insignificant doesn't change it's status,
 			// because it should remain in the freeze worklist until
 			// all the moves are processed.
 			return;
 		}
-		assert(wl_remove(&ras->spill_wl, op));
-		//fprintf(stderr, "Move from spill to %s ", is_move_related(ras, op) ? "freeze" : "simplify");
-		//print_reg(stderr, op);
+		assert(wl_remove(&ras->spill_wl, i));
+		//fprintf(stderr, "Move from spill to %s ", is_move_related(ras, i) ? "freeze" : "simplify");
+		//print_reg(stderr, i);
 		//fprintf(stderr, "\n");
-		if (is_move_related(ras, op)) {
-			wl_add(&ras->freeze_wl, op);
+		if (is_move_related(ras, i)) {
+			wl_add(&ras->freeze_wl, i);
 		} else {
-			wl_add(&ras->simplify_wl, op);
+			wl_add(&ras->simplify_wl, i);
 		}
 	}
 }
@@ -1068,7 +1071,7 @@ size_t
 significant_neighbour_cnt(RegAllocState *ras, Oper op)
 {
 	size_t n = 0;
-	assert(op >= R__MAX);
+	assert(op >= ras->first_vreg);
 	GArena *gadj_list = &ras->adj_list[op];
 	Oper *adj_list = garena_array(gadj_list, Oper);
 	size_t adj_cnt = garena_cnt(gadj_list, Oper);
@@ -1085,7 +1088,7 @@ significant_neighbour_cnt(RegAllocState *ras, Oper op)
 bool
 george_heuristic(RegAllocState *ras, Oper u, Oper v)
 {
-	assert(v >= R__MAX);
+	assert(v >= ras->first_vreg);
 	GArena *gadj_list = &ras->adj_list[v];
 	Oper *adj_list = garena_array(gadj_list, Oper);
 	size_t adj_cnt = garena_cnt(gadj_list, Oper);
@@ -1130,7 +1133,7 @@ combine(RegAllocState *ras, Oper u, Oper v)
 	print_reg(stderr, v);
 	fprintf(stderr, "\n");
 
-	assert(v >= R__MAX);
+	assert(v >= ras->first_vreg);
 	if (!wl_remove(&ras->freeze_wl, v)) {
 		assert(wl_remove(&ras->spill_wl, v));
 	}
@@ -1193,7 +1196,7 @@ coalesce_move(RegAllocState *ras, Oper m)
 
 	Oper u = get_alias(ras, move->ops[0]);
 	Oper v = get_alias(ras, move->ops[1]);
-	if (v < R__MAX) {
+	if (v < ras->first_vreg) {
 		Oper tmp = u;
 		u = v;
 		v = tmp;
@@ -1230,13 +1233,13 @@ assign_registers(RegAllocState *ras)
 	assert(wl_empty(&ras->simplify_wl));
 	assert(wl_empty(&ras->spill_wl));
 	assert(wl_empty(&ras->freeze_wl));
-	assert(wl_empty(&ras->moves_wl));
+	assert(wl_empty(&ras->active_moves_wl));
 
 	bool have_spill = false;
 	MFunction *mfunction = ras->mfunction;
 
 	// Physical registers are assigned themselves.
-	for (size_t i = 0; i < R__MAX; i++) {
+	for (size_t i = 0; i < ras->first_vreg; i++) {
 		ras->reg_assignment[i] = i;
 	}
 
@@ -1246,7 +1249,7 @@ assign_registers(RegAllocState *ras)
 
 	Oper u;
 	while (wl_take_back(&ras->stack, &u)) {
-		assert(u >= R__MAX);
+		assert(u >= ras->first_vreg);
 		fprintf(stderr, "Popping ");
 		print_reg(stderr, u);
 		fprintf(stderr, "\n");
