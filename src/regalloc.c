@@ -220,13 +220,26 @@ reg_alloc_state_init_for_function(RegAllocState *ras, MFunction *mfunction)
 	ras->had_spill = false;
 }
 
-bool
+static bool
+is_physical(RegAllocState *ras, Oper op)
+{
+	return op < ras->first_vreg;
+}
+
+static bool
+is_significant(RegAllocState *ras, Oper op)
+{
+	return ras->degree[op] >= ras->reg_avail;
+}
+
+
+static bool
 is_alias(RegAllocState *ras, Oper u)
 {
 	return ras->alias[u] != u;
 }
 
-Oper
+static Oper
 get_alias(RegAllocState *ras, Oper u)
 {
 	while (u != ras->alias[u]) {
@@ -283,10 +296,10 @@ add_interference(RegAllocState *ras, Oper u, Oper v)
 	// color distinct from neighbours), and for coalescing heuristic we use
 	// George's test, which doesn't use adjacency lists, unlike Briggs'
 	// test (which we use for vregs).
-	if (u >= ras->first_vreg) {
+	if (!is_physical(ras, u)) {
 		garena_push_value(&ras->adj_list[u], Oper, v);
 	}
-	if (v >= ras->first_vreg) {
+	if (!is_physical(ras, v)) {
 		garena_push_value(&ras->adj_list[v], Oper, u);
 	}
 	ras->degree[u]++;
@@ -781,7 +794,7 @@ for_each_adjacent(RegAllocState *ras, Oper op, void (*fun)(RegAllocState *ras, O
 {
 	// We don't keep adjacency lists for physical registers, assert that we
 	// don't try to access them.
-	assert(op >= ras->first_vreg);
+	assert(!is_physical(ras, op));
 
 	GArena *gadj_list = &ras->adj_list[op];
 	Oper *adj_list = garena_array(gadj_list, Oper);
@@ -811,19 +824,6 @@ for_each_move(RegAllocState *ras, Oper u, void (*fun)(RegAllocState *ras, Oper u
 		}
 	}
 	return cnt;
-}
-
-bool
-is_precolored(RegAllocState *ras, Oper op)
-{
-	(void) ras;
-	return op < ras->first_vreg;
-}
-
-bool
-is_significant(RegAllocState *ras, Oper op)
-{
-	return ras->degree[op] >= ras->reg_avail;
 }
 
 void
@@ -934,7 +934,7 @@ decrement_degree(RegAllocState *ras, Oper i)
 	fprintf(stderr, "\n");
 	assert(ras->degree[i] > 0);
 	if (ras->degree[i]-- == ras->reg_avail) {
-		assert(i >= ras->first_vreg);
+		assert(!is_physical(ras, i));
 		enable_moves_for_one(ras, i);
 		for_each_adjacent(ras, i, enable_moves_for_one);
 		if (wl_has(&ras->freeze_wl, i)) {
@@ -1058,7 +1058,7 @@ choose_and_spill_one(RegAllocState *ras)
 void
 decrement_move_cnt(RegAllocState *ras, Oper op)
 {
-	if (!is_precolored(ras, op) && !is_move_related(ras, op) && !is_significant(ras, op)) {
+	if (!is_physical(ras, op) && !is_move_related(ras, op) && !is_significant(ras, op)) {
 		fprintf(stderr, "Move from freeze to simplify ");
 		print_reg(stderr, op);
 		fprintf(stderr, "\n");
@@ -1118,7 +1118,7 @@ are_coalesceble(RegAllocState *ras, Oper u, Oper v)
 	// definitely isn't. This means that `u`'s list of neighbours may not be
 	// available.
 	bool coalescable = george_heuristic(ras, u, v);
-	if (!coalescable && !is_precolored(ras, u)) {
+	if (!coalescable && !is_physical(ras, u)) {
 		coalescable = briggs_heuristic(ras, u, v);;
 	}
 	return coalescable;
