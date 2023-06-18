@@ -61,8 +61,8 @@ struct RegAllocState {
 	WorkList spill_wl;
 	WorkList freeze_wl;
 	WorkList simplify_wl;
-	WorkList moves_wl;
 	WorkList active_moves_wl;
+	WorkList inactive_moves_wl;
 	WorkList stack;
 
 	GArena gmoves; // Array of Inst *
@@ -131,8 +131,8 @@ reg_alloc_state_reset(RegAllocState *ras)
 		wl_grow(&ras->spill_wl, ras->vreg_capacity);
 		wl_grow(&ras->freeze_wl, ras->vreg_capacity);
 		wl_grow(&ras->simplify_wl, ras->vreg_capacity);
-		//wl_grow(&ras->moves_wl, ras->vreg_capacity);
 		//wl_grow(&ras->active_moves_wl, ras->vreg_capacity);
+		//wl_grow(&ras->inactive_moves_wl, ras->vreg_capacity);
 		wl_grow(&ras->stack, ras->vreg_capacity);
 		// gmoves doesn't need to grow
 		GROW_ARRAY(ras->move_list, ras->vreg_capacity);
@@ -162,8 +162,8 @@ reg_alloc_state_reset(RegAllocState *ras)
 	wl_reset(&ras->spill_wl);
 	wl_reset(&ras->freeze_wl);
 	wl_reset(&ras->simplify_wl);
-	//wl_reset(&ras->moves_wl);
 	//wl_reset(&ras->active_moves_wl);
+	//wl_reset(&ras->inactive_moves_wl);
 	wl_reset(&ras->stack);
 	garena_restore(&ras->gmoves, 0);
 	for (size_t i = 0; i < ras->mfunction->vreg_cnt; i++) {
@@ -198,8 +198,8 @@ reg_alloc_state_free(RegAllocState *ras)
 	wl_free(&ras->spill_wl);
 	wl_free(&ras->freeze_wl);
 	wl_free(&ras->simplify_wl);
-	wl_free(&ras->moves_wl);
 	wl_free(&ras->active_moves_wl);
+	wl_free(&ras->inactive_moves_wl);
 	wl_free(&ras->stack);
 	garena_free(&ras->gmoves);
 	for (size_t i = 0; i < ras->vreg_capacity; i++) {
@@ -805,7 +805,7 @@ for_each_move(RegAllocState *ras, Oper u, void (*fun)(RegAllocState *ras, Oper u
 	size_t cnt = 0;
 	for (size_t i = 0; i < move_cnt; i++) {
 		Oper move_index = move_list[i];
-		if (wl_has(&ras->active_moves_wl, move_index) || wl_has(&ras->moves_wl, move_index)) {
+		if (wl_has(&ras->inactive_moves_wl, move_index) || wl_has(&ras->active_moves_wl, move_index)) {
 			fun(ras, u, move_index, moves[move_index]);
 			cnt++;
 		}
@@ -864,12 +864,12 @@ initialize_worklists(RegAllocState *ras)
 		ras->move_capacity += ras->move_capacity;
 	}
 	if (old_move_capacity < ras->move_capacity) {
-		wl_grow(&ras->moves_wl, ras->move_capacity);
 		wl_grow(&ras->active_moves_wl, ras->move_capacity);
+		wl_grow(&ras->inactive_moves_wl, ras->move_capacity);
 	}
-	wl_reset(&ras->moves_wl);
-	wl_init_all(&ras->moves_wl, move_cnt);
 	wl_reset(&ras->active_moves_wl);
+	wl_init_all(&ras->active_moves_wl, move_cnt);
+	wl_reset(&ras->inactive_moves_wl);
 
 	size_t vreg_cnt = ras->mfunction->vreg_cnt;
 	for (size_t i = ras->first_vreg; i < vreg_cnt; i++) {
@@ -912,11 +912,11 @@ void
 enable_move(RegAllocState *ras, Oper u, Oper m, Inst *move)
 {
 	(void) u;
-	if (wl_remove(&ras->active_moves_wl, m)) {
+	if (wl_remove(&ras->inactive_moves_wl, m)) {
 		fprintf(stderr, "Enabling move: \t");
 		print_inst(stderr, ras->mfunction, move);
 		fprintf(stderr, "\n");
-		wl_add(&ras->moves_wl, m);
+		wl_add(&ras->active_moves_wl, m);
 	}
 }
 
@@ -962,8 +962,8 @@ freeze_move(RegAllocState *ras, Oper u, Oper m, Inst *move)
 	fprintf(stderr, "freezing in: \t");
 	print_inst(stderr, ras->mfunction, move);
 	fprintf(stderr, "\n");
-	if (!wl_remove(&ras->active_moves_wl, m)) {
-		assert(wl_remove(&ras->moves_wl, m));
+	if (!wl_remove(&ras->inactive_moves_wl, m)) {
+		assert(wl_remove(&ras->active_moves_wl, m));
 	}
 	Oper op1 = get_alias(ras, move->ops[0]);
 	Oper op2 = get_alias(ras, move->ops[1]);
@@ -991,7 +991,7 @@ void
 freeze_one(RegAllocState *ras, Oper i)
 {
 	assert(wl_empty(&ras->simplify_wl));
-	assert(wl_empty(&ras->moves_wl));
+	assert(wl_empty(&ras->active_moves_wl));
 
 	fprintf(stderr, "Freezing node ");
 	print_reg(stderr, i);
@@ -1017,7 +1017,7 @@ void
 choose_and_spill_one(RegAllocState *ras)
 {
 	assert(wl_empty(&ras->simplify_wl));
-	assert(wl_empty(&ras->moves_wl));
+	assert(wl_empty(&ras->active_moves_wl));
 	assert(!wl_empty(&ras->spill_wl));
 
 	if (!ras->had_spill) {
@@ -1056,7 +1056,7 @@ choose_and_spill_one(RegAllocState *ras)
 }
 
 void
-add_to_worklist(RegAllocState *ras, Oper op)
+decrement_move_cnt(RegAllocState *ras, Oper op)
 {
 	if (!is_precolored(ras, op) && !is_move_related(ras, op) && !is_significant(ras, op)) {
 		fprintf(stderr, "Move from freeze to simplify ");
@@ -1207,23 +1207,23 @@ coalesce_move(RegAllocState *ras, Oper m)
 		fprintf(stderr, "Already coalesced: \t");
 		print_inst(stderr, mfunction, move);
 		fprintf(stderr, "\n");
-		add_to_worklist(ras, u);
-	} else if (v < R__MAX || are_interfering(ras, u, v)) {
+		decrement_move_cnt(ras, u);
+	} else if (v < ras->first_vreg || are_interfering(ras, u, v)) {
 		// constrained
 		fprintf(stderr, "Constrained: \t");
 		print_inst(stderr, mfunction, move);
 		fprintf(stderr, "\n");
-		add_to_worklist(ras, u);
-		add_to_worklist(ras, v);
+		decrement_move_cnt(ras, u);
+		decrement_move_cnt(ras, v);
 	} else if (are_coalesceble(ras, u, v)) {
 		// coalesce
 		combine(ras, u, v);
-		add_to_worklist(ras, u);
+		decrement_move_cnt(ras, u);
 	} else {
 		fprintf(stderr, "Moving to active: \t");
 		print_inst(stderr, mfunction, move);
 		fprintf(stderr, "\n");
-		wl_add(&ras->active_moves_wl, m);
+		wl_add(&ras->inactive_moves_wl, m);
 	}
 }
 
@@ -1353,7 +1353,7 @@ reg_alloc_function(RegAllocState *ras, MFunction *mfunction)
 		while (wl_take_back(&ras->simplify_wl, &i)) {
 			simplify_one(ras, i);
 		}
-		if (wl_take(&ras->moves_wl, &i)) {
+		if (wl_take(&ras->active_moves_wl, &i)) {
 			coalesce_move(ras, i);
 			goto simplify;
 		}
