@@ -466,8 +466,8 @@ Oper
 spill_displacement(SpillState *ss, Oper t)
 {
 	// `to_spill[t]` = 0 => not spilled
-	// `to_spill[t]` > 0 => spilled, displacement is `-to_spill[t]`
-	return -ss->ras->to_spill[t];
+	// `to_spill[t]` > 0 => spilled, displacement is `to_spill[t]`
+	return ss->ras->to_spill[t];
 }
 
 void
@@ -1286,6 +1286,13 @@ find_register_for(RegAllocState *ras, Oper u)
 	return R_NONE;
 }
 
+void
+spill_virtual_register(RegAllocState *ras, Oper u)
+{
+	ras->to_spill[u] = mfunction_reserve_stack_space(ras->mfunction, 8, 8);
+	assert(-ras->to_spill[u] < 512);
+}
+
 bool
 assign_registers(RegAllocState *ras)
 {
@@ -1302,10 +1309,6 @@ assign_registers(RegAllocState *ras)
 		ras->reg_assignment[i] = i;
 	}
 
-	// Align stack offset to register size, so when we spill we allocate
-	// aligned register sized stack slots.
-	mfunction->stack_space = align(mfunction->stack_space, 8);
-
 	Oper u;
 	while (wl_take_back(&ras->stack, &u)) {
 		fprintf(stderr, "Popping ");
@@ -1317,10 +1320,9 @@ assign_registers(RegAllocState *ras)
 			fprintf(stderr, "Out of registers at ");
 			print_reg(stderr, u);
 			fprintf(stderr, "\n");
-			mfunction->stack_space += 8;
-			ras->to_spill[u] = mfunction->stack_space;
-			assert(mfunction->stack_space < 512);
+			spill_virtual_register(ras, u);
 			have_spill = true;
+			continue;
 		}
 
 		ras->reg_assignment[u] = reg;

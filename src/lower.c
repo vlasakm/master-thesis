@@ -7,11 +7,9 @@ typedef struct {
 	GArena *labels;
 	MFunction *function;
 	MBlock *block;
-	size_t stack_space;
 	Oper index;
 	size_t block_cnt;
 	size_t callee_saved_reg_start;
-	Inst *make_stack_space;
 } TranslationState;
 
 static void
@@ -289,7 +287,7 @@ translate_prologue(TranslationState *ts)
 	// offfset). On the x86-64 this is much bigger than the entire available
 	// stack, but on other architectures where immediate offsets are
 	// smaller, this may need more consideration.
-	ts->make_stack_space = add_binop_imm(ts, G1_SUB, R_RSP, 42);
+	ts->function->make_stack_space = add_binop_imm(ts, G1_SUB, R_RSP, 42);
 
 	// Save callee saved registers to temporaries. That way the registers
 	// don't automatically intefere with everything (since they will be
@@ -475,14 +473,6 @@ translate_operand(TranslationState *ts, Value *operand)
 	return res;
 }
 
-Oper
-reserve_stack_space(TranslationState *ts, size_t size, size_t alignment)
-{
-	ts->stack_space = align(ts->stack_space, alignment);
-	ts->stack_space += size;
-	return -ts->stack_space;
-}
-
 void
 translate_value(TranslationState *ts, Value *v)
 {
@@ -510,7 +500,7 @@ translate_value(TranslationState *ts, Value *v)
 		Alloca *alloca = (Alloca *) v;
 		size_t size = alloca->size;
 		size_t alignment = type_alignment(v->type);
-		alloca->stack_offset = reserve_stack_space(ts, size, alignment);
+		alloca->stack_offset = mfunction_reserve_stack_space(ts->function, size, alignment);
 		break;
 	}
 	case VK_CONSTANT:
@@ -661,7 +651,6 @@ translate_function(Arena *arena, GArena *labels, Function *function)
 		.arena = arena,
 		.labels = labels,
 		.index = function->value_cnt,
-		.stack_space = 0,
 		.block = NULL,
 		.function = mfunction,
 	};
@@ -685,8 +674,6 @@ translate_function(Arena *arena, GArena *labels, Function *function)
 	}
 
 	mfunction->vreg_cnt = ts->index;
-	mfunction->stack_space = ts->stack_space;
-	mfunction->make_stack_space = ts->make_stack_space;
 	function->mfunction = mfunction;
 	return mfunction;
 }

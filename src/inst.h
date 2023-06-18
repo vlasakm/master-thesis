@@ -63,6 +63,7 @@ struct MFunction {
 
 MFunction *mfunction_create(Arena *arena, Function *function, GArena *labels);
 void mfunction_free(MFunction *mfunction);
+Oper mfunction_reserve_stack_space(MFunction *mfunction, size_t size, size_t alignment);
 void mfunction_finalize_stack(MFunction *mfunction);
 void print_mfunction(FILE *f, MFunction *mfunction);
 

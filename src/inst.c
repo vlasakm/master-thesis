@@ -17,6 +17,14 @@ mfunction_create(Arena *arena, Function *function, GArena *labels)
 	return mfunction;
 }
 
+Oper
+mfunction_reserve_stack_space(MFunction *mfunction, size_t size, size_t alignment)
+{
+	mfunction->stack_space = align(mfunction->stack_space, alignment);
+	mfunction->stack_space += size;
+	return -mfunction->stack_space;
+}
+
 void
 mfunction_finalize_stack(MFunction *mfunction)
 {
@@ -59,6 +67,7 @@ print_mfunction(FILE *f, MFunction *mfunction)
 		}
 	}
 }
+
 
 MBlock *
 mblock_create(Arena *arena, Block *block)
