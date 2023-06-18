@@ -1230,6 +1230,62 @@ coalesce_move(RegAllocState *ras, Oper m)
 	}
 }
 
+Oper
+find_register_for(RegAllocState *ras, Oper u)
+{
+	assert(u >= ras->first_vreg);
+	Oper used = 0;
+	// If this one neighbours with some node that
+	// has already color allocated (i.e. not on the
+	// the stack) and it is not spilled (i.e. not R_NONE), make sure we
+	// don't use the same register.
+	GArena *gadj_list = &ras->adj_list[u];
+	Oper *adj_list = garena_array(gadj_list, Oper);
+	size_t adj_cnt = garena_cnt(gadj_list, Oper);
+	for (size_t j = 0; j < adj_cnt; j++) {
+		Oper adj = get_alias(ras, adj_list[j]);
+		if (!wl_has(&ras->stack, adj)) {
+			used |= 1 << ras->reg_assignment[adj];
+		}
+	}
+
+	Inst **moves = garena_array(&ras->gmoves, Inst *);
+	GArena *gmove_list = &ras->move_list[u];
+	Oper *move_list = garena_array(gmove_list, Oper);
+	size_t move_cnt = garena_cnt(gmove_list, Oper);
+
+	for (size_t m = 0; m < move_cnt; m++) {
+		Inst *move = moves[move_list[m]];
+		Oper op1 = get_alias(ras, move->ops[0]);
+		Oper op2 = get_alias(ras, move->ops[1]);
+		assert(u == op1 || u == op2);
+		Oper v = op1 != u ? op1 : op2;
+		Oper v_reg = ras->reg_assignment[v];
+		// This check for "has already been assigned" also
+		// handles (skips) coalesced moves, i.e.
+		//     mov t27, t27
+		if (v_reg && (used & (1 << v_reg)) == 0) {
+			fprintf(stderr, "Preferring ");
+			print_reg(stderr, v_reg);
+			fprintf(stderr, " for ");
+			print_reg(stderr, u);
+			fprintf(stderr, " due to ");
+			print_reg(stderr, v);
+			fprintf(stderr, "\n");
+			return v_reg;
+		}
+	}
+
+	for (size_t ri = 1; ri <= ras->reg_avail; ri++) {
+		size_t mask = 1 << ri;
+		if ((used & mask) == 0) {
+			return ri;
+		}
+	}
+
+	return R_NONE;
+}
+
 bool
 assign_registers(RegAllocState *ras)
 {
@@ -1252,63 +1308,12 @@ assign_registers(RegAllocState *ras)
 
 	Oper u;
 	while (wl_take_back(&ras->stack, &u)) {
-		assert(u >= ras->first_vreg);
 		fprintf(stderr, "Popping ");
 		print_reg(stderr, u);
 		fprintf(stderr, "\n");
-		Oper used = 0;
-		// If this one neighbours with some node that
-		// has already color allocated (i.e. not on the
-		// the stack) and it is not spilled (i.e. not R_NONE), make sure we
-		// don't use the same register.
-		GArena *gadj_list = &ras->adj_list[u];
-		Oper *adj_list = garena_array(gadj_list, Oper);
-		size_t adj_cnt = garena_cnt(gadj_list, Oper);
-		for (size_t j = 0; j < adj_cnt; j++) {
-			Oper adj = get_alias(ras, adj_list[j]);
-			if (!wl_has(&ras->stack, adj)) {
-				used |= 1 << ras->reg_assignment[adj];
-			}
-		}
+		Oper reg = find_register_for(ras, u);
 
-
-		Inst **moves = garena_array(&ras->gmoves, Inst *);
-		GArena *gmove_list = &ras->move_list[u];
-		Oper *move_list = garena_array(gmove_list, Oper);
-		size_t move_cnt = garena_cnt(gmove_list, Oper);
-
-		Oper reg = 0;
-		for (size_t m = 0; m < move_cnt; m++) {
-			Inst *move = moves[move_list[m]];
-			Oper op1 = get_alias(ras, move->ops[0]);
-			Oper op2 = get_alias(ras, move->ops[1]);
-			assert(u == op1 || u == op2);
-			Oper v = op1 != u ? op1 : op2;
-			Oper v_reg = ras->reg_assignment[v];
-			// This check for "has already been assigned" also
-			// handles (skips) coalesced moves, i.e.
-			//     mov t27, t27
-			if (v_reg && (used & (1 << v_reg)) == 0) {
-				fprintf(stderr, "Preferring ");
-				print_reg(stderr, v_reg);
-				fprintf(stderr, " for ");
-				print_reg(stderr, u);
-				fprintf(stderr, " due to ");
-				print_reg(stderr, v);
-				fprintf(stderr, "\n");
-				reg = v_reg;
-				goto done;
-			}
-		}
-
-		for (size_t ri = 1; ri <= ras->reg_avail; ri++) {
-			size_t mask = 1 << ri;
-			if ((used & mask) == 0) {
-				reg = ri;
-				break;
-			}
-		}
-		if (reg == 0) {
+		if (reg == R_NONE) {
 			fprintf(stderr, "Out of registers at ");
 			print_reg(stderr, u);
 			fprintf(stderr, "\n");
@@ -1317,14 +1322,16 @@ assign_registers(RegAllocState *ras)
 			assert(mfunction->stack_space < 512);
 			have_spill = true;
 		}
-		done:
+
 		ras->reg_assignment[u] = reg;
+
 		fprintf(stderr, "allocated ");
 		print_reg(stderr, u);
 		fprintf(stderr, " to ");
 		print_reg(stderr, reg);
 		fprintf(stderr, "\n");
 	}
+
 	for (size_t i = 0; i < mfunction->vreg_cnt; i++) {
 		if (is_alias(ras, i)) {
 			fprintf(stderr, "Coalesced ");
@@ -1334,6 +1341,7 @@ assign_registers(RegAllocState *ras)
 			fprintf(stderr, "\n");
 		}
 	}
+
 	return !have_spill;
 }
 
