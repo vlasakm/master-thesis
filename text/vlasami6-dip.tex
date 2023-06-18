@@ -2135,7 +2135,7 @@ mov t20, rbx
 mov t21, r12
 [...]
 mov rbx, t20
-mov rbx, t21
+mov r12, t21
 \endtt
 
 This is much better, since the virtual registers can be spilled, which frees up
@@ -2151,7 +2151,7 @@ mov [rbp+s20], rbx
 mov [rbp+s21], r12
 [...]
 mov rbx, [rbp+s20]
-mov rbx, [rbp+s21]
+mov r12, [rbp+s21]
 \endtt
 
 Here we refer to some abstract \"stack slots". If the stack slots are chosen
@@ -2161,8 +2161,8 @@ well, `push` and `pop` instructions can even be used for realizing those spills:
 push rbx
 push r12
 [...]
-pop rbx
 pop r12
+pop rbx
 \endtt
 
 Which essentially gets us the code one would use to free up callee saved
@@ -2604,7 +2604,8 @@ makes it simplifiable itself. Though it is easy to imagine a situation where a l
 of the neighbours have common neighbours, so simplification may do much better
 than conservatively assumed, and thus a lot of the moves remain uncoalesced.
 
-Appel and George found that for their use aggressive coalescing produced too
+Appel and George~\cite[George1996] found that for their use aggressive
+coalescing produced too
 many spills, while conservative coalescing was too conservative, i.e. there were
 are too many uneliminated move instructions left, even though coalescing would
 be fine. They suggest an improvement called {\em iterated register coalescing}.
@@ -3636,6 +3637,7 @@ predecessor. This needlessly requires care from any code tries to change control
 flow, and may encounter phi operations. However such code will always require
 special care, because of the non-standard nature of phis. 
 
+\label[sec:data-structures-middle-end-function]
 \secc Representation of functions
 
 Representation of functions is show below:
@@ -4788,129 +4790,6 @@ void translate_value(TranslationState *ts, Value *v) {
 TODO
 \endtt
 
-\sec Register allocation
-
-Register allocation by graph coloring and in particular the Iterated register
-coalescing~\cite[George1996] algorithm we implement, does not consist of one
-simple step, but of multiple, and additionally, the algorithm is repeated until
-it succeeds. The basic means of operation of the algorithm are shown in
-figure~\ref[fig:todo], and briefly introduced here:
-
-\begitems \style n
-
-* {\em Liveness analysis}. First we need to analyze where what variable are {\em
-live}.
-
-%Before we are able to construct the interference
-%graph on which we perform graph coloring, we need to analyze what where
-%variables are {\em live}.
-
-* {\em Build interference graph}. From the liveness information we construct the
-interference graph.
-
-* {\em Calculate spill costs}. We calculate how costly would spill of each
-virtual register be as well as mark some registers unspillable (see
-section~\ref[sec:use-of-spilled]).
-
-* {\em Perform iteration of iterated register coalescing graph coloring}. This
-is the initialization and main loop of the~\cite[George1996] algorithm.
-
-* {\em Assign registers}. Virtual registers are colored one by one according to
-the order and coalescing determined in the previous step. The previous step
-always succeeds. Virtual registers are at most marked as {\em potential spills}
-and may still be assigned color. If no color is left for some of them in this
-step, they are an {\em actual spills} and this step returns the list of
-virtual registers to spill.
-
-* {\em Rewrite the program}. If the previous step failed the program is
-rewritten to include loads and stores of spilled virtual registers and all the
-above steps are attempted again.
-
-* {\em Apply register assignment}. If the graph coloring was successful (i.e.
-there were no {\em actual spills}), then the program can be rewritten to change
-occurrences of virtual register to their assigned physical registers.
-
-\enditems
-
-The specialty of the Iterated register coalescing algorithm lie mainly in step
-4, but it has also great consequences of previous steps. Notably in design of
-data structures.
-
-The overall design of the register allocator in our compiler keeps it as a
-separate, opaque component. We store all data needed for the register allocator
-in a single struct called `RegAllocStat`. The user of the register allocator
-obtains the state with a call to a {\em create} function and frees the state with a
-{\em free} function. Register allocation itself requires the allocated state and
-a machine function for which to do the register allocation. The register
-allocator returns the function modified to not use any virtual register, which
-sometimes means that additional spill code is added. This API allows a single
-state to be reused for allocating register for many functions and thus greatly
-reducing the costs of memory allocation.
-
-\begtt
-RegAllocState *reg_alloc_state_create(Arena *arena);
-void reg_alloc_state_free(RegAllocState *ras);
-
-void reg_alloc_function(RegAllocState *ras, MFunction *mfunction);
-\endtt
-
-Most of the register allocator is target independent. Only x86-64 dependent
-things are currently the routines for creating loads and stores from stack,
-allocation of stack slots and the number of physical registers as well as the
-descriptor tables (see section~\ref[sec:data-back-end] for more details about
-the back end representation).
-
-More information about the steps, as well as design and implementation
-considerations are the subject of the following subsections.
-
-
-\secc Liveness analysis
-
-
-
-
-
-
-%Iteration over all defined and used registers (which is needed by liveness
-%analysis) or even just all registers.
-%
-%Even though most of the fields are common to all addressing modes.
-%
-%The problem with this representation is, that it allows invalid encodings to 
-%
-%Depending on the addressing modes, the operands themselves can be different
-%things: immediate values, registers, memory locations. Though ultimately, they
-%are all made up of just immediates and registers---memory locations are too
-%given by expressions involving registers and immediates.
-%
-%Depending on the addressing modes, the operands can include:
-%
-%\begitems
-%* register,
-%* memory location,
-%* 
-%\enditems
-%
-%The operands themselves are either 
-%
-%The basic idea of the representation is, that all of these can b
-%
-%machine
-%instructions are two things that constitute a machine instruction:
-%
-%
-%
-%
-%
-%However, the representation itself is {\em machine
-%independent} and can actually be for different {\em instruction sets} if the
-%compiler is ever extended.
-%
-%
-%Our backend will be using the classical architecture TODO figure consisting of 
-%
-%Machine independent representation of machine dependent instructions
-
 \sec Peephole optimization
 
 In our compiler, peephole optimization serves the roles of both the instruction
@@ -5953,9 +5832,886 @@ processors.
 As using `lea` is generally not worse in any significant way, we believe it is
 okay to leave the situation as is.
 
+
 \sec Register allocation
 
-Iterated register coalescing
+Register allocation by graph coloring and in particular the Iterated register
+coalescing~\cite[George1996] algorithm we implement, does not consist of one
+simple step, but of multiple, and additionally, the algorithm is repeated until
+it succeeds. The basic means of operation of the algorithm are shown in
+figure~\ref[fig:todo], and briefly introduced here:
+
+\begitems \style n
+
+* {\em Liveness analysis}. First we need to analyze where what variable are {\em
+live}.
+
+%Before we are able to construct the interference
+%graph on which we perform graph coloring, we need to analyze what where
+%variables are {\em live}.
+
+* {\em Build interference graph}. From the liveness information we construct the
+interference graph.
+
+* {\em Calculate spill costs}. We calculate how costly would spill of each
+virtual register be as well as mark some registers unspillable (see
+section~\ref[sec:use-of-spilled]).
+
+* {\em Perform iteration of iterated register coalescing graph coloring}. This
+is the initialization and main loop of the~\cite[George1996] algorithm.
+
+* {\em Assign registers}. Virtual registers are colored one by one according to
+the order and coalescing determined in the previous step. The previous step
+always succeeds. Virtual registers are at most marked as {\em potential spills}
+and may still be assigned color. If no color is left for some of them in this
+step, they are an {\em actual spills} and this step returns the list of
+virtual registers to spill.
+
+* {\em Rewrite the program}. If the previous step failed the program is
+rewritten to include loads and stores of spilled virtual registers and all the
+above steps are attempted again.
+
+* {\em Apply register assignment}. If the graph coloring was successful (i.e.
+there were no {\em actual spills}), then the program can be rewritten to change
+occurrences of virtual register to their assigned physical registers.
+
+\enditems
+
+The specialty of the Iterated register coalescing algorithm lie mainly in step
+4, but it has also great consequences of previous steps. Notably in design of
+data structures.
+
+The overall design of the register allocator in our compiler keeps it as a
+separate, opaque component. We store all data needed for the register allocator
+in a single struct called `RegAllocState`. The user of the register allocator
+obtains the state with a call to a {\em create} function and frees the state with a
+{\em free} function. Register allocation itself requires the allocated state and
+a machine function for which to do the register allocation. The register
+allocator returns the function modified to not use any virtual register, which
+sometimes means that additional spill code is added. This API allows a single
+state to be reused for allocating register for many functions and thus greatly
+reducing the costs of memory allocation.
+
+\begtt
+RegAllocState *reg_alloc_state_create(Arena *arena);
+void reg_alloc_state_free(RegAllocState *ras);
+
+void reg_alloc_function(RegAllocState *ras, MFunction *mfunction);
+\endtt
+
+Most of the register allocator is target independent. Only x86-64 dependent
+things are currently the routines for creating loads and stores from stack,
+allocation of stack slots and the number of physical registers as well as the
+descriptor tables (see section~\ref[sec:data-back-end] for more details about
+the back end representation).
+
+More information about the steps, as well as design and implementation
+considerations are the subject of the following subsections.
+
+\label[sec:imp-liveness]
+\secc Liveness analysis
+
+For liveness analysis we use the classic~\cite[Kam1977] approach of iterative
+data-flow analysis:
+
+\begitems \style n
+
+* We construct data-flow equations.
+
+* We solve them with an iterative algorithm.
+
+\enditems
+
+In liveness we propagate information in control flow from future to past, each
+{\em use} means that a virtual register starts being {\em live} and each {\em
+definition} means that a virtual register stops being {\em live}. Concrete
+data-flow equations that capture this are given for example by~\cite[Appel1998]:
+
+\def\w#1{{{\it #1}}}
+
+$$ \eqalignno {
+\w{in}[n]  &= \w{use}[n] \cup (\w{out}[n] - \w{de\kern-1.5ptf}\kern.5pt[n]) & (1) \cr
+\w{out}[n] &= \bigcup_{s \in \w{succ}[n]} \w{in}[s]                         & (2) \cr
+} $$
+
+The formulation is based on {\em live-in} and {\em live-out} sets, which capture
+the state of liveness along control flow edges. Liveness information in a
+control flow nodes is given by the liveness in all {\em successors}, i.e. we
+propagate information from the future to past.
+
+Iterative data-flow analysis starts with all {\em live-in} and {\em live-out}
+sets empty, and refines them until reaching a fixed point (i.e. the point where
+all the sets stabilize and are equal to those in previous iteration). This can
+be quite expensive and can require quite a lot of memory in a naive solution, so
+in our implementation we perform a few optimizations:
+
+\begitems
+
+* Our control flow edges are {\em basic blocks}. We only keep liveness sets for
+the edges to and from basic blocks, which requires much less memory than doing
+so for each {\em instruction}. To compute basic block's live-out from the
+live-in of all successors equation (2) suffices. To compute live-in of a
+block from its live-out we need to iterate over the basic block {\em backwards}
+and use equation (1) for each instruction.
+
+* We don't store in memory all live-in and live-out sets, but only live-in sets of
+all basic blocks. We can recompute live-out set for any basic blocks according
+to equation (2).
+
+* We use a {\em work list} based approach~\cite[Cooper2006] in which we first
+insert all blocks into a work list, then as long as the work list is not empty,
+we remove blocks from it, recompute its liveness sets and insert its {\em
+predecessors} back to the work list. This means that we iterate over each block
+once in the beginning, and then only on demand as we find changes in block {\em
+successors}.
+
+* Blocks use information from their {\em successors}, which means that if we
+processed all blocks after their successors, we could find the solution in a
+single iteration. In practice, control flow graphs contain loops, so processing
+all successors of a block before the block is not possible, but we can use a
+block order which tries to put block successors of a block before it, such as the
+post order of the control flow graph, which we already have available (see
+section~\ref[sec:data-structures-middle-end-function]).
+
+\enditems
+
+In the actual implementation this becomes the following:
+
+\begtt
+void liveness_analysis(RegAllocState *ras) {
+	MFunction *mfunction = ras->mfunction;
+	WorkList *live_set = &ras->live_set;
+
+	wl_init_all_reverse(&ras->block_work_list, mfunction->mblock_cnt);
+	Oper b;
+	while (wl_take(&ras->block_work_list, &b)) {
+		MBlock *mblock = mfunction->mblocks[b];
+		Block *block = mblock->block;
+		get_live_out(ras, block, live_set);
+
+		for (Inst *inst = mblock->insts.prev; inst != &mblock->insts; inst = inst->prev)
+			live_step(live_set, mfunction, inst);
+
+		if (!wl_eq(live_set, &ras->live_in[b])) {
+			WorkList tmp = ras->live_in[b];
+			ras->live_in[b] = *live_set;
+			*live_set = tmp;
+			FOR_EACH_BLOCK_PRED(block, pred)
+				wl_add(&ras->block_work_list, (*pred)->mblock->index);
+		}
+	}
+}
+\endtt
+
+The same data structure (`WorkList`) is used for representing both the work list
+for blocks that need to be processed as well as the {\em liveness
+sets}---sets need to support fast unique addition as well as removal and
+iteration and clearing, which is pretty similar to work list's needs. Our work list
+implementation (section~\ref[sec:imp-worklist]) supports those operations all of
+these use cases. Live-out sets are only computed when a block is processed,
+`RegAllocState` only holds live-in sets:
+
+\begtt
+struct RegAllocState {
+	[...]
+	WorkList block_work_list;
+	WorkList live_set;
+	WorkList *live_in;
+	[...]
+}
+\endtt
+
+Block's indices correspond to their positions in `mfunction->mblocks`, which
+lists them in {\em reverse postorder}. These indices are also used for
+subscripting the `live_in` and other arrays. The arrays, sets and work lists in
+`RegAllocState` are allocated with enough capacity for all blocks or all virtual
+registers (depending on the use).
+
+\begtt
+void get_live_out(RegAllocState *ras, Block *block, WorkList *live_set) {
+	wl_reset(live_set);
+	FOR_EACH_BLOCK_SUCC(block, succ)
+		wl_union(live_set, &ras->live_in[(*succ)->mblock->index]);
+}
+\endtt
+
+The live step function mostly implements equation $(1)$ for an instruction:
+
+\begtt
+void live_step(WorkList *live_set, MFunction *mfunction, Inst *inst) {
+	// Remove definitions from live.
+	for_each_def(inst, remove_from_set, live_set);
+	// Add uses to live.
+	for_each_use(inst, add_to_set, live_set);
+}
+\endtt
+
+Simple iteration over register uses and definitions was one of the motivations
+for our representation for instructions (see section~\ref[sec:data-backend]) and
+it works out nicely, since we can use generic callback-based iterators for
+iterating over all definitions and uses.
+
+\begtt
+add t17, t15
+\endtt
+
+After the function `liveness_analysis` runs, `live_in` sets for each block are
+calculated. From these we can derive the set of live virtual registers at any
+program point by starting in the right basic block, computing live-out, and
+iterating backwards to the program point of interest updating the live-set with
+`live_step`, similarly as we do in the liveness analysis itself.
+
+\secc Build interference graph
+
+Now that we know which virtual registers are live at different program points,
+we use them to construct the {\em interference graph}.
+
+Formally, two virtual registers interfere when they are live at the same
+time~\cite[Chaitin1981]. We can find the live-set for each program point by
+iterating over all blocks (in any order) and instructions (backwards)
+maintaining a live-set with the `live_step` function. But adding interference
+between all live simultaneously would mean adding $\ell \cdot (\ell - 1)$ at each
+program point---this is both expensive and adds too many edges repeatedly if
+virtual registers are alive for longer periods of times.
+
+Instead Chaitin~\cite[Chaitin1981] suggests to use a different notion of
+interference: \"{\em two virtual registers interfere if one of them is live at
+the definition point of other}". This translates much better to an
+implementation, because this means at each instruction adding interference for
+all definitions in that instruction with all $\ell$ members of live-set (thus for
+most instruction this is $\ell$ edges, in general $c \cdot \ell$, where $c$ is a
+constant).
+
+The actual implementation of building the interference graph is very similar to
+performing liveness analysis (section~\ref[sec:imp-liveness]), except that we
+can iterate over each block just once, and call the `interference_step` function
+(shown below) instead of `live_step`---apart from updating the liveness
+instruction to instruction, we need to add the interference edges:
+
+\begtt
+void interference_step(RegAllocState *ras, WorkList *live_set, Inst *inst) {
+	if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_Cr) {
+		for_each_use(inst, remove_from_set, live_set);
+		add_move(ras, inst);
+	}
+
+	for_each_def(inst, add_to_set, live_set);
+
+	FOR_EACH_WL_INDEX(live_set, j) {
+		for_each_def(inst, add_interference_with, live_set->dense[j]);
+	}
+
+	for_each_def(inst, remove_from_set, live_set);
+	for_each_use(inst, add_to_set, live_set);
+}
+\endtt
+
+The most important part above is the loop which for each member of `live_set`
+adds interference with each definition. But before doing that, we actually add
+all {\em definitions} to the live set. By adding definitions to the live-set and
+then adding interferences of all definitions with all live, we also add
+interferences across all {\em defined registers}---important, to
+prevent assignment of the same physical register to any two definitions in the
+same instruction. Adding the definitions to the live set is not really correct
+in the iteration, since we ought to add {\em uses}, not {\em definitions}. But
+when stepping the liveness for an instruction, we actually remove definitions
+from the live set, {\em before} adding the uses, so the fact that we add had
+added the definitions to the live set temporarily is not observable from the
+outside. The liveness step is realized by the last two calls, which are the same
+as in `live_step`.
+
+Before any of that, we also have special handling of copy instructions. For
+example an instruction like
+
+\begtt
+mov t19, t20
+\endtt
+%
+shouldn't add an artificial interference between the two virtual registers,
+because then they {\em can't} be coalesced (recall
+section~\ref[sec:regalloc-graph-coloring], we can only coalesce non-interfering
+virtual registers). Other instructions can find that the virtual registers are
+live at the same time at a {\em different program point}, but the copy
+instruction itself shouldn't add the interference. This can be done nicely, by
+removing the used register (i.e. `t20`) from the live-set---then it won't be
+present when interferences of definitions and live-set members are added.
+
+Last, but not least, we also call `add_move` function for every copy
+instruction, we will come back to it when discussing the iterated register
+coalescing algorithm in section~\ref[TODO].
+
+\seccc Calling conventions
+
+In sections~\ref[sec:regalloc-constraints, sec:regalloc-graph-coloring] we
+claimed that the combination of live range splitting and interferences added
+through right definitions and uses can be used to model calling conventions
+passing arguments in physical registers, which is done on all commonly used
+x86-64 calling conventions (see section~\ref[TODO]). In
+section~\ref[sec:imp-lowering-prologue-epilogue] we described how the live range
+splitting of callee saved registers is handled. But so far we haven't explained
+how the interferences are added in our implementation, since the instruction
+representation (see section~\ref[sec:data-backend]) only holds the registers
+explicitly listed by the instruction and there is no space for any calling
+convention related registers and their uses and definitions.
+
+Before describing the implementation details, let's show on an example how
+exactly we want to model uses and definitions on the following source program:
+%
+\begtt
+int f(int c) {
+	return g() + h() + c;
+}
+\endtt
+
+After peephole optimization, right before register allocation:
+
+\begtt
+f:
+.L0:
+        ; entry
+        push rbp
+        mov rbp, rsp
+        sub rsp, 42
+
+        mov t28, rbx
+        mov t29, r12
+        mov t30, r13
+        mov t31, r14
+        mov t32, r15
+
+        mov t18, rdi
+
+        call g
+        mov t21, rax
+
+        mov rdi, t18
+        call h
+        lea t26, [t21+rax]
+        add t26, t18
+        mov rax, t26
+
+        mov rbx, t28
+        mov r12, t29
+        mov r13, t30
+        mov r14, t31
+        mov r15, t32
+
+        mov rsp, rbp
+        pop rbp
+        ret
+
+\endtt
+
+We see the classic prologue and epilogue creating and destroying the stack frame
+and since we don't yet know the final stack space required (there might be
+spills) a dummy amount is listed and will be fixed up much later. Then there are
+the live range splits for the five callee saved registers (`rbx` and `r12`
+through `r15`). There is also a live range split for the argument `c`, which is
+passed in register `rdi`, but saved into `r18`. Another live range split is
+present for the return value of function `g`, which is moved from `rax` to
+`t21`. The argument for `h` is also split and passed in `rdi`. A copy of the
+return value of `h` has actually been optimized out and `rax` is used directly
+in the following addition (`lea` instruction). After both calls all three values
+are added in two instructions and the result is moved to `rax`, the return value
+register.
+
+The `call` instruction has only one argument---the label of the function to
+call. It doesn't in any way communicate explicitly, that the function call
+caller saved registers (like `rdi` or `rsi` which are also used for passing
+arguments) are not preserved throughout the call. There is also no explicit
+definition of the callee saved and argument registers, even though we use them
+in the function. As established mainly in
+section~\ref[sec:regalloc-constraints]), we want to mainly add:
+
+\begitems
+* Uses of actually used {\em argument registers} to the `call` instruction.
+Otherwise the definitions which assign parameters to registers would see no uses
+and thus in the backwards computation of liveness they wouldn't ever be {\em
+added} to the live-set. On the other hand, we need to add uses of only the
+registers actually used for argument passing---otherwise they would be added to
+the live-set unnecessarily and without any definitions---meaning a lot of
+interferences would be added and use of the argument registers would effectively
+be forbidden.
+
+* Definitions of all {\em caller saved registers} to the `call` instruction.
+Caller saved registers are not preserved by the function call, anything live
+across the call has to either be saved in a callee saved register (because every
+register is either caller or callee saved) or spilled to memory.
+
+* Uses of all {\em callee saved registers} to the `ret` instruction. The caller
+expects the callee saved registers to be preserved, thus modelling uses of them
+in the `ret` instruction adds them to the live set for as long as they are not
+defined. If we defined them in the entry to the function we would have
+effectively added interferences of them with everything else in the function and
+thus preserved them correctly, but not allowed them to be allocated.
+
+But in our case, they are split, and their definitions appear right before the
+epilogue and thus they are kept in the live set only for a short time. It is
+still important that we model the uses in the `ret` instruction though---it
+adds interferences to the registers holding the callee saved register values.
+These interferences are important for graph coloring algorithm.
+
+* Definitions of {\em argument and callee saved registers} in the entry point.
+They are \"passed" by the caller. Adding the definitions isn't strictly needed
+as the definitions won't prevent any additional interferences. But they assure
+that all registers have at least one definition, which makes it consistent for
+the purposes of peephole optimization (where we track the uses an definitions of
+registers, see section~\ref[sec:imp-peephole-use-def]).
+
+\enditems
+
+Adding all the uses and definitions as additional {\em operands} to the `Inst`
+structure (introduced in section~\ref[sec:data-backend]), is a bit wasteful
+considering that to the same kinds of instruction we want to attach same kinds
+of defined and used register, except sometimes we want to limit the number to
+{\em argument count}.
+
+Because of this regularity, we opted to attach the additional uses and
+definitions to instruction {\em modes}. Already existing `M_LCALL` (call label)
+`M_rCALL` (indirect call through register) as well as `M_RET` (return
+instruction) can be extended with pointers to these additional definitions and
+uses.
+
+A bit more problematic is attaching definitions and uses to the entry
+point---there is no explicit instruction there, and we don't want to handle
+neither function entry nor exit points specially. In the end we chose to
+introduce an additional instruction kind `IK_ENTRY` with a mode `M_ENTRY` whose
+sole purpose is to hold the additional definitions and uses. The instruction is
+otherwise mostly skipped as a no-op instruction. It is present even in the
+listing above---it's text printout is \"`; entry`" (i.e. it is a comment).
+
+Code-wise, the definition of the `ModeDescriptor` type is enhanced with a couple
+of fields related to these additional definitions and uses:
+
+\begtt
+typedef struct {
+	[...]
+	bool use_cnt_given_by_arg_cnt;
+	bool def_cnt_given_by_arg_cnt;
+	Oper *extra_defs;
+	Oper *extra_uses;
+} ModeDescriptor;
+\endtt
+
+To avoid having to specify the number of physical registers in these lists, they
+are terminated with the special register `R_NONE`. If the number of extra
+definitions or uses is determined by the argument count (as is for the number of
+either received arguments for the entry instruction or passed arguments in case
+of call instruction), it is signified in the mode descriptor by a boolean flag,
+and the count is read using the macro `IARG_CNT`, which is one of the operand
+fields. These additional definitions and uses are also used for long division,
+where `rax` and `rdx` are both read and written implicitly, while there is an
+extra register or memory argument specifying the divisor, so listing `rax` and
+`rdx` wouldn't fit into the compact representation of operands of x86-64
+instructions.
+
+In practice, the mode descriptors are extended like this:
+
+\begtt
+#define IARG_CNT(inst) ((inst)->ops[5])
+
+Oper none[] = { R_NONE };
+
+Oper rax_rdx[]       = { R_RAX, R_RDX, R_NONE };
+Oper caller_saved[]  = { R_RAX, R_RCX, R_RDX, R_RSI, R_RDI,
+                        R_8, R_9, R_10, R_11, R_NONE };
+Oper argument_regs[] = { R_RDI, R_RSI, R_RDX, R_RCX, R_8, R_9, R_NONE };
+
+ModeDescriptor mode_descs[] = {
+	[M_Rr]    = { [...],  0, 0, none, none },
+	[M_rCALL] = { [...],  1, 0, caller_saved, argument_regs },
+	[M_ADr]   = { [...],  0, 0, rax_rdx, rax_rdx },
+};
+\endtt
+
+And the iteration over all uses look like this:
+
+\begtt
+void
+for_each_use(Inst *inst,
+             void (*fun)(void *user_data, Oper *use),
+             void *user_data)
+{
+	ModeDescriptor *mode = &mode_descs[inst->mode];
+	for (size_t i = mode->use_start; i < mode->use_end; i++)
+		fun(user_data, &inst->ops[i]);
+
+	if (mode->use_cnt_given_by_arg_cnt) {
+		size_t use_cnt = IARG_CNT(inst);
+		for (size_t i = 0; i < use_cnt; i++)
+			fun(user_data, &mode->extra_uses[i]);
+	} else {
+		for (Oper *use = mode->extra_uses; *use != R_NONE; use++)
+			fun(user_data, use);
+	}
+}
+\endtt
+
+The callback-based iterator passes pointers (\"references") to the registers.
+This is needed by same users of the functions, and can be used even by other
+users of the iterators.
+
+Greater flexibility could be achieved by not keeping the compact encoding and
+instead representing the definitions and uses in a more expensive way. Though
+the compact operand packing, which is with the fields very close to actual
+x86-64 instructions is one of the reasons why peephole optimization can be done
+so expressively even with hand-coded rules.
+
+The approach is mostly target independent---each target can have different mode
+descriptors. The macro `IARG_CNT` is x86-64 specific, but extending the
+approach to have a per-target operand index for the argument count would be
+straightforward.
+
+With all the implementation details in place, our example above register
+allocates and peephole optimizes successfully to the following:
+
+\begtt
+f:
+.L0:
+        push rbp
+        mov rbp, rsp
+        sub rsp, 16
+        mov [rbp-16], rbx
+        mov [rbp-8], r12
+        mov r12, rdi
+        call g
+        mov rbx, rax
+        mov rdi, r12
+        call h
+        lea rax, [rbx+rax]
+        add rax, r12
+        mov rbx, [rbp-16]
+        mov r12, [rbp-8]
+        mov rsp, rbp
+        pop rbp
+        ret
+\endtt
+
+The \"entry instruction" is optimized out, since it is no longer needed after
+register allocation. Callee saved registers `rbx` and `r12` are used for values
+live across call, and as their virtual registers got spilled, the former values
+in callee saved registers got automatically saved in stack slots. Except for the
+other callee saved registers coalescing didn't help much---the registers were
+mostly restricted by the calling convention or interfered with each other due to
+being live at the same time.
+
+\seccc Interference graph representation
+
+TODO: move this section after coalescing to justify \"online construction" of
+both representations?
+
+\secc Calculate spill costs
+
+\secc Iterated register coalescing
+
+A lot of other graph coloring register allocation approaches could reuse many
+parts of our implementation. However the {\em main loop} which we describe in
+this section is the main characteristic of the Iterated register coalescing
+(\"IRC") algorithm by George and Appel~\cite[George1996], which we also describe
+in context of other graph coloring register allocators in
+section~\ref[sec:regalloc-graph-coloring]. As we will be working mainly on an
+interference graph of virtual registers, we will also be calling virtual
+registers {\em nodes} of the interference graph and the interferences {\em
+edges}. The ideas and implementation of the algorithm in our implementation are
+based also on pseudo code listed in~\cite[George1996], though we chose more
+descriptive names, include clarifications and corrections to the algorithm.
+
+The main loop interleaves {\em simplification} and {\em conservative
+coalescing}. This leads to more coalescing, while still being as safe as earlier
+approaches with regards to uncolorable graphs which mandate spills. The main
+loop's purpose apart from the coalescing is mainly to push all the nodes on to a
+stack, even the potential spills, because we use optimistic coloring. The actual
+coloring of the graph is handled in a later stage, which is common to other
+approaches like Briggs' or Chaitin's.
+
+For a start, let's first consider the simplification phase of Briggs' algorithm,
+which also does optimistic coloring, but contrary to IRC does all the coalescing
+before starting with simplification. The simplifications are based on
+Chaitin's heuristic, which says that every node with less than $k$
+neighbours (where $k$ is the number of available registers) can be pushed onto
+the stack and \"removed from the graph"---later when coloring the node will be
+trivially colorable when popped from the stack and \"reinserted back into the
+graph". Based on this heuristic we want to partition the nodes not yet pushed
+onto the stack into two different categories:
+
+\begitems \style n
+
+* Low ($<k$) degree nodes. Sometimes also called \"insignificant" or \"trivially
+colorable".
+
+* High $(\geq k)$ degree nodes. Sometimes also called \"significant".
+
+\enditems
+
+Strict separation of these categories allows our efforts to concentrate on the
+low degree nodes---those can be removed from the graph as they already fulfill
+the condition imposed by Chaitin's heuristic. Of course, their removal
+decreases degrees of neighboring nodes, and occasionally high degree node
+becomes low degree and we need to move it from the category to the first.
+Partitioning the nodes into two categories initially is easy. As long as the set
+of low degree nodes is not empty, the algorithm can simplify the interference
+graph and keep constructing the coloring order on the stack.
+
+But when the set of low degree nodes becomes empty, and there are still nodes
+left in the high degree set, then we need to choose a node to be a {\em
+potential spill} and push it to the stack and remove it from the graph despite
+having a high degree. This either allows other nodes to become low degree or
+requires even more potential spills. Since the \"remove from graph and push onto
+the stack" action is already performed on every node in the low degree set, we
+can just move the potential spill to the low degree set and let it be handled by
+the simplification mechanism. Consequently we can find more appropriate names
+for the two sets:
+
+\begitems
+* {\em Simplify set}. Contains nodes intended for simplification.
+
+* {\em Spill set}. Nodes that are currently spill candidates, because their
+degree is high. They can move to the simplify set either when their degree
+becomes low or they are chosen as potential spill.
+\enditems
+
+We can represent the two categories of nodes with a {\em work list}---we already
+use work lists for representing other sparse sets (like the live-set in
+section~\ref[sec:imp-liveness]), because our work list implementation
+(section~\ref[sec:imp-worklist]) supports the set operations efficiently. Our
+work list can even be used for the stack yielding the following main loop:
+
+
+\begtt
+while (true) {
+	while (wl_take_back(&ras->simplify_wl, &i)) {
+		simplify_one(ras, i);
+	}
+	if (wl_empty(&ras->spill_wl)) {
+		break;
+	}
+	choose_and_spill_one(ras);
+}
+\endtt
+
+The loop always tries to remove nodes from the simplify work list as long as
+possible. If no node is available for simplification, a node from the spill work
+list is spilled. If the spill work list is empty, it means that we have already
+fallen-through the simplify loop and both work lists are empty, thus we can end
+the main loop. If we for now ignore the choice of the best spilled candidate,
+even the helper functions are straightforward:
+
+
+\begtt \optparams
+void simplify_one(RegAllocState *ras, Oper i) {
+	wl_add(&ras->stack, i);
+	for_each_adjacent(ras, i, decrement_degree);
+}
+
+void decrement_degree(RegAllocState *ras, Oper i) {
+	if (ras->degree[i]-- == ras->reg_avail) {
+		wl_remove(&ras->spill_wl, i);
+		wl_add(&ras->simplify_wl, i);
+	}
+}
+
+void choose_and_spill_one(RegAllocState *ras) {
+	Oper candidate = <the best spill candidate>;
+	wl_remove(&ras->spill_wl, candidate);
+	wl_add(&ras->simplify_wl, candidate);
+}
+\endtt
+
+Simplifications and spills move nodes from the spill work list to simplify work
+list. In the case of simplifications, nodes are moved when their degree
+decreases below $k$ (represented by `ras->reg_avail`). The simplified nodes
+themselves are pushed onto a stack. The interference graph itself is not
+modified in any explicit way, we just maintain a degree of each node. Though by
+pushing a node onto a stack we remove it from the graph {\em implicitly}---until
+the node is popped back, we have to presume it and its edges removed from the
+graph.
+
+The simplifications in the Iterated register coalescing are still based on the
+same Chaitin heuristic, so the same simplification mechanism applies. But,
+because we want to interleave simplifications with coalescing, we need to obey
+one limitation: we can't coalesce any node pushed onto the stack, because it is
+{\em removed} from the graph.
+
+%Since we don't want to miss any coalescings, we collect 
+
+To not miss any coalescing opportunities, we have to try all coalescings of a
+node before pushing it (removing it from the graph). We only remove from the
+graph nodes put on to the simplify work list, to prevent putting coalescable
+nodes onto the simplify work list, we introduce a third category of nodes: low
+degree move-related nodes (nodes that have a low degree, but are either a source
+or destination in at least one copy instruction). We than add to the simplify
+work list only low degree nodes that are not move-related, i.e. they can't be
+coalesced. Though like with high degree nodes, if we can't find opportunities
+for simplifications, we have to give up, and move something to the simplify work
+list. Instead of choosing a node from the spill work list, it is preferable to
+give up any coalescing of a move-related node. We will call giving up on
+coalescing {\em freezing} and like with spills, separate nodes which we can
+freeze into a separate work list:
+
+\begitems
+* {\em Simplify work list}. Contains nodes intended for simplification, i.e. removal
+from graph and push onto the stack.
+
+* {\em Freeze work list}. Nodes that are currently freeze candidates, because
+they are move-related. They can move to the simplify work list either when they
+stop being move-related (i.e. all their moves are either coalesced or given up
+individually) or when they are chosen to be frozen (i.e. all their moves are
+given up).
+
+* {\em Spill work list}. Nodes that are currently spill candidates, because their
+degree is high. They can move to the freeze work list if their degree becomes
+low and they are move-related, or they can move to simplify work list if their
+degree becomes low and they are not move-related. They can also move to the
+simplify work list if they are chosen as potential spill.
+\enditems
+
+We also need to distinguish several kinds of moves:
+
+\begitems
+
+* Active moves. Moves that we want to actively check for coalescing.
+
+* Inactive moves. Moves that we already checked for coalescing, but were
+declined by the conservative heuristic. If there is a chance that a change might
+make the conservative heuristic allow the coalescing, an inactive move should be
+made active.
+
+* Given up ({\em frozen}) moves. Moves that are no longer coalescable in any
+capacity. Either because the source and destination interfere or we have given
+up on them by freezing the source or destination.
+
+\enditems
+
+We also partition the moves into work lists. Representing frozen moves is
+actually not needed, since they can be detected by not being present on the
+other two work lists.
+
+For the high level algorithm, we will revisit the Briggs' simplification. There
+we would simplify in a loop, then fall-through to spill and if any spill was
+made, we would go back to simplification, otherwise we would end the loop. This
+can be also written like this in C:
+
+\begtt
+simplify:
+while (wl_take_back(&ras->simplify_wl, &i)) {
+	simplify_one(ras, i);
+}
+if (!wl_empty(&ras->spill_wl)) {
+	choose_and_spill_one(ras);
+	goto simplify;
+}
+\endtt
+
+The falling-through is made implicit and instead the backward jumps are made
+explicit through `goto`. With IRC we have more chances to add to simplify work
+list other than spilling:
+
+\begitems
+
+* Combining two nodes through coalescing decreases degrees of nodes that were
+interfering with both. This means that they can be added to the simplify work
+list through `decrement_degree`.
+
+* Before resorting to spilling, we want to freeze a node if any can be frozen.
+Giving up moves (i.e. keeping move instructions) is better than spilling (i.e.
+adding loads and stores).
+
+\enditems
+
+We can thus introduce processing of active moves and freezing, with more explicit
+backward jumps to simplification:
+
+\begtt
+simplify:
+while (wl_take_back(&ras->simplify_wl, &i)) {
+	simplify_one(ras, i);
+}
+if (wl_take(&ras->active_moves_wl, &i)) {
+	coalesce_move(ras, i);
+	goto simplify;
+}
+if (wl_take_back(&ras->freeze_wl, &i)) {
+	freeze_one(ras, i);
+	goto simplify;
+}
+if (!wl_empty(&ras->spill_wl)) {
+	choose_and_spill_one(ras);
+	goto simplify;
+}
+\endtt
+
+This code captures the idea of IRC very well: first simplify as much as
+possible, then try coalescing, and go back to simplification. Since
+full simplification (removal of all nodes from the graph) is our end goal, if
+the simplification work list ever becomes empty with the graph still being
+non-empty, we add even coalescable or high degree nodes to the simplify work
+list.
+
+The tricky part of the IRC algorithm is getting the {\em transitions} right.
+Initially, putting the nodes and moves into right work lists is straightforward:
+
+\begtt
+void initialize_worklists(RegAllocState *ras) {
+	wl_init_all(&ras->active_moves_wl, move_cnt);
+	wl_reset(&ras->inactive_moves_wl);
+
+	size_t vreg_cnt = ras->mfunction->vreg_cnt;
+	for (size_t i = ras->first_vreg; i < vreg_cnt; i++) {
+		if (is_significant(ras, i)) {
+			wl_add(&ras->spill_wl, i);
+		} else if (is_move_related(ras, i)) {
+			wl_add(&ras->freeze_wl, i);
+		} else {
+			wl_add(&ras->simplify_wl, i);
+		}
+	}
+}
+\endtt
+
+But any following change in degree or moves may require a transition of node or
+move into a different work list. `choose_and_spill_one` which transitions a node
+from spill work list to simplify work list can stay nearly the same, except it
+needs to freeze moves of the potential spill.
+
+%Iteration over all defined and used registers (which is needed by liveness
+%analysis) or even just all registers.
+%
+%Even though most of the fields are common to all addressing modes.
+%
+%The problem with this representation is, that it allows invalid encodings to 
+%
+%Depending on the addressing modes, the operands themselves can be different
+%things: immediate values, registers, memory locations. Though ultimately, they
+%are all made up of just immediates and registers---memory locations are too
+%given by expressions involving registers and immediates.
+%
+%Depending on the addressing modes, the operands can include:
+%
+%\begitems
+%* register,
+%* memory location,
+%* 
+%\enditems
+%
+%The operands themselves are either 
+%
+%The basic idea of the representation is, that all of these can b
+%
+%machine
+%instructions are two things that constitute a machine instruction:
+%
+%
+%
+%
+%
+%However, the representation itself is {\em machine
+%independent} and can actually be for different {\em instruction sets} if the
+%compiler is ever extended.
+%
+%
+%Our backend will be using the classical architecture TODO figure consisting of 
+%
+%Machine independent representation of machine dependent instructions
 
 \chap Evaluation
 
@@ -6055,3 +6811,4 @@ RISC
 CISC
 ALU
 CFG
+IRC
