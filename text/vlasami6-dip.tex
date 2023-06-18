@@ -3696,6 +3696,7 @@ here---handling of variable arguments such as with C's `va_arg` is stateful
 would have to be an operation over a `va_list`, thus no longer a constant, and
 very distinct from `Argument`.
 
+\label[sec:imp-critical-edge]
 \secc Critical edge splitting
 
 Critical edges and their implications for SSA deconstruction are explained in
@@ -3772,8 +3773,9 @@ void split_critical_edges(Arena *arena, Function *function) {
 
 We don't have to split {\em all} critical edges. From the perspective of our
 back end, only edges to blocks with $\phi$ functions are problematic (see
-sections~\ref[ssa-deconstruction, impl-ssa-deconstruction]). TODO
+sections~\ref[sec:ssa-deconstruction] and~\ref[sec:imp-ssa-deconstruction]). TODO
 
+\label[sec:imp-ssa-deconstruction]
 \secc SSA deconstruction
 
 In the middle end we use value-based SSA (introduced in
@@ -5536,8 +5538,8 @@ This again, may leave the block 8 mergeable into block 6 if there are no other
 jumps to it. This example is very close to reality---similar short blocks
 conditionally entered, unconditionally left, and with zero or more copy
 instructions in them are created by critical edge splitting
-(see section~\ref[imp-critical-edge]) and SSA deconstruction (see
-section~\ref[imp-ssa-deconstruction]). Coalescing is often able to assign the
+(see section~\ref[sec:imp-critical-edge]) and SSA deconstruction (see
+section~\ref[sec:imp-ssa-deconstruction]). Coalescing is often able to assign the
 virtual registers the same {\em physical} register and the copies are often
 removed. By removing coalesced copies, transforming simple jumps around copies
 into `cmovcc` and by merging blocks through peephole optimizations we can often
@@ -5636,7 +5638,7 @@ section~\ref[TODO]) as well as flag analysis
 (section~\ref[sec:imp-peephole-flag]) we want to have {\em basic blocks}. But,
 for peephole optimization itself, we don't care about basic block that much. We
 can have either blocks that are not basic as hinted in
-section~\ref[imp-peephole-block], or just a single instruction sequence for a
+section~\ref[sec:imp-peephole-block], or just a single instruction sequence for a
 whole function. Though still with a single instruction sequence we need a way to
 do jumps, which could be represented with {\em label} nodes, similar to what is
 done in~\cite[Wulf1975]. By having a linked list of instructions and labels, we
@@ -5902,7 +5904,7 @@ void reg_alloc_function(RegAllocState *ras, MFunction *mfunction);
 Most of the register allocator is target independent. Only x86-64 dependent
 things are currently the routines for creating loads and stores from stack,
 allocation of stack slots and the number of physical registers as well as the
-descriptor tables (see section~\ref[sec:data-back-end] for more details about
+descriptor tables (see section~\ref[sec:data-backend] for more details about
 the back end representation).
 
 More information about the steps, as well as design and implementation
@@ -6142,7 +6144,7 @@ coalescing algorithm in section~\ref[TODO].
 
 \seccc Calling conventions
 
-In sections~\ref[sec:regalloc-constraints, sec:regalloc-graph-coloring] we
+In sections~\ref[sec:regalloc-constraints] and~\ref[sec:regalloc-graph-coloring] we
 claimed that the combination of live range splitting and interferences added
 through right definitions and uses can be used to model calling conventions
 passing arguments in physical registers, which is done on all commonly used
