@@ -3697,7 +3697,7 @@ would have to be an operation over a `va_list`, thus no longer a constant, and
 very distinct from `Argument`.
 
 \label[sec:imp-critical-edge]
-\secc Critical edge splitting
+\sec Critical edge splitting
 
 Critical edges and their implications for SSA deconstruction are explained in
 section~\ref[sec:ssa-deconstruction]. In our implementation we chose to split
@@ -3776,7 +3776,7 @@ back end, only edges to blocks with $\phi$ functions are problematic (see
 sections~\ref[sec:ssa-deconstruction] and~\ref[sec:imp-ssa-deconstruction]). TODO
 
 \label[sec:imp-ssa-deconstruction]
-\secc SSA deconstruction
+\sec SSA deconstruction
 
 In the middle end we use value-based SSA (introduced in
 section~\ref[ssa:value]) and also $\phi$-functions. In the back end we work with
@@ -6397,13 +6397,9 @@ other callee saved registers coalescing didn't help much---the registers were
 mostly restricted by the calling convention or interfered with each other due to
 being live at the same time.
 
-\seccc Interference graph representation
-
-TODO: move this section after coalescing to justify \"online construction" of
-both representations?
-
 \secc Calculate spill costs
 
+\label[sec:imp-regalloc-simplify]
 \secc Iterated register coalescing
 
 A lot of other graph coloring register allocation approaches could reuse many
@@ -6505,10 +6501,10 @@ void simplify_one(RegAllocState *ras, Oper i) {
 	for_each_adjacent(ras, i, decrement_degree);
 }
 
-void decrement_degree(RegAllocState *ras, Oper i) {
-	if (ras->degree[i]-- == ras->reg_avail) {
-		wl_remove(&ras->spill_wl, i);
-		wl_add(&ras->simplify_wl, i);
+void decrement_degree(RegAllocState *ras, Oper u) {
+	if (ras->degree[u]-- == ras->reg_avail) {
+		wl_remove(&ras->spill_wl, u);
+		wl_add(&ras->simplify_wl, u);
 	}
 }
 
@@ -6658,22 +6654,527 @@ void initialize_worklists(RegAllocState *ras) {
 	wl_reset(&ras->inactive_moves_wl);
 
 	size_t vreg_cnt = ras->mfunction->vreg_cnt;
-	for (size_t i = ras->first_vreg; i < vreg_cnt; i++) {
-		if (is_significant(ras, i)) {
-			wl_add(&ras->spill_wl, i);
-		} else if (is_move_related(ras, i)) {
-			wl_add(&ras->freeze_wl, i);
+	for (Oper u = ras->first_vreg; u < vreg_cnt; u++) {
+		if (is_significant(ras, u)) {
+			wl_add(&ras->spill_wl, u);
+		} else if (is_move_related(ras, u)) {
+			wl_add(&ras->freeze_wl, u);
 		} else {
-			wl_add(&ras->simplify_wl, i);
+			wl_add(&ras->simplify_wl, u);
 		}
 	}
 }
 \endtt
 
 But any following change in degree or moves may require a transition of node or
-move into a different work list. `choose_and_spill_one` which transitions a node
-from spill work list to simplify work list can stay nearly the same, except it
-needs to freeze moves of the potential spill.
+move into a different work list. Notably transitions which previously put nodes
+right into simplify work list now need to check whether the node is
+move-related. One such place is the `decrement_degree` function:
+
+\begtt
+void decrement_degree(RegAllocState *ras, Oper u) {
+	if (ras->degree[u]-- == ras->reg_avail) {
+		enable_moves_for_one(ras, u);
+		for_each_adjacent(ras, u, enable_moves_for_one);
+		wl_remove(&ras->spill_wl, u);
+		if (is_move_related(ras, u)) {
+			wl_add(&ras->freeze_wl, u);
+		} else {
+			wl_add(&ras->simplify_wl, u);
+		}
+	}
+}
+\endtt
+
+Apart from moving the node from spill work list to either freeze or simplify
+work list, moves of the node and its neighbours are enabled (moved from inactive
+to active). This is because Briggs' heuristic for coalescing is based on number
+of {\em significant neighbours}---a node becoming insignificant {\em may} make all
+moves of all neighbours coalescable even if they were previously denied as
+potentially unsafe.
+
+Enabling moves is a straightforward move from inactive moves to active moves.
+This is because both active and inactive moves count towards the node being move
+related and there is no change in status of the node.
+
+\begtt
+void enable_move(RegAllocState *ras, Oper u, Oper m, Inst *move) {
+	(void) u;
+	if (wl_remove(&ras->inactive_moves_wl, m)) {
+		wl_add(&ras->active_moves_wl, m);
+	}
+}
+
+void enable_moves_for_one(RegAllocState *ras, Oper u) {
+	for_each_move(ras, u, enable_move);
+}
+\endtt
+
+On the other hand, when nodes move straight to simplify work list, either
+because of spilling or freezing, all their moves are given up entirely, i.e.
+they will be removed from both inactive and active moves and not considered
+further:
+
+\begtt
+void choose_and_spill_one(RegAllocState *ras) {
+	Oper candidate = <the best spill candidate>;
+	wl_remove(&ras->spill_wl, candidate);
+	wl_add(&ras->simplify_wl, candidate);
+	freeze_moves(ras, candidate);
+}
+
+void freeze_one(RegAllocState *ras, Oper i) {
+	wl_add(&ras->simplify_wl, i);
+	freeze_moves(ras, i);
+}
+\endtt
+
+As opposed to enabling (inactive $\rightarrow$ active), freezing a move (giving
+up on the move entirely) can change the status of the node---the removed move
+can be the last one related to the node and the node can possibly transition
+from the freeze work list to the simplify work list, though it stays in spill
+work list if it is high degree:
+
+\begtt
+void freeze_move(RegAllocState *ras, Oper u, Oper m, Inst *move) {
+	if (!wl_remove(&ras->inactive_moves_wl, m)) {
+		wl_remove(&ras->active_moves_wl, m);
+	}
+	Oper op1 = get_alias(ras, move->ops[0]);
+	Oper op2 = get_alias(ras, move->ops[1]);
+	Oper v = op1 != u ? op1 : op2;
+	if (!is_move_related(ras, v) && !is_significant(ras, v)) {
+		wl_remove(&ras->freeze_wl, v);
+		wl_add(&ras->simplify_wl, v);
+	}
+}
+
+void freeze_moves(RegAllocState *ras, Oper u) {
+	for_each_move(ras, u, freeze_move);
+}
+\endtt
+
+There are two subtle details in the `freeze_move` function. First, the operands
+of a move in the move instruction are listed as the original nodes, but
+coalescing might have merged them into other nodes, so a resolution through
+aliases is needed. Next, when freezing moves of `u` we don't need to consider
+`u` transitioning from freeze work list to simplify work list---we are already
+removing all the moves. But we need to do the check for the other move operand, `v`.
+
+\seccc Coalescing
+
+The active moves work list holds the indices into an array listing all move
+instructions. When considering the operands of an active move instruction for
+coalescing, the function `coalesce_move` is called, where there are 4 cases:
+
+\begitems \style n
+* The registers were already coalesced. The move needs to be given up, {\em
+frozen} to not be investigated again.
+
+* The registers are interfering and can't be coalesced. The move also needs to
+be {\em frozen} to not be investigated again, since the interference won't be
+removed.
+
+* The registers can be coalesced and the coalescing heuristic allows the
+coalescing. Then we also want to not investigate the move again, but also need
+to merge the two nodes into one.
+
+* The registers can be coalesced and the coalescing heuristic {\em doesn't}
+allow the coalescing. Then we transition the move from active moves to inactive
+moves and will try it again in case the situation improves (the move is enabled)
+or the move is frozen for other reason.
+\enditems
+
+In an implementation this looks like this:
+
+ %\adef|#1|{{\catcodetable0\scantextokens\ea}\ea\hbox\ea{\ea$\langle$\it#1\/$\rangle$}}
+\begtt
+void coalesce_move(RegAllocState *ras, Oper m) {
+	Inst *move = garena_array(&ras->gmoves, Inst *)[m];
+
+	Oper u = get_alias(ras, move->ops[0]);
+	Oper v = get_alias(ras, move->ops[1]);
+	if (v < u) {
+		Oper tmp = u;
+		u = v;
+		v = tmp;
+	}
+
+	if (u == v) {
+		decrement_move_cnt(ras, u);
+	} else if (are_interfering(ras, u, v)) {
+		decrement_move_cnt(ras, u);
+		decrement_move_cnt(ras, v);
+	} else if (are_coalesceble(ras, u, v)) {
+		combine(ras, u, v);
+		decrement_move_cnt(ras, u);
+	} else {
+		wl_add(&ras->inactive_moves_wl, m);
+	}
+}
+\endtt
+
+The move is removed from the active moves work list prior to calling
+`coalesce_move`, so it is not removed there. The calls to `decrement_move_cnt`
+are important, because in three of the situations the move is either given up or
+coalesced and not to be considered further. This means that a low degree node
+might become no longer move related, and can move to the simplify work list:
+
+\begtt
+void decrement_move_cnt(RegAllocState *ras, Oper u) {
+	if (!is_move_related(ras, u) && !is_significant(ras, u)) {
+		wl_remove(&ras->freeze_wl, u);
+		wl_add(&ras->simplify_wl, u);
+	}
+}
+\endtt
+
+The actual combination of registers merges (in our case) the second node into
+the first. This is done by copying the moves of that node, as well as all the
+interferences:
+
+\begtt \adef?#1>{\def\tmp{#1}$\langle\hbox{\it\catcodetable0\scantextokens\ea{\tmp}\/}\rangle$}
+void combine(RegAllocState *ras, Oper u, Oper v) {
+	if (!wl_remove(&ras->freeze_wl, v)) {
+		wl_remove(&ras->spill_wl, v);
+	}
+
+	ras->alias[v] = u;
+
+	?add moves of `v` to `u`>
+
+	?for each adjacent `t` of `v`> {
+		add_interference(ras, u, t);
+		decrement_degree(ras, t);
+	}
+
+	if (is_significant(ras, u) && wl_remove(&ras->freeze_wl, u)) {
+		wl_add(&ras->spill_wl, u);
+	}
+}
+\endtt
+
+The copy of interferences of `v` is realized by adding interference to `u` for
+each `v`'s neighbour in the interference graph. However, as we are also
+conceptually removing `v` from the interference graph, all its neighbours have
+their degree decremented. When a node is neighbouring with either `v` or `u`
+this addition of a neighbour and removal of a neighbour is a net zero. Though if
+a node as adjacent with {\em both}, then it's degree is truly decremented by
+one, which, if it is high degree, may lead to moving it to either simplify or
+freeze work lists. We already can handle this with function `decrement_degree`,
+so we reuse it now.
+
+The combined node `u` can now have a high degree and may have to be moved to the
+spill work list. This doesn't mean that it will be spilled---as we use a
+conservative coalescing heuristic, only coalescings that won't lead to spills
+are allowed (see section~\ref[sec:regalloc-graph-coloring]). The move into spill
+work list is only temporary until simplifications decrease the degree of the
+combined node.
+
+\label[sec:imp-regalloc-assignment]
+\secc Register assignment
+
+In the previous simplification phase (see
+section~\ref[sec:imp-regalloc-simplify]), the interference graph was simplified
+into an empty graph by gradual simplification. Vertices were removed from the
+graph one by one and pushed onto {\em the stack}. In the register assignment
+stage, we will pop nodes one by one from the stack, finding colors for them
+based on the interference graph, and reinsert them back into the graph.
+
+For each node we have to find a color, which is not assigned to any of the
+neighbours. Primarily only nodes with degree lower than the number of available
+registers were pushed. For such nodes we are guaranteed to a find a color, since
+even if all the neighbours were assigned different colors, a free color is
+guaranteed.
+
+However, we are using~\cite[Briggs1994]'s {\em optimistic coloring} and in the
+simplification phase push even high degree nodes as {\em potential spills}. When
+these are popped, a free color for them is not guaranteed, but it may be found
+if some of the neighbours get assigned the same colors.
+
+From an implementation's perspective we don't need much additional tools other
+than those already used in previous sections. Notably, we will use the same
+mechanism for enumerating all node's neighbours in the interference graph. In
+particular, as established in section~\ref[sec:imp-regalloc-simplify] we
+represent removals of nodes (and their edges) from the interference graph
+{\em implicitly}---nodes pushed to the stack are considered to no longer be in
+the graph, even though the interference graph representation isn't changed in
+any capacity. In register assignment, we need to do the inverse and reinsert
+nodes back to the graph and we will also represent this {\em implicitly} with
+pops from the stack.
+
+Finding a physical for a virtual register works in three phases:
+
+\begitems \style n
+* Physical registers used by neighbours are marked as used and not available for
+this allocation.
+
+* Moves of the virtual register are checked and if the other operand of a move
+is available, then it is chosen for the register.
+
+* Otherwise first free register is chosen.
+\enditems
+
+The second step tries to do what we could call {\em last chance
+coalescing}---even when conservative coalescing failed, we may be able to assign
+a common physical register. Since the other way of choosing a register is the
+first one available, last chance coalescing can only improve the allocation.
+
+In the actual implementation, it looks roughly like this:
+
+\begtt \adef^#1>{\def\tmp{#1}$\langle\hbox{\it\catcodetable0\scantextokens\ea{\tmp}\/}\rangle$}
+Oper find_register_for(RegAllocState *ras, Oper u) {
+	u64 used = 0;
+	^for each adjacent `adj` of `u`> {
+		Oper v = get_alias(ras, adj);
+		if (wl_has(&ras->stack, v) || is_to_be_spilled(ras, v)) {
+			continue;
+		}
+		used |= 1U << ras->reg_assignment[v];
+	}
+
+	^for each move `move` of `u`> {
+		Oper op1 = get_alias(ras, move->ops[0]);
+		Oper op2 = get_alias(ras, move->ops[1]);
+		Oper v = op1 != u ? op1 : op2;
+		if (u == v || wl_has(&ras->stack, v) || is_to_be_spilled(ras, v)) {
+			continue;
+		}
+		Oper reg = ras->reg_assignment[v];
+		if ((used & (1U << reg)) == 0) {
+			return reg;
+		}
+	}
+
+	for (size_t reg = 1; reg <= ras->reg_avail; reg++) {
+		size_t mask = 1 << reg;
+		if ((used & mask) == 0) {
+			return reg;
+		}
+	}
+
+	return R_NONE;
+}
+\endtt
+
+All neighbours (even those not in the interference graph) are iterated over,
+aliases are resolved, and the if the node is in the interference graph (not
+popped yet) and not spilled, then it's assigned register is added to the used
+registers. To improve run time, the set of used registers is packed into a
+single 64-bit integer and bitwise operations are used---every bit represents a
+single physical register. When skipping not yet allocated coalescing candidates,
+we have to be careful about also skipping the self copies (i.e. `mov t12, t12`)
+which could occur due to previous coalescing.
+
+The actual assignment first assigns physical registers their physical register
+and then allocates a physical register for each virtual register in turn, based
+on the order imposed by the stack:
+
+\begtt
+bool assign_registers(RegAllocState *ras) {
+	// Physical registers are assigned themselves.
+	for (size_t i = 0; i < ras->first_vreg; i++) {
+		ras->reg_assignment[i] = i;
+	}
+
+	bool have_spill = false;
+	Oper u;
+	while (wl_take_back(&ras->stack, &u)) {
+		Oper reg = find_register_for(ras, u);
+		if (reg == R_NONE) {
+			spill_virtual_register(ras, u);
+			have_spill = true;
+			continue;
+		}
+		ras->reg_assignment[u] = reg;
+	}
+
+	return !have_spill;
+}
+
+void spill_virtual_register(RegAllocState *ras, Oper u) {
+	ras->to_spill[u] = mfunction_reserve_stack_space(ras->mfunction, 8, 8);
+}
+\endtt
+
+Actually spilled registers are marked by having a stack slot allocated.
+
+At this point the assignment of virtual registers to physical registers exists
+only as a mapping in `ras->reg_assignment`. The mapping is applied by a separate
+function, which iterates over all instructions in a function and applies the
+mapping. I.e. for each register operand it does something like this:
+
+\begtt
+inst->ops[i] = ras->reg_assignment[get_alias(ras, inst->ops[i])];
+\endtt
+
+Again, resolution of aliases is important, since the nodes that got merged into
+another are not allocated registers at all (never pushed onto the stack) and
+don't have valid entries in `reg_assignment`.
+
+\label[sec:imp-regalloc-graphs]
+\secc Interference graph representation
+
+Graphs can be represented in different ways. Different representations are
+suitable for different purposes. In our case, we have seen how we use the
+interference graph in previous subsections:
+
+\begitems \style n
+
+* Checks whether two nodes are neighbours. E.g. in `are_interfering` and while checking for
+existing edge in `add_interference`.
+
+* Iteration over all neighbours. Needed for register assignment (finding out
+free registers amongst neighbours) and coalescing (for adding neighbours of one
+node to another).
+
+\enditems
+
+Common representations like adjacency matrix support 1) efficiently, but not 2).
+On the other hand adjacency lists support 2) efficiently, but not 1). For this
+reason, usually {\em both} representations were historically~\cite[Chaitin1982]
+used for interference graphs and we do the same in our implementation.
+
+The adjacency list representation has for each virtual register an array with
+all adjacent (neighbouring) virtual registers. In our implementation, these
+arrays are dynamic (i.e. the array can be reallocated and has a capacity as well
+as current size), because we extend the adjacency lists while coalescing.
+
+An adjacency matrix can be efficiently represented as a {\em bit matrix} where
+the adjacency of two nodes is represented with a single bit. With a help of a
+mapping function, the matrix can actually be stored as a bit array and in our
+case can be smaller than $n \cdot n$ (where $n$ is the number of nodes), since
+the adjacency matrix of an interference graph is symmetric and there aren't be
+self edges.
+
+Other representations have been used as alternatives to adjacency matrix, for
+example hash tables~\cite[George1996] or \"split bit-matrix"~\cite[Cooper1998],
+which trade lookup speed for memory. Memory consumption is a big disadvantage of
+the bit matrix, since its size is still $O(n^2)$ and in practice, it is very
+sparse. So far, we stayed with the bit matrix and in case of need for reducing
+memory consumption we can try other tricks like compacting virtual registers as
+many temporaries are optimized before register allocation, which can decreasing
+$n$ and thus size of the bit matrix considerably.
+
+Our implementation maps the bit matrix onto a generic bit set (bit array):
+
+\begtt
+bool are_interfering(RegAllocState *ras, Oper u, Oper v) {
+	if (u == R_NONE || v == R_NONE)
+		return true;
+	Oper index = bitmatrix_index(ras, u, v);
+	return bs_test(&ras->matrix, index);
+}
+\endtt
+
+Inspired by~\cite[George1996] we don't keep the adjacency lists for physical
+registers. The reasons for this are the following:
+
+\begitems
+
+* Adjacency lists are needed for register assignment and physical registers have
+fixed assignment, we don't need to iterate over their neighbours.
+
+* Adjacency lists for physical registers grow fairly big as physical registers
+are used across the whole function. For example the register `rbp` (used as a
+frame base pointer on the x86-64) practically interferes with {\em all} other
+registers.
+
+\enditems
+
+Thus we special case physical registers when adding interference:
+
+\begtt
+void add_interference(RegAllocState *ras, Oper u, Oper v) {
+	if (u == v || are_interfering(ras, u, v))
+		return;
+	Oper index = bitmatrix_index(ras, u, v);
+	bs_set(&ras->matrix, index);
+	if (!is_physical(ras, u))
+		garena_push_value(&ras->adj_list[u], Oper, v);
+	if (!is_physical(ras, v))
+		garena_push_value(&ras->adj_list[v], Oper, u);
+	ras->degree[u]++;
+	ras->degree[v]++;
+}
+\endtt
+
+\secc Physical registers, coalescing
+
+For register assignment (section~\ref[sec:imp-regalloc-assignment]) and
+interference graphs (section~\ref[sec:imp-regalloc-graphs]) we did introduce
+special cases for physical registers. Surprisingly enough most of the
+simplification and coalescing implementation details
+(section~\ref[sec:imp-regalloc-simplify]) didn't so far have {\em any} check for
+physical registers. Even though intuitively, physical registers are very much a
+special case:
+
+\begitems
+
+* We shouldn't ever coalesce two physical registers.
+
+* When combining physical and virtual register, they should be combined into the
+physical register, because it has special meaning, for calling conventions etc.
+
+* We shouldn't \"simplify" and push physical registers onto the stack, since
+we want to only allocate virtual registers.
+
+* Since we don't store adjacency lists for physical registers, we should never
+try to access them.
+
+\enditems
+
+In practice, most of the issues are solved implicitly by adding interferences
+between all physical registers:
+
+\begitems
+* Because physical registers interfere with each other, they are not allowed to
+coalesce together.
+
+* If the number of physical registers is $p$, then each physical register has
+hast at least $p-1$ interferences. This means that after all simplifications
+of virtual registers physical registers would be simplified. In practice the
+number of available registers ($k$) is strictly less than the number of physical
+registers. For example, on x86-64 we reserve `rbp` and `rsp` for special
+purposes and don't allocate them. Even on other architectures usually at least
+one register is reserved for special purposes.
+\enditems
+
+Other issues require more handling and care. For example, to always combine
+physical and virtual register into the virtual register, we always combine into
+the register that compares smaller (physical registers are represented by
+smaller integers than virtual registers).
+
+Another issue is the coalescing heuristic. Briggs' conservative coalescing
+heuristic requires iteration over adjacent nodes. Because we don't store
+adjacency lists for physical registers we have to use a different heuristic.
+George's heuristic is given (and proved safe) by~\cite[Appel1998]: \"nodes $a$
+and $b$ can be coalesced if, for every neighbor $t$ of $a$, either $t$ already
+interferes with $b$ or $t$ is of insignificant degree". The
+original~\cite[George1996] paper suggested the heuristic only for
+physical registers, but the heuristic can even be used even for virtual
+registers. In fact trying both heuristic when possible can be beneficial, since
+both are conservative and can detect safe coalescing in different cases.
+
+We try both heuristics for virtual registers. In the implementation we assume
+that if one of the two registers is physical, it is `u`:
+
+\begtt
+bool are_coalesceble(RegAllocState *ras, Oper u, Oper v) {
+	bool coalescable = george_heuristic(ras, u, v);
+	if (!coalescable && !is_physical(ras, u))
+		coalescable = briggs_heuristic(ras, u, v);;
+	return coalescable;
+}
+\endtt
+
+\secc Spill choice
+
+
+
+
+
+
 
 %Iteration over all defined and used registers (which is needed by liveness
 %analysis) or even just all registers.
