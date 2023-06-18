@@ -81,6 +81,8 @@ reg_alloc_state_create(Arena *arena)
 	return ras;
 }
 
+void add_interference(RegAllocState *ras, Oper u, Oper v);
+
 void
 reg_alloc_state_reset(RegAllocState *ras)
 {
@@ -168,6 +170,13 @@ reg_alloc_state_reset(RegAllocState *ras)
 	garena_restore(&ras->gmoves, 0);
 	for (size_t i = 0; i < ras->mfunction->vreg_cnt; i++) {
 		garena_restore(&ras->move_list[i], 0);
+	}
+
+	// Add interferences among physical registers.
+	for (Oper u = 1; u < ras->first_vreg; u++) {
+		for (Oper v = u + 1; v < ras->first_vreg; v++) {
+			add_interference(ras, u, v);
+		}
 	}
 }
 
@@ -270,10 +279,6 @@ are_interfering(RegAllocState *ras, Oper u, Oper v)
 	if (u == R_NONE || v == R_NONE) {
 		return true;
 	}
-	assert(u != v);
-	if (is_physical(ras, u) && is_physical(ras, v)) {
-		return true;
-	}
 	Oper index = bitmatrix_index(ras, u, v);
 	return bs_test(&ras->matrix, index);
 }
@@ -284,9 +289,6 @@ add_interference(RegAllocState *ras, Oper u, Oper v)
 	assert(u < ras->mfunction->vreg_cnt);
 	assert(v < ras->mfunction->vreg_cnt);
 	if (u == v || are_interfering(ras, u, v)) {
-		return;
-	}
-	if (is_physical(ras, u) && is_physical(ras, v)) {
 		return;
 	}
 	fprintf(stderr, "Adding interference ");
@@ -786,13 +788,6 @@ build_interference_graph(RegAllocState *ras)
 			interference_step(ras, live_set, inst);
 			live_step(live_set, mfunction, inst);
 		}
-	}
-
-	// Physical registers are initialized with infinite degree. This makes
-	// sure that simplification doesn't ever see tham transition to
-	// non-significant degree and thus pushing them on the stack.
-	for (size_t i = 0; i < ras->first_vreg; i++) {
-		ras->degree[i] = ras->mfunction->vreg_cnt + ras->reg_avail;
 	}
 }
 
