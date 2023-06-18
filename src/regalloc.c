@@ -270,6 +270,10 @@ are_interfering(RegAllocState *ras, Oper u, Oper v)
 	if (u == R_NONE || v == R_NONE) {
 		return true;
 	}
+	assert(u != v);
+	if (is_physical(ras, u) && is_physical(ras, v)) {
+		return true;
+	}
 	Oper index = bitmatrix_index(ras, u, v);
 	return bs_test(&ras->matrix, index);
 }
@@ -280,6 +284,9 @@ add_interference(RegAllocState *ras, Oper u, Oper v)
 	assert(u < ras->mfunction->vreg_cnt);
 	assert(v < ras->mfunction->vreg_cnt);
 	if (u == v || are_interfering(ras, u, v)) {
+		return;
+	}
+	if (is_physical(ras, u) && is_physical(ras, v)) {
 		return;
 	}
 	fprintf(stderr, "Adding interference ");
@@ -1208,7 +1215,7 @@ coalesce_move(RegAllocState *ras, Oper m)
 		print_inst(stderr, mfunction, move);
 		fprintf(stderr, "\n");
 		decrement_move_cnt(ras, u);
-	} else if (v < ras->first_vreg || are_interfering(ras, u, v)) {
+	} else if (is_physical(ras, v) || are_interfering(ras, u, v)) {
 		// constrained
 		fprintf(stderr, "Constrained: \t");
 		print_inst(stderr, mfunction, move);
