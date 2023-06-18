@@ -1266,8 +1266,8 @@ assign_registers(RegAllocState *ras)
 		size_t adj_cnt = garena_cnt(gadj_list, Oper);
 		for (size_t j = 0; j < adj_cnt; j++) {
 			Oper adj = get_alias(ras, adj_list[j]);
-			if (!wl_has(&ras->stack, adj) && ras->reg_assignment[adj] != R_NONE) {
-				used |= 1 << (ras->reg_assignment[adj] - 1);
+			if (!wl_has(&ras->stack, adj)) {
+				used |= 1 << ras->reg_assignment[adj];
 			}
 		}
 
@@ -1288,7 +1288,7 @@ assign_registers(RegAllocState *ras)
 			// This check for "has already been assigned" also
 			// handles (skips) coalesced moves, i.e.
 			//     mov t27, t27
-			if (v_reg && (used & (1 << (v_reg - 1))) == 0) {
+			if (v_reg && (used & (1 << v_reg)) == 0) {
 				fprintf(stderr, "Preferring ");
 				print_reg(stderr, v_reg);
 				fprintf(stderr, " for ");
@@ -1302,7 +1302,7 @@ assign_registers(RegAllocState *ras)
 		}
 
 		for (size_t ri = 1; ri <= ras->reg_avail; ri++) {
-			size_t mask = 1 << (ri - 1);
+			size_t mask = 1 << ri;
 			if ((used & mask) == 0) {
 				reg = ri;
 				break;
