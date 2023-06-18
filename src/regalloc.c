@@ -400,6 +400,9 @@ interference_step(RegAllocState *ras, WorkList *live_set, Inst *inst)
 		is.live = live_set->dense[j];
 		for_each_def(inst, add_interference_with, &is);
 	}
+
+	// Update the liveness for this instruction.
+	live_step(live_set, ras->mfunction, inst);
 }
 
 typedef struct {
@@ -759,7 +762,6 @@ build_interference_graph(RegAllocState *ras)
 		get_live_out(ras, block, live_set);
 		for (Inst *inst = mblock->insts.prev; inst != &mblock->insts; inst = inst->prev) {
 			interference_step(ras, live_set, inst);
-			live_step(live_set, mfunction, inst);
 		}
 	}
 
