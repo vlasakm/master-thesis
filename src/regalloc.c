@@ -453,21 +453,21 @@ get_fresh_vreg_for_spill(RegAllocState *ras)
 }
 
 bool
-is_to_be_spilled(SpillState *ss, Oper t)
+is_to_be_spilled(RegAllocState *ras, Oper t)
 {
 	// NOTE: We make sure that even `to_spill` is in bounds even for vregs
 	// introduced for spill code, see `get_fresh_vreg_for_spill` above.
 	//
 	// `to_spill[t]` = 0 => not spilled
-	return ss->ras->to_spill[t] != 0;
+	return ras->to_spill[t] != 0;
 }
 
 Oper
-spill_displacement(SpillState *ss, Oper t)
+spill_displacement(RegAllocState *ras, Oper t)
 {
 	// `to_spill[t]` = 0 => not spilled
 	// `to_spill[t]` > 0 => spilled, displacement is `to_spill[t]`
-	return ss->ras->to_spill[t];
+	return ras->to_spill[t];
 }
 
 void
@@ -475,7 +475,7 @@ insert_loads_of_spilled(void *user_data, Oper *src)
 {
 	SpillState *ss = user_data;
 	RegAllocState *ras = ss->ras;
-	if (!is_to_be_spilled(ss, *src)) {
+	if (!is_to_be_spilled(ras, *src)) {
 		return;
 	}
 	Inst *inst = ss->inst;
@@ -491,7 +491,7 @@ insert_loads_of_spilled(void *user_data, Oper *src)
 	load->next = inst;
 	IREG(load) = temp;
 	IBASE(load) = R_RBP;
-	IDISP(load) = spill_displacement(ss, *src);
+	IDISP(load) = spill_displacement(ras, *src);
 
 	inst->prev->next = load;
 	inst->prev = load;
@@ -504,7 +504,7 @@ insert_stores_of_spilled(void *user_data, Oper *dest)
 {
 	SpillState *ss = user_data;
 	RegAllocState *ras = ss->ras;
-	if (!is_to_be_spilled(ss, *dest)) {
+	if (!is_to_be_spilled(ras, *dest)) {
 		return;
 	}
 	Inst *inst = ss->inst;
@@ -568,7 +568,7 @@ insert_stores_of_spilled(void *user_data, Oper *dest)
 	store->next = inst->next;
 	IREG(store) = temp;
 	IBASE(store) = R_RBP;
-	IDISP(store) = spill_displacement(ss, *dest);
+	IDISP(store) = spill_displacement(ras, *dest);
 
 	inst->next->prev = store;
 	inst->next = store;
@@ -598,13 +598,13 @@ rewrite_program(RegAllocState *ras)
 			if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_Cr) {
 				Oper dest = inst->ops[0];
 				Oper src = inst->ops[1];
-				bool spill_dest = is_to_be_spilled(ss, dest);
-				bool spill_src = is_to_be_spilled(ss, src);
+				bool spill_dest = is_to_be_spilled(ras, dest);
+				bool spill_src = is_to_be_spilled(ras, src);
 				if (spill_dest && spill_src) {
 					// If this would be essentially:
 					//    mov [rbp+X], [rbp+X]
 					// we can just get rid of the copy.
-					if (spill_displacement(ss, dest) == spill_displacement(ss, src)) {
+					if (spill_displacement(ras, dest) == spill_displacement(ras, src)) {
 						inst->prev->next = inst->next;
 						inst->next->prev = inst->prev;
 					}
@@ -612,12 +612,12 @@ rewrite_program(RegAllocState *ras)
 					inst->mode = M_Mr;
 					IREG(inst) = src;
 					IBASE(inst) = R_RBP;
-					IDISP(inst) = spill_displacement(ss, dest);
+					IDISP(inst) = spill_displacement(ras, dest);
 				} else if (spill_src) {
 					inst->mode = M_CM;
 					IREG(inst) = dest;
 					IBASE(inst) = R_RBP;
-					IDISP(inst) = spill_displacement(ss, src);
+					IDISP(inst) = spill_displacement(ras, src);
 				}
 				continue;
 			}
@@ -1243,43 +1243,44 @@ find_register_for(RegAllocState *ras, Oper u)
 	Oper *adj_list = garena_array(gadj_list, Oper);
 	size_t adj_cnt = garena_cnt(gadj_list, Oper);
 	for (size_t j = 0; j < adj_cnt; j++) {
-		Oper adj = get_alias(ras, adj_list[j]);
-		if (!wl_has(&ras->stack, adj)) {
-			used |= 1 << ras->reg_assignment[adj];
+		Oper v = get_alias(ras, adj_list[j]);
+		if (wl_has(&ras->stack, v) || is_to_be_spilled(ras, v)) {
+			continue;
 		}
+		used |= 1U << ras->reg_assignment[v];
 	}
 
 	Inst **moves = garena_array(&ras->gmoves, Inst *);
 	GArena *gmove_list = &ras->move_list[u];
 	Oper *move_list = garena_array(gmove_list, Oper);
 	size_t move_cnt = garena_cnt(gmove_list, Oper);
-
 	for (size_t m = 0; m < move_cnt; m++) {
 		Inst *move = moves[move_list[m]];
 		Oper op1 = get_alias(ras, move->ops[0]);
 		Oper op2 = get_alias(ras, move->ops[1]);
 		assert(u == op1 || u == op2);
 		Oper v = op1 != u ? op1 : op2;
-		Oper v_reg = ras->reg_assignment[v];
-		// This check for "has already been assigned" also
-		// handles (skips) coalesced moves, i.e.
-		//     mov t27, t27
-		if (v_reg && (used & (1 << v_reg)) == 0) {
+		// skip also coalesced moves (mov t27, t27)
+		if (u == v || wl_has(&ras->stack, v) || is_to_be_spilled(ras, v)) {
+			continue;
+		}
+		Oper reg = ras->reg_assignment[v];
+		if ((used & (1U << reg)) == 0) {
 			fprintf(stderr, "Preferring ");
-			print_reg(stderr, v_reg);
+			print_reg(stderr, reg);
 			fprintf(stderr, " for ");
 			print_reg(stderr, u);
 			fprintf(stderr, " due to ");
 			print_reg(stderr, v);
 			fprintf(stderr, "\n");
-			return v_reg;
+			return reg;
 		}
 	}
 
-	for (size_t ri = 1; ri <= ras->reg_avail; ri++) {
-		size_t mask = 1 << ri;
+	for (size_t reg = 1; reg <= ras->reg_avail; reg++) {
+		size_t mask = 1 << reg;
 		if ((used & mask) == 0) {
-			return ri;
+			return reg;
 		}
 	}
 
