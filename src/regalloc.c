@@ -1060,7 +1060,8 @@ choose_and_spill_one(RegAllocState *ras)
 void
 decrement_move_cnt(RegAllocState *ras, Oper u)
 {
-	if (!is_physical(ras, u) && !is_move_related(ras, u) && !is_significant(ras, u)) {
+	if (!is_move_related(ras, u) && !is_significant(ras, u)) {
+		assert(!is_physical(ras, u));
 		fprintf(stderr, "Move from freeze to simplify ");
 		print_reg(stderr, u);
 		fprintf(stderr, "\n");
