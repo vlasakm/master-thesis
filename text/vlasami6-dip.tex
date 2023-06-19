@@ -1,7 +1,7 @@
 % vim: tw=80 spell spelllang=en
 
 \fontfam[lm]
-\input ctustyle3
+\load[ctustyle3]%, tikz]
 %\load[vlna]
 %\singlechars{Czech}{AaIiVvOoUuSsZzKk}
 \enuslang
@@ -10,8 +10,11 @@
 \picdir={figures/}
 \nonstopmode
 \nonumcitations
+\fnotenumpages
 
 \draft
+
+\def\definition {\numberedpar B{Definition}}
 
 \newcount \_secccnum
 \def \_thesecccnum {\_othe\_chapnum.\_the\_secnum.\_the\_seccnum.\_the\_secccnum}
@@ -247,15 +250,16 @@ Klasikcé řešení selection -> scheduling -> regalloc je přijatelný kompromi
 \sec SSA form
 
 SSA ({\em static single assignment}) form is a form used by most of today's
-optimizing compilers, including for example LLVM and GCC. It simplifies and
-makes faster a lot of classic optimizations.
+optimizing compilers, including for example LLVM\urlnote{https://llvm.org/}
+and GCC\urlnote{https://gcc.gnu.org/}. It simplifies and makes faster a lot
+of classic optimizations.
 
 Like the name suggests, static single assignment form stands on the fact
 that each variable is assigned exactly once. On top of that, we are interested
-only in {\em static} assignments, that is, there is only one program point that
-assigns the variable (contrary to {\em dynamic} assignments, which would count
+only in {\em static} assignments, meaning, that there is only one program point that
+assigns a variable---contrary to {\em dynamic} assignments, which would count
 how many times the assignment is executed at runtime, i.e.\ how many times the
-execution gets to the single program point which assigns the variable).
+execution gets to the single program point which assigns the variable.
 
 There are many important benefits to SSA form, of which we highlight a few:
 
@@ -284,7 +288,7 @@ return (a + b) * (a + b);
 A human can easily tell, that the first store to `a` is dead, since `a` is
 reassigned. It is also easy to tell that the both of the expressions `a * b`
 compute the same result, since they refer to the same `a` and `b`. However, this
-is not as easy to tell for a compiler. But \"versioning" each definition of a
+is not as easy to tell for a compiler. \"Versioning" each definition of a
 variable and tracking which version gets used makes the observation simpler for
 an optimizing compiler:
 
@@ -306,7 +310,7 @@ of \v a2. It is also much easier to tell that the `a + b` expressions are indeed
 the same, since now they are the result of applying the same operator to the
 exact same versions of variables, regardless of how many definitions these
 variables had. The implementation of SSA construction by versioning the
-definitions is also very easy to implement.
+definitions is also easy to implement.
 
 Constructing SSA becomes more problematic with conditional execution:
 
@@ -318,7 +322,7 @@ if (a) {
 return b;
 \endtt
 
-When we try to version the variables here, the we don't know whether to continue
+When we try to version the variables here, we don't know whether to continue
 with \v b 1 or \v b 2 after the `if` statement, though we are able to tell just
 fine that the use of `b` in the conditional branch corresponds to \v b 1:
 
@@ -332,7 +336,7 @@ return b!?;
 
 The problem is that multiple definitions reach a use. With use-def chains this
 could have been easily represented. But with SSA we don't want to use def-use
-chains, since we want only one definition to reach each use. This brings us to
+chains, since we wish only one definition to reach each use. This brings us to
 the idea of actually introducing a definition after the `if` statement, which
 merges \v b 1 and \v b 2 into \v b 3, and can then be unambiguously used by
 the return statement:
@@ -347,17 +351,17 @@ return b!3;
 \endtt
 
 Of course, the ambiguity is still there, just hidden behind the mysterious
-$\phi$ (\"phi") function which provides the merging definition. We would
-like the $\phi$ to evaluate to right version depending on the control flow which
-occurs at run-time, so we define the $\phi$ function to do exactly that. Though
-the semantics may seem a bit weird. Having the ambiguity in phi is is still
-better than use-def chains, since there can be other uses of \v b 3 all
-referring to the single $\phi$, instead of each having multiple reaching
-definitions.
+$\phi$-function ({\em phi} function) which provides the merging definition. We would
+like the $\phi$-function to evaluate to right version depending on the control flow which
+occurs at run-time, so we define the $\phi$-function to do exactly that. Though
+the semantics may seem a bit weird, having the ambiguity hidden in the
+$\phi$-function is is still better than use-def chains, since there can be other
+uses of \v b 3 all referring to the single $\phi$-function, instead of each
+having multiple reaching definitions.
 
 The simplest possible method for SSA construction inserts a $\phi$ instruction
 for every variable at each merge point. This is correct, but such approach
-introduces many redundant $\phi$s, that don't do nothing much useful. For
+introduces many redundant $\phi$-functions, that don't do nothing much useful. For
 example in the example above a $\phi$ instruction would be introduced after the
 conditional branch for `a`, even though there is a single definition:
 
@@ -381,7 +385,7 @@ if (f()) goto loop;
 
 Here, even though there is not reference to `a` in the loop, a $\phi$ function
 needed to be introduced, since execution may flow to the beginning of the loop
-from two places (the code preceding it, or the end of the loop:
+from two places (the code preceding it and the end of the loop):
 
 \begtt \adef!#1{$_{\tt #1}$} \adef|{$\phi$}
 a!1 = 1;
@@ -392,19 +396,27 @@ a!3 = |(a!2, a!2);
 \endtt
 
 The $\phi$ refers to itself and only one other value (\v a 1), so it also can be
-safely removed and the value used instead. Similar \"cyclic" $\phi$s can occur
-even indirectly---two $\phi$ referring to each other and a single value, which
-could be used directly.
+safely removed and the value used directly instead. Similar \"cyclic"
+$\phi$-functions can occur even indirectly---two $\phi$-functions can refer to
+each other and a single other value, which could just be used directly.
 
 So even though even simple SSA construction is possible, the produced code isn't
-as useful because of many redundant $\phi$ nodes. The original inventors of SSA
-form and the $\phi$ function concept~\cite[Rosen1988] came up with an efficient
+as useful because of many redundant $\phi$-functions. The original inventors of SSA
+form and the $\phi$-function concept~\cite[Rosen1988] came up with an efficient
 algorithm for SSA construction~\cite[Cytron1991], which is based on the new
-concept of {\em dominance frontiers}, which simply put are exactly the blocks
-where $\phi$ functions are needed. Their algorithm produces what is known as
-{\em minimal} SSA form, which doesn't contain redundant $\phi$s. Despite the
-name, even more \"minimal" forms of SSA exist, for example {\em pruned} SSA
-doesn't contain {\em dead} $\phi$ functions.
+concept of {\em dominance frontiers}, which in a control flow graph are exactly
+the places where $\phi$-functions are needed. Their algorithm produces what is
+known as {\em minimal} SSA form, which doesn't contain redundant
+$\phi$-functions. Despite the name, even more \"minimal" forms of SSA exist, for
+example {\em pruned} SSA doesn't contain {\em dead} $\phi$-functions.
+
+SSA form is deeply connected to the notion of {\em dominance} in a control flow
+graph.
+
+\definition[Dominance] Let $X$ and $Y$ be nodes in the control
+flow graph {\em CFG} of a program. If $X$ appears on every path from Entry to $Y$,
+then $X$ {\em dominates} $Y$.~\cite[Cytron1991]
+
 
 \label[sec:SSA-value]
 \secc Value-based SSA
@@ -412,51 +424,51 @@ doesn't contain {\em dead} $\phi$ functions.
 An important observation with regards to SSA form is, that since each variable
 is assigned exactly once, and the variables don't get reassigned, there is no
 need for the concept of a {\em variable}. The {\em values} assigned to the
-variables can be used directly instead. Values are described by their structure,
+variables can be used directly. Values are described by their structure,
 for example number literals, like `5` or operations applied to other values
 like `add 1, 2` (addition of two numbers) or `add 5, (sub 6, 7)` (addition of a
 number and the result of subtraction of of two numbers). Generally we can divide
 the values used in programs into two categories:
 
 \begitems\style n
-* {\em Constants}. These represent number or character literals, but also (addresses
-of) static objects. Examples include `3` (integer literal), `'a'` (character
+* {\em Constants}. These represent number or character literals, but also addresses
+of static objects. Examples include `3` (integer literal), `'a'` (character
 literal), `f` (address of a function), `g` (address of a global variable).
 
 * {\em Operations}. These represent values produced from other values by
-applying some arithmetic or other operation. Examples include `neg 5` is a
-(unary) negation operation applied to a constant, `add 5, neg neg 3` is a binary
+applying some arithmetic or other operation. Examples include `neg 5`
+(unary negation operation applied to a constant), `add 5, neg neg 3` (binary
 operation applied to a constant and a negation applied to negation of a constant
-number 3. Arity isn't limited, and for example function calls can be seen as
+number 3). Arity isn't limited, and for example function calls can be seen as
 operations on several values of which the first is the called function and the
-rest are the arguments, for example we can have function `f` called with 4
+rest are the arguments, e.g. we can have function `f` called with 4
 arguments: `call f, 1, 2, 3, 4`.
 \enditems
 
 Function parameters are constants as well---even though arguments
 (actual parameters) passed to a function may just be results of some operations,
 from the point of view of the function the formal parameters are constant values
-that \"magically" materialize when the function begins its execution.
+that materialize when the function begins its execution.
 
-When represented in a compiler, the values are objects and they refer to each
-other by means of references (for example through pointers or by means of
-reference types). Our textual notation for operations so far was direct: a use
+When represented in a compiler, values are objects and they refer to each
+other by means of references (for example through pointers). Our textual
+notation for operations so far was direct: a use
 of value meant writing out the textual representation of the definition
 (constructor) of a value. Because each value can be used many times and due to
 the recursive nature (operations are able to refer to other operations), this
 quickly becomes unwieldy. We will use a different notation that assigns each
-value a number, $i$, and writes the references as `v`$_{\tt i}$. The definitions
-are accompanied by a \"virtual assignment" whose purpose is to show what index
-is used to represent references to the particular value. For example, we could
-have:
+value a unique number and for value number $i$ writes the references to it as
+`v`$_{\tt i}$. The definitions are accompanied by an \"assignment" whose
+purpose is to show what index is used to represent references to a particular
+value. For example, we could have:
 
 \begtt \adef!#1{$_{\tt #1}$} \adef|{$\phi$}
 v!1 = 3
 v!2 = 3
 v!3 = mul v!1, v!2
 \endtt
-
-Which differs a bit from:
+%
+which differs a bit from:
 
 \begtt \adef!#1{$_{\tt #1}$} \adef|{$\phi$}
 v!1 = 3
@@ -464,7 +476,7 @@ v!3 = mul v!1, v!1
 \endtt
 
 This notation also easily supports operations that refer to themselves, like the
-redundant phi functions we have seen for loops:
+redundant $\phi$-functions we have seen for loops:
 
 \begtt \adef!#1{$_{\tt #1}$} \adef|{$\phi$}
 ...
@@ -487,20 +499,20 @@ dependencies---{\em data-flow}. TODO figure
 
 Though the {\em value-based} representation of SSA may be useful in some
 contexts, it is not always possible to use it. After all, the resources for
-which we may want to construct SSA form may not represent values at all. Or the
-values may be constrained. In such cases transforming the intermediate
+which we may want to construct SSA form may not represent values at all, or the
+values may be constrained like shown below. In such cases transforming the intermediate
 representation to SSA form is still possible, but has to be based on versions
 and we will call it {version-based} SSA.
 
 One such example is SSA form for {\em machine code} (or assembly). Here, we work
-with registers, and registers no longer {\em represent} values, they {\em store}
+with registers, and registers no longer {\em represent} values, they {\em hold}
 values. Say we want to represent the following x86-64 instructions in SSA form:
 
 \begtt
 mov rcx, rax
 add rcx, rbx
 \endtt
-
+%
 This example represents the addition `rcx = rax + rbx`, where all three
 registers are preserved. Obviously, in this example `rcx` is assigned twice.
 We want to apply the standard SSA versioning construction. The two address
@@ -515,7 +527,7 @@ add rcx!2 | rcx!1, rbx!1
 \endtt
 
 Above we follow the convention where all definitions are written before the
-\"\|" symbol, and all uses after. The representation actually became more
+\"\code{|}" symbol, and all uses after. This way the representation became more
 similar to classic three address code, where operations are non-destructive.
 
 Other snippets of x86-64 code can also produce a bit surprising results:
@@ -523,7 +535,7 @@ Other snippets of x86-64 code can also produce a bit surprising results:
 \begtt \adef!#1{$_{\tt #1}$} \adef>{$\Rightarrow$}
 cmove rdx, rsi   >   cmove rdx!2 | rdx!1, rsi!1
 
-setnz al ; 2)     >   setnz rax!2 | rax!1
+setnz al         >   setnz rax!2 | rax!1
 
 xor rcx, rcx     >   xor rcx!1
 \endtt
@@ -534,11 +546,12 @@ purposes the final value of `rdx` can be `rdx` or `rsi` and with no better
 information, we must pessimistically expect both. So we have two uses and one
 definition.
 
-Second example has a set if not zero instruction, which sets the lowest 8 bits
-of `rax` register if the zero bit is not set in the flags register. Since only
-the lowest bits are set, the instruction actually merges the new low 8 bits with
-the rest of the `rax` register as set previously, and this has to be modelled
-through a use of the previous version of the register.
+Second example has a set byte if not zero instruction, which writes 1 to the
+lowest 8 bits of `rax` register if the zero bit is not set in the flags
+register, or 0 otherwise. Since only the lowest bits are set, the instruction
+actually merges the new low 8 bits with the rest of the `rax` register as set
+previously, and this has to be modelled through a use of the previous version of
+the register.
 
 In the last example, the idiom for zeroing out a register is used. Xoring a
 register with itself produces zero, regardless of the previous value of the
@@ -546,49 +559,37 @@ register. Compared to move of 4-byte immediate zero, this is much shorter, so
 the idiom is very common. But, since the register is overwritten with zero,
 there is actually no reason for the instruction to {\em use} the former value of
 the register--- the previous value doesn't matter. This is why we want to model
-the instruction as only {\em defining} the register. Actually, the processor
-itself doesn't have to wait for the used register, and for example Intel
-considers using xor to zero out a register a {\em
+the instruction as only {\em defining} the register. In practice, the processor
+also doesn't have to wait for the used register, and for example Intel considers
+using `xor` to zero out a register a {\em
 dependency-breaking-idiom}~\cite[IntelOptimization].
 
-SSA on machine code accomplished its goal---there is now only one assignment to
+SSA on machine code accomplishes its goal---there is only one assignment to
 each {\em register version}. But the versions of one register are still tied together.
-When the SSA form is deconstructed back into machine code, essentially only the
-version numbers are dropped. So while SSA helped with {\em analysis}, because
-tracking definitions became easier, in reality there are still multiple
-assignments to each resource.
+When the SSA form is deconstructed back into machine code, only the
+version numbers are dropped. So while machine SSA form helps with {\em
+analysis}, because tracking definitions became easier, in reality there are
+still multiple assignments to each resource.
 
 \label[sec:ssa-deconstruction]
 \sec SSA deconstruction
 
-SSA dekonstrukce potřeba někde
-
-Problém kdy a jak (copy instrukce v SSA middle end IR? (nejsou SSA), nebo
-naopak backend IR v SSA i s phi nody, to ale zase špatně podporuje to, že
-některé instrukce prostě SSA neumožňují - two address code, binární operace,
-`setcc` instrukce, je to řešitelné, ale...)
-
-Swap problem, lost copy problem \cite[Briggs1998]
-
-Problém nejen korektnost, ale i rychlost (spousta kopií škodí)
-\cite[Boissinot2009].
-
-Zbytek SSA dekonstrukce nečíst, velmi hrubý začátek:
-
 No common processor provides $\phi$-functions on which the SSA form relies. Thus
 replacement of $\phi$-functions with other instructions having same effect is
-needed. This is step is called {\em SSA deconstruction}.
-
-Since $\phi$-functions are the means of achieving single static
-assignment, necessarily eliminating them means that the program will no longer
-be in SSA form. Being able to multiply assign a variable.
+needed. This is step is called {\em SSA deconstruction}. Since $\phi$-functions
+are the means of achieving single static assignment, necessarily eliminating
+them means that the program will no longer be in SSA form. Being able to
+multiply assign a variable.
 
 $\phi$-function's semantics say that it evaluates to whichever values is
 appropriate to the control flow happening at runtime. In a representation based
-on control flow graphs, this is made explicit by basic blocks
-
+on control flow graphs, this is made explicit by basic blocks.
 We can achieve the effect of a $\phi$-function with multiple assignments through
-a copy instruction in each of the predecessor blocks. TODO figure.
+a copy instruction in each of the predecessor blocks:
+
+\begtt
+TODO
+\endtt
 
 This is the original way of eliminating $\phi$ functions and was introduced
 by~\cite[Cytron1991]. Though seemingly simple, there are multiple subtle
@@ -636,8 +637,8 @@ it is as if all $\phi$-functions in a block executed in parallel at the time the
 control flow enters the block. This is due to the fact, that $\phi$-functions
 evaluate to the right value based on control flow alone. But copy instructions that
 we use for replacing $\phi$-functions execute sequentially. With multiple
-$\phi$-functions in a basic block and certain dependencies a naive insertion of
-copies into predecessor can lead to incorrect translation.
+$\phi$-functions in a basic block, a naive insertion of copies into predecessor
+can lead to {\em incorrect translation}.
 
 Briggs~\cite[Briggs1998] identified two examples where this happens, the first is
 known as {\em lost-copy} problem and occurs when deconstructing SSA in code like this:
@@ -696,12 +697,12 @@ TODO
 
 The approach is correct, since the first step is non-destructive (unlike the
 naive copy insertion) and in the second (destructive) step only new temporaries
-are read, which are not involved in any $\phi$ functions. While this is correct,
-it produces a large number of copies, most of which are not needed.
+are read, which are not involved in any-$\phi$ functions. While correct, the
+approach produces a large number of copies, most of which are not needed.
 
 Briggs~\cite[Briggs1998] approaches the problem as a scheduling problem. Since copy
-instructions have a destination (definition) and a source (use), we try to find
-an order such that all uses of a virtual register precede its definition. If
+instructions have a destination (definition) and a source (use), he finds
+an order such that all uses of a virtual register precede its redefinition. If
 this is not possible due to cycles (like in the {\em swap} problem), then a
 temporary and an additional copy needs to be inserted to break the cycle.
 
@@ -719,7 +720,7 @@ $\phi$-instruction eliminated. This means that for example the following code
 \begtt
 TODO
 \endtt
-
+%
 Can be translated just by \"omitting the versions":
 
 \begtt
@@ -729,10 +730,11 @@ TODO
 Importantly, in~\cite[Sreedhar1999] they also consider {\em transformed SSA},
 which doesn't have the {\em phi congruence property}, and present three methods
 for transforming transformed SSA into conventional SSA.
-The first method is remarkably simple. In addition to the copies in predecessor
-blocks a copy of the $\phi$-instruction is added. But these are different copies
-than in previous algorithms! Here, we are still in the realm of SSA, so these
-copies can actually be considered {\em aliases} for the original values and they
+The first method is remarkably simple: in addition to the copies in predecessor
+blocks, a copy of the $\phi$-instruction is added. But these are different copies
+than in previous algorithms! Here we are still in SSA form---the
+copies can actually be considered {\em aliases} for the original values, or
+products of an {\em identity operation} and they
 obey the single assignment property:\fnote{In fact, exactly because these SSA
 values are aliases, they are folded by algorithms like {\em copy folding}, that
 result in transformed SSA form, which exhibits problems with naive SSA
@@ -742,9 +744,10 @@ deconstruction.}
 TODO
 \endtt
 
-The next two methods gradually build on top the first one and additionally make
+The next two methods described by Sreedhar gradually build on top the first one
+and additionally make
 use of liveness (described later in section~\ref[liveness]) and interferences
-(also described in a later section, \ref[interference]), to prevent inserting
+(also described in a later section, \ref[interference]) to prevent inserting
 too many unnecessary copies.
 
 Full SSA deconstruction based on Sreedhar's approach thus consists of
@@ -752,157 +755,27 @@ transformation to conventional SSA form, merge of virtual registers in the same 
 congruence class (\"drop of versions of variables") and simple deletion of the
 $\phi$-instructions.
 
-The most comprehensive treatment of SSA deconstruction was done
-by~\cite[Boissinot2009]. Their approach highlights more subtle issues with SSA
+The most comprehensive treatment of SSA deconstruction was conducted
+by Boissinot~\cite[Boissinot2009]. Their approach highlights more subtle issues with SSA
 deconstruction, and presents an algorithm partly based on~\cite[Sreedhar1999],
-which mainly aims for mainly correctness, but also quality (of the generated
+which mainly aims for correctness, but also quality (of the generated
 code) and efficiency (of the SSA deconstruction). The signature of their
 algorithm are three passes, which strictly separate between correctness and
-optimization. Their approach also makes use of some advantages of SSA, like fast
-liveness checking.
+optimization. Their approach also makes use special properties of SSA to improve
+the algorithm's run time.
 
-Copies can be eliminated by {\em coalescing}. Intuitively, if we merge the
+Copies introduced by SSA deconstruction, but also any copies in general, can be
+eliminated by {\em coalescing}. Intuitively, if we merge the
 source and destination of a copy instruction into a single virtual register,
 then no copy instruction is needed (since it would be a copy to itself).
 Basic approaches to SSA deconstruction insert copies freely and depend on
-eliminate the copies through coalescing. But doing some coalescing in SSA
+elimination of the copies through coalescing. But doing some coalescing in SSA
 deconstruction stage can help greatly, since many fewer virtual registers need
 to be considered in register allocation stage (speeding up all aspects of it).
-Also, while in SSA form analysis, many analysis are faster and cheaper to
+Also, while in SSA form, many analysis are faster and cheaper to
 compute and more information may be available to guide the coalescing. Because
 of these reasons both~\cite[Sreedhar1999] (methods 2 and 3)
 and~\cite[Boissinot2009] do coalescing as part of SSA deconstruction.
-
-Briggs describes extensions to SSA deconstruction that are able to correctly
-translate the two examples, but 
-
-These two examples demonstrated that naive SSA deconstruction as described
-by~\cite[Cytron1991]. 
-
-
-For example, this program in SSA form:
-
-When $\phi$-functions are naively eliminated with copies we get:
-
-But the problem is that although the 
-
-
-phi functions in parallel
-
-lost copy
-
-swap
-
-
-
-
-
-
-A lot of intermediate representations may use single static assignment and
-$\phi$-functions. The
-
-Since the single static assignment property of SSA can be achieved in any
-intermediate representation, they can have different other needs apart from
-replacing $\phi$-functions. 
-
-For example in value based SSA form it may be
-desirable to also 
-
-Replacing $\phi$-functions is not the only thing SSA deconstruction has to deal
-with. 
-
-Code in SSA form is not directly executable by any common processor. Not only
-because the backing IR representation may not represent actual machine
-instructions, but because even if it did, $\phi$-functions 
-
-There are two problems with SSA form that make it problematic to translate to
-non-SSA form. First is, that in SSA form instructions represent {\em values}.
-While they can be thought of as virtual registers, they are not registers, since
-they cannot be assigned. The second problem is that SSA form relies on
-$\phi$-functions, which don't have equivalent instructions in any usual
-instruction sets (like x86-64). Both problems make SSA deconstruction a mandatory step,
-that has to happen sometimes before machine code is emitted.
-
-%This is the first
-%disconnect of SSA form from real instruction sets, like x86-64, which operate on
-%registers. For example, in SSA form, addition of two numbers looks like this:
-%
-%\begtt
-%v1 = add 3, 4
-%\endtt
-%
-%The name `v1` represents the value, which is the result of operation adding
-%numbers $3$ and $5$ together. The equal sign doesn't really represent an
-%assignment---what is right to the equal sign represents the value entirely. The
-%reason why we use the equal sign is that other operations might want to refer to
-%previous values, and in textual notation we need to write that somehow. For
-%example, `v1` might be used to produce `v2` like this:
-%
-%\begtt
-%v2 = add v1, 5
-%\endtt
-%
-%Implementations often represent values as \"objects" (instances of classes,
-%structs) and operations refer to other values through {\em pointers}. While even
-%for implementations it might be beneficial to number values like we do in the
-%textual representation (because then a simple array can be used for mapping the
-%values to some other secondary information), there is no real semantic reason to
-%do so.
-
-%So in SSA form values are produced from other values and these values sometimes
-%represent operations, instructions that execute and compute the values,
-%otherwise values just represent static objects. In machine code we only have
-%a few physical registers and instructions which usually read from registers and
-%memory and also write to registers and memory. To translate SSA form we need to
-%somehow map the values into registers, translate SSA instructions (value
-%computations) to machine instructions, and we also need to somehow translate the
-%static objects and be able to take their addresses.
-%
-%A powerful abstraction that pretty much all compilers have used is, to pretend
-%in early stages that there is an infinite amount of registers available, the so
-%called \"virtual registers". A later stage, called {\em register
-%allocation}, is responsible for translating the use of unlimited amount of
-%virtual registers into a fixed amount of physical (machine) registers, which is
-%available for the particular kind of processor we are targeting. Even though
-%there are techniques which do register allocation in SSA form and deconstruct
-%SSA form only after (or during) register allocation, we will focus more on the
-%traditional approach of deconstructing SSA form before register allocation and
-%thus we will have the luxury of unlimited supply of (virtual) registers. We will
-%number the virtual registers from $1$ and we will prefix them with the letter
-%\"t" (for {\em temporary})\fnote{Using \"v" as \"virtual register" would be
-%possible, but would clash with our notation for numbering SSA {\em values}.} for
-%example `t1` represents the first virtual register.
-%
-%With the constraints given above, translating SSA to something like a three
-%address code is relatively straightforward. The first register in three address
-%code is the destination, where the result of the computation is written, while
-%the other two registers are the sources, the arguments of the instruction. Each
-%SSA value (which is an operation) can thus be assigned its own virtual register,
-%which will hold the SSA value and like in SSA it will be assigned statically
-%just once. But other instructions translated later will be able to refer to
-%it through that virtual register. So something like:
-%
-%\begtt
-%v3 = mul v1, v2
-%v4 = div v1, v2
-%\endtt
-%
-%Can be translated to:
-%
-%\begtt
-%mul t3, t1, t2
-%div t4, t1, t2
-%\endtt
-%
-%For readability purposes, we used one-to-one mapping from value numbers (used
-%for the textual notation of SSA form) to virtual registers. This makes it easy
-%to follow by human, but the compiler itself doesn't have to do it this way, it
-%just has to ensure to use a consistent mapping of values to virtual registers.
-%The mapping is not as straightforward as it might seem though, because 
-%
-%Another so far neglected aspect of SSA form are the $\phi$ instructions. No real
-%processors offers something like $\phi$ instruction, so we have to translate
-%them specially.
 
 \sec Instruction selection
 
@@ -3793,7 +3666,7 @@ property and thus also correspond to {\em live ranges} for which we want to
 allocate registers.
 
 In our design we will do SSA deconstruction on the value-based representation
-with method 1 from~\ref[Sreedhar1999] (see section~\ref[sec:ssa-deconstruction]
+with method 1 from~\cite[Sreedhar1999] (see section~\ref[sec:ssa-deconstruction]
 for more details). Doing it one the middle end value-based representation turns
 out to be more straightforward and is also how Sreedhar's method nominally
 works.
@@ -7315,3 +7188,4 @@ CISC
 ALU
 CFG
 IRC
+IR
