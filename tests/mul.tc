@@ -1,0 +1,83 @@
+// vim: ft=c et sw=4
+
+int printf(char *, ...);
+
+int mul1(int a) {
+	return a * 1;
+}
+
+int mul2(int a) {
+	return a * 2;
+}
+
+int mul3(int a) {
+	return a * 3;
+}
+
+int mul4(int a) {
+	return a * 4;
+}
+
+int mul5(int a) {
+	return a * 5;
+}
+
+int mul6(int a) {
+	return a * 6;
+}
+
+int mul7(int a) {
+	return a * 7;
+}
+
+int mul8(int a) {
+	return a * 8;
+}
+
+int mul9(int a) {
+	return a * 9;
+}
+
+int mul10(int a) {
+	return a * 10;
+}
+
+int mul16(int a) {
+	return a * 16;
+}
+
+int mul32(int a) {
+	return a * 32;
+}
+
+void print(int a) {
+    printf("%ld\n", a);
+}
+
+int main() {
+    // > 15
+    print(mul1(15));
+    // > 60
+    print(mul2(30));
+    // > -60
+    print(mul3(-20));
+    // > 4
+    print(mul4(1));
+    // > 40
+    print(mul5(8));
+    // > 25769803776
+    print(mul6(4294967296));
+    // > 175
+    print(mul7(25));
+    // > 72
+    print(mul8(9));
+    // > 90
+    print(mul9(10));
+    // > -500
+    print(mul10(-50));
+    // > 400
+    print(mul16(25));
+    // > 128
+    print(mul32(4));
+    return 0;
+}

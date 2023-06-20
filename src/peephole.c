@@ -374,6 +374,45 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 				continue;
 			}
 
+			if (IK(inst) == IK_BINALU && IS(inst) == G1_IMUL && IM(inst) == M_Ri) {
+				Oper reg = IREG(inst);
+				Oper imm = IIMM(inst);
+				Oper base;
+				Oper index;
+				Oper scale;
+				switch (imm) {
+				case 2: base = reg; index = reg; scale = 0; break;
+				case 3: base = reg; index = reg; scale = 1; break;
+				case 5: base = reg; index = reg; scale = 2; break;
+				case 9: base = reg; index = reg; scale = 3; break;
+				default:
+					if (!(imm & (imm - 1))) {
+						IK(inst) = IK_SHIFT;
+						IS(inst) = G2_SHL;
+						scale = 0;
+						Oper tmp = 1;
+						while (tmp != imm) {
+							tmp += tmp;
+							scale++;
+						}
+						IIMM(inst) = scale;
+						continue;
+					} else {
+						goto skip_const_mul;
+					}
+				}
+				IK(inst) = IK_MOV;
+				IS(inst) = LEA;
+				IM(inst) = M_CM;
+				IWF(inst) = false;
+				IBASE(inst) = base;
+				IINDEX(inst) = index;
+				ISCALE(inst) = scale;
+				IDISP(inst) = 0;
+				continue;
+			skip_const_mul:;
+			}
+
 			// lea t14, [rbp-16]
 			// add t14, 8
 			// =>
