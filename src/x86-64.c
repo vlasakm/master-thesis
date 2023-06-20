@@ -308,21 +308,28 @@ get_imm64(Inst *inst)
 	return ((u64) inst->ops[1]) | ((u64) inst->ops[2] << 32);
 }
 
-bool
-is_imm32(Inst *inst)
+static bool
+is_imm32(u64 value)
 {
-	return inst->ops[2] == 0 || inst->ops[2] == OPER_MAX;
+	u32 high = value >> 32;
+	return high == 0 || high == UINT32_MAX;
+}
+
+u64
+sext_imm32(Oper op)
+{
+	return (op & 0x80000000) ? (0xFFFFFFFF00000000 | op) : op;
 }
 
 bool
 pack_into_oper(u64 value, Oper *op)
 {
 	// Most instructions allow 32-bit signed immediates.
-	if ((i64) value > INT32_MAX || (i64) value < INT32_MIN) {
-		return false;
+	if (is_imm32(value)) {
+		*op = (u32) value;
+		return true;
 	}
-	*op = (u32) value;
-	return true;
+	return false;
 }
 
 

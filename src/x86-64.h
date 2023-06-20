@@ -15,6 +15,7 @@
 
 void set_imm64(Inst *inst, u64 imm);
 u64 get_imm64(Inst *inst);
+u64 sext_imm32(Oper op);
 bool pack_into_oper(u64 value, Oper *op);
 
 bool is_rip_relative(Inst *inst);
