@@ -225,6 +225,11 @@ types_compatible(Type *a, Type *b)
 	if (a == b) {
 		return true;
 	} else if (type_is_pointer(a) && type_is_pointer(b)) {
+		Type *x = pointer_child(a);
+		Type *y = pointer_child(b);
+		if (x->kind == TY_VOID || y->kind == TY_VOID) {
+			return true;
+		}
 		return types_compatible(pointer_child(a), pointer_child(b));
 	} else if (a->kind == TY_FUNCTION && b->kind == TY_FUNCTION) {
 		FunctionType *x = (void *) a;

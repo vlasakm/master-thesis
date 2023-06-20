@@ -735,6 +735,10 @@ cast(Parser *parser)
 	if (type_is_pointer(new_type) && type_is_pointer(value->type)) {
 		value->type = new_type;
 	}
+
+	// Allow everything.
+	value->type = new_type;
+
 	return rvalue(value);
 }
 
