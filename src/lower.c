@@ -221,17 +221,20 @@ static void
 translate_call(TranslationState *ts, Oper res, Oper fun, Oper *args, size_t arg_cnt, bool vararg)
 {
 	// TODO: struct arguments
+
+	// -1 for terminating zero
+	size_t arg_regs = ARRAY_LEN(argument_regs) - 1;
 	size_t gpr_index = 0;
-	for (size_t i = 0; gpr_index < ARRAY_LEN(argument_regs) - 1 && i < arg_cnt; i++) {
+	for (size_t i = 0; gpr_index < arg_regs && i < arg_cnt; i++) {
 		add_copy(ts, argument_regs[gpr_index], args[i]);
 		gpr_index++;
 	}
 	// Odd number of pushed arguments => have to realign the stack to 16 bytes
-	bool odd_push = arg_cnt > ARRAY_LEN(argument_regs) && arg_cnt & 1;
+	bool odd_push = arg_cnt > arg_regs && arg_cnt & 1;
 	if (odd_push) {
 		add_binop_imm(ts, G1_SUB, R_RSP, 8);
 	}
-	for (size_t i = arg_cnt; i > ARRAY_LEN(argument_regs) - 1; i--) {
+	for (size_t i = arg_cnt; i > arg_regs; i--) {
 		add_push(ts, args[i - 1]);
 	}
 	if (vararg) {
@@ -239,8 +242,8 @@ translate_call(TranslationState *ts, Oper res, Oper fun, Oper *args, size_t arg_
 	}
 	add_call(ts, fun, gpr_index);
 	// Pop arguments from the stack (if any)
-	if (arg_cnt > ARRAY_LEN(argument_regs)) {
-		Oper pop_size = 8 * (arg_cnt - (ARRAY_LEN(argument_regs) - 1) + odd_push);
+	if (arg_cnt > arg_regs) {
+		Oper pop_size = 8 * (arg_cnt - arg_regs + odd_push);
 		if (pop_size > 0) {
 			add_binop_imm(ts, G1_ADD, R_RSP, pop_size);
 		}
