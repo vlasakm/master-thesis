@@ -228,6 +228,17 @@ main(int argc, char **argv)
 	printf("\tsection .text\n");
 	printf("\n");
 	/*
+	printf("syscall:\n\
+	mov rax, rdi\n\
+	mov rdi, rsi\n\
+	mov rsi, rdx\n\
+	mov rdx, rcx\n\
+	mov r10, r8\n\
+	mov r8, r9\n\
+	mov r9, [rsp+8]\n\
+	syscall\n\
+	ret\n");
+	printf("\n");
 	printf("\tglobal _start\n");
 	printf("_start:\n");
 	printf("\txor rbp, rbp\n");

@@ -1,0 +1,76 @@
+// vim: ft=c et sw=4
+
+int syscall(...);
+
+int fun(int a, int b, int c, int d, int e, int f) {
+    return 0;
+}
+
+int read(int fd, void *buf, int count) {
+    return syscall(0, fd, buf, count);
+}
+
+int write(int fd, void *buf, int count) {
+    return syscall(1, fd, buf, count);
+}
+
+
+// O_RDONLY = 0
+// O_WRONLY = 1
+// O_RDWR = 2
+// O_CREAT = 64
+// O_EXCL = 128
+// O_TRUNC = 512
+// O_APPEND = 1024
+int open_mode(char *path, int flags, int mode) {
+    return syscall(2, path, flags, mode);
+}
+
+int open(char *path, int flags) {
+    return open_mode(path, flags, 0);
+}
+
+
+int close(int fd) {
+    return syscall(3, fd);
+}
+
+void *mmap(void *addr, int length, int prot, int flags, int fd, int offset) {
+    return cast<void *>(syscall(9, addr, length, prot, flags, fd, offset));
+}
+
+int munmap(void *addr, int length) {
+    return syscall(11, addr, length);
+}
+
+void *malloc(int size) {
+    // PROT_READ = 1
+    // PROT_WRITE = 2
+    // MAP_PRIVATE = 2
+    // MAP_ANONYMOUS = 32
+    void *ptr = mmap(cast<void *>(0), size + 16, 1 | 2, 2 | 32, -1, 0);
+    int *mem = cast<int *>(ptr);
+    *mem = size;
+    return cast<void *>(&mem[2]);
+}
+
+void free(void *ptr) {
+    munmap(ptr, *cast<int *>(ptr));
+}
+
+void exit(int status) {
+    syscall(60, status);
+}
+
+int main() {
+    syscall(1, 0, "hello world!\n", 13);
+    char *mem = malloc(1000);
+    while (syscall(0, 1, mem, 1)) {
+        syscall(1, 0, mem, 1);
+    }
+    int fd = open_mode("out", 1 | 64, 438);
+    write(fd, "asd", 3);
+    write(fd, "\n", 1);
+    close(fd);
+    return 0;
+}
