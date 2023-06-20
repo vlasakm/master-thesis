@@ -6291,8 +6291,8 @@ statically to instructions kinds, except sometimes we want to limit the number o
 registers to {\em argument count}.
 
 Because of this regularity, we opted to attach the additional uses and
-definitions to instruction {\em modes}. Already existing `M_LCALL` (call label)
-`M_rCALL` (indirect call through register) as well as `M_RET` (return
+definitions to instruction {\em modes}. The existing modes `M_LCALL` (call label)
+`M_rCALL` (indirect call through register) and `M_RET` (return
 instruction) can be extended with pointers to these additional definitions and
 uses.
 
@@ -6322,12 +6322,13 @@ are terminated with the special register `R_NONE`. If the number of extra
 definitions or uses is determined by the argument count (as is for the number of
 either received arguments for the entry instruction or passed arguments in case
 of call instruction), it is signified in the mode descriptor by a boolean flag,
-and the count is read using the macro `IARG_CNT`, which is one of the operand
+and the count is read using the macro `IARG_CNT` from one of the operand
 fields. These additional definitions and uses are also used for long division,
 where `rax` and `rdx` are both read and written implicitly, while there is an
-extra register or memory argument specifying the divisor, so listing `rax` and
+extra register or memory argument specifying the divisor, because listing `rax` and
 `rdx` wouldn't fit into the compact representation of operands of x86-64
-instructions.
+instructions. Again, similarly to real encoding of x86-64 instructions, where
+the use of `rax` and `rdx` is only implicit.
 
 In practice, the mode descriptors are extended like this:
 
@@ -6372,12 +6373,11 @@ for_each_use(Inst *inst,
 \endtt
 
 The callback-based iterator passes pointers (\"references") to the registers.
-This is needed by same users of the functions, and can be used even by other
-users of the iterators.
+This is needed for spilling, where we rewrite uses and definitions.
 
-Greater flexibility could be achieved by not keeping the compact encoding and
-instead representing the definitions and uses in a more expensive way. Though
-the compact operand packing, which is with the fields very close to actual
+Perhaps greater flexibility could be achieved by not keeping the compact encoding and
+instead representing the definitions and uses in a more expensive way (i.e. with
+each instruction, not mode). But the compact operand packing, close to
 x86-64 instructions is one of the reasons why peephole optimization can be done
 so expressively even with hand-coded rules.
 
@@ -6414,8 +6414,8 @@ f:
 The \"entry instruction" is optimized out, since it is no longer needed after
 register allocation. Callee saved registers `rbx` and `r12` are used for values
 live across call, and as their virtual registers got spilled, the former values
-in callee saved registers got automatically saved in stack slots. Except for the
-other callee saved registers coalescing didn't help much---the registers were
+in callee saved registers got automatically saved in stack slots. Other than for
+the other callee saved registers, coalescing wasn't applicable much---the registers were
 mostly restricted by the calling convention or interfered with each other due to
 being live at the same time.
 
@@ -6426,24 +6426,27 @@ being live at the same time.
 \secc Iterated register coalescing
 
 A lot of other graph coloring register allocation approaches could reuse many
-parts of our implementation. However the {\em main loop} which we describe in
+parts of our implementation. However, the {\em main simplification loop} which
+we describe in
 this section is the main characteristic of the Iterated register coalescing
 (\"IRC") algorithm by George and Appel~\cite[George1996], which we also describe
 in context of other graph coloring register allocators in
 section~\ref[sec:regalloc-graph-coloring]. As we will be working mainly on an
 interference graph of virtual registers, we will also be calling virtual
-registers {\em nodes} of the interference graph and the interferences {\em
+registers {\em nodes} of the interference graph, and we will call interferences {\em
 edges}. The ideas and implementation of the algorithm in our implementation are
 based also on pseudo code listed in~\cite[George1996], though we chose more
-descriptive names, include clarifications and corrections to the algorithm.
+descriptive names, and additionally include clarifications and corrections to
+the algorithm.
 
-The main loop interleaves {\em simplification} and {\em conservative
+The main loop of IRC interleaves {\em simplification} and {\em conservative
 coalescing}. This leads to more coalescing, while still being as safe as earlier
-approaches with regards to uncolorable graphs which mandate spills. The main
+approach. The main
 loop's purpose apart from the coalescing is mainly to push all the nodes on to a
 stack, even the potential spills, because we use optimistic coloring. The actual
 coloring of the graph is handled in a later stage, which is common to other
-approaches like Briggs' or Chaitin's.
+approaches like Briggs' and uses the order imposed by the stack for
+coloring the registers.
 
 For a start, let's first consider the simplification phase of Briggs' algorithm,
 which also does optimistic coloring, but contrary to IRC does all the coalescing
@@ -6469,7 +6472,7 @@ low degree nodes---those can be removed from the graph as they already fulfill
 the condition imposed by Chaitin's heuristic. Of course, their removal
 decreases degrees of neighboring nodes, and occasionally high degree node
 becomes low degree and we need to move it from the category to the first.
-Partitioning the nodes into two categories initially is easy. As long as the set
+Partitioning the nodes into two categories initially is easy. Then, as long as the set
 of low degree nodes is not empty, the algorithm can simplify the interference
 graph and keep constructing the coloring order on the stack.
 
@@ -6478,9 +6481,9 @@ left in the high degree set, then we need to choose a node to be a {\em
 potential spill} and push it to the stack and remove it from the graph despite
 having a high degree. This either allows other nodes to become low degree or
 requires even more potential spills. Since the \"remove from graph and push onto
-the stack" action is already performed on every node in the low degree set, we
+the stack" action is already performed on every node in the low degree set: we
 can just move the potential spill to the low degree set and let it be handled by
-the simplification mechanism. Consequently we can find more appropriate names
+the same simplification mechanism. Consequently we can find more appropriate names
 for the two sets:
 
 \begitems
@@ -6491,11 +6494,12 @@ degree is high. They can move to the simplify set either when their degree
 becomes low or they are chosen as potential spill.
 \enditems
 
-We can represent the two categories of nodes with a {\em work list}---we already
+We can represent the two categories of nodes with two {\em work lists}---we already
 use work lists for representing other sparse sets (like the live-set in
 section~\ref[sec:imp-liveness]), because our work list implementation
-(section~\ref[sec:imp-worklist]) supports the set operations efficiently. Our
-work list can even be used for the stack yielding the following main loop:
+(section~\ref[sec:imp-worklist]) supports set operations efficiently. Our
+work list can even be used for the stack, which gives us the following main
+simplification loop:
 
 
 \begtt
@@ -6513,8 +6517,9 @@ while (true) {
 The loop always tries to remove nodes from the simplify work list as long as
 possible. If no node is available for simplification, a node from the spill work
 list is spilled. If the spill work list is empty, it means that we have already
-fallen-through the simplify loop and both work lists are empty, thus we can end
-the main loop. If we for now ignore the choice of the best spilled candidate,
+fallen-through the simplify loop and both work lists are empty, thus we can
+break out of
+the loop. If we for now ignore the choice of the best spilled candidate,
 even the helper functions are straightforward:
 
 
@@ -6542,10 +6547,12 @@ Simplifications and spills move nodes from the spill work list to simplify work
 list. In the case of simplifications, nodes are moved when their degree
 decreases below $k$ (represented by `ras->reg_avail`). The simplified nodes
 themselves are pushed onto a stack. The interference graph itself is not
-modified in any explicit way, we just maintain a degree of each node. Though by
-pushing a node onto a stack we remove it from the graph {\em implicitly}---until
+modified in any explicit way---with the push of a node
+onto the stack we remove it from the graph {\em implicitly}---until
 the node is popped back, we have to presume it and its edges removed from the
-graph.
+graph. Due to that, the `for_each_adjacent` function skips nodes which are
+present on the stack and we maintain a degree of each node to detect
+simplifications without having to check presence of neighbours on the stack.
 
 The simplifications in the Iterated register coalescing are still based on the
 same Chaitin heuristic, so the same simplification mechanism applies. But,
@@ -6556,12 +6563,13 @@ one limitation: we can't coalesce any node pushed onto the stack, because it is
 %Since we don't want to miss any coalescings, we collect 
 
 To not miss any coalescing opportunities, we have to try all coalescings of a
-node before pushing it (removing it from the graph). We only remove from the
-graph nodes put on to the simplify work list, to prevent putting coalescable
+node before we push it (i.e. remove it from the graph). We only remove from the
+graph nodes put on to the simplify work list, and to prevent putting coalescable
 nodes onto the simplify work list, we introduce a third category of nodes: low
-degree move-related nodes (nodes that have a low degree, but are either a source
-or destination in at least one copy instruction). We than add to the simplify
-work list only low degree nodes that are not move-related, i.e. they can't be
+degree move-related nodes---nodes that have a low degree, but are either a source
+or destination in at least one copy (move) instruction. We than add to the simplify
+work list only those low degree nodes that are not move-related, i.e. those
+which can't be
 coalesced. Though like with high degree nodes, if we can't find opportunities
 for simplifications, we have to give up, and move something to the simplify work
 list. Instead of choosing a node from the spill work list, it is preferable to
@@ -6574,13 +6582,13 @@ freeze into a separate work list:
 from graph and push onto the stack.
 
 * {\em Freeze work list}. Nodes that are currently freeze candidates, because
-they are move-related. They can move to the simplify work list either when they
+they are low degree and move-related. They can move to the simplify work list either when they
 stop being move-related (i.e. all their moves are either coalesced or given up
 individually) or when they are chosen to be frozen (i.e. all their moves are
 given up).
 
 * {\em Spill work list}. Nodes that are currently spill candidates, because their
-degree is high. They can move to the freeze work list if their degree becomes
+degree is high. They can move to the freeze work list when their degree becomes
 low and they are move-related, or they can move to simplify work list if their
 degree becomes low and they are not move-related. They can also move to the
 simplify work list if they are chosen as potential spill.
@@ -6595,7 +6603,7 @@ We also need to distinguish several kinds of moves:
 * Inactive moves. Moves that we already checked for coalescing, but were
 declined by the conservative heuristic. If there is a chance that a change might
 make the conservative heuristic allow the coalescing, an inactive move should be
-made active.
+made active and the coalescing tried again.
 
 * Given up ({\em frozen}) moves. Moves that are no longer coalescable in any
 capacity. Either because the source and destination interfere or we have given
@@ -6607,7 +6615,7 @@ We also partition the moves into work lists. Representing frozen moves is
 actually not needed, since they can be detected by not being present on the
 other two work lists.
 
-For the high level algorithm, we will revisit the Briggs' simplification. There
+For the high level algorithm, we will revisit Briggs' simplification. There
 we would simplify in a loop, then fall-through to spill and if any spill was
 made, we would go back to simplification, otherwise we would end the loop. This
 can be also written like this in C:
@@ -6623,18 +6631,18 @@ if (!wl_empty(&ras->spill_wl)) {
 }
 \endtt
 
-The falling-through is made implicit and instead the backward jumps are made
+The falling-through is made implicit and the backward jumps are made
 explicit through `goto`. With IRC we have more chances to add to simplify work
 list other than spilling:
 
 \begitems
 
-* Combining two nodes through coalescing decreases degrees of nodes that were
+* Coalescing two nodes into one decreases degrees of nodes that were
 interfering with both. This means that they can be added to the simplify work
 list through `decrement_degree`.
 
 * Before resorting to spilling, we want to freeze a node if any can be frozen.
-Giving up moves (i.e. keeping move instructions) is better than spilling (i.e.
+Giving up moves (i.e. keeping the move instructions) is better than spilling (i.e.
 adding loads and stores).
 
 \enditems
@@ -6667,6 +6675,10 @@ full simplification (removal of all nodes from the graph) is our end goal, if
 the simplification work list ever becomes empty with the graph still being
 non-empty, we add even coalescable or high degree nodes to the simplify work
 list.
+
+More guided freeze choice using {\em free costs} (analogous to {\em spill
+costs}) is possible~\cite[Leung1998], and would be a nice future improvement to
+our implementation.
 
 The tricky part of the IRC algorithm is getting the {\em transitions} right.
 Initially, putting the nodes and moves into right work lists is straightforward:
@@ -6712,13 +6724,13 @@ void decrement_degree(RegAllocState *ras, Oper u) {
 Apart from moving the node from spill work list to either freeze or simplify
 work list, moves of the node and its neighbours are enabled (moved from inactive
 to active). This is because Briggs' heuristic for coalescing is based on number
-of {\em significant neighbours}---a node becoming insignificant {\em may} make all
+of {\em significant neighbours}---a node becoming insignificant {\em may} make
 moves of all neighbours coalescable even if they were previously denied as
 potentially unsafe.
 
-Enabling moves is a straightforward move from inactive moves to active moves.
+Enabling moves is a straightforward transition from inactive moves to active moves.
 This is because both active and inactive moves count towards the node being move
-related and there is no change in status of the node.
+related and there is no change in status of any node.
 
 \begtt
 void enable_move(RegAllocState *ras, Oper u, Oper m, Inst *move) {
@@ -6795,12 +6807,12 @@ coalescing, the function `coalesce_move` is called, where there are 4 cases:
 frozen} to not be investigated again.
 
 * The registers are interfering and can't be coalesced. The move also needs to
-be {\em frozen} to not be investigated again, since the interference won't be
-removed.
+be {\em frozen} to not be investigated again, since the there is no chance of
+ever coalescing.
 
 * The registers can be coalesced and the coalescing heuristic allows the
-coalescing. Then we also want to not investigate the move again, but also need
-to merge the two nodes into one.
+coalescing. Then we also want to not investigate the move again (i.e. remove the
+move from work lists), but also need to merge the two nodes into one.
 
 * The registers can be coalesced and the coalescing heuristic {\em doesn't}
 allow the coalescing. Then we transition the move from active moves to inactive
@@ -6811,17 +6823,14 @@ or the move is frozen for other reason.
 In an implementation this looks like this:
 
  %\adef|#1|{{\catcodetable0\scantextokens\ea}\ea\hbox\ea{\ea$\langle$\it#1\/$\rangle$}}
-\begtt
+\begtt \adef?#1>{\def\tmp{#1}$\langle\hbox{\it\catcodetable0\scantextokens\ea{\tmp}\/}\rangle$}
 void coalesce_move(RegAllocState *ras, Oper m) {
 	Inst *move = garena_array(&ras->gmoves, Inst *)[m];
 
 	Oper u = get_alias(ras, move->ops[0]);
 	Oper v = get_alias(ras, move->ops[1]);
-	if (v < u) {
-		Oper tmp = u;
-		u = v;
-		v = tmp;
-	}
+	if (v < u)
+		?swap `u` and `v`>
 
 	if (u == v) {
 		decrement_move_cnt(ras, u);
@@ -6838,7 +6847,7 @@ void coalesce_move(RegAllocState *ras, Oper m) {
 \endtt
 
 The move is removed from the active moves work list prior to calling
-`coalesce_move`, so it is not removed there. The calls to `decrement_move_cnt`
+`coalesce_move`, so it doesn't have to be removed there. The calls to `decrement_move_cnt`
 are important, because in three of the situations the move is either given up or
 coalesced and not to be considered further. This means that a low degree node
 might become no longer move related, and can move to the simplify work list:
@@ -6852,9 +6861,9 @@ void decrement_move_cnt(RegAllocState *ras, Oper u) {
 }
 \endtt
 
-The actual combination of registers merges (in our case) the second node into
-the first. This is done by copying the moves of that node, as well as all the
-interferences:
+Nodes are always combined into the lexicographically smaller node ({\em
+register}). This is done by copying the moves of that node, as well
+as all the interferences:
 
 \begtt \adef?#1>{\def\tmp{#1}$\langle\hbox{\it\catcodetable0\scantextokens\ea{\tmp}\/}\rangle$}
 void combine(RegAllocState *ras, Oper u, Oper v) {
@@ -6901,8 +6910,8 @@ In the previous simplification phase (see
 section~\ref[sec:imp-regalloc-simplify]), the interference graph was simplified
 into an empty graph by gradual simplification. Vertices were removed from the
 graph one by one and pushed onto {\em the stack}. In the register assignment
-stage, we will pop nodes one by one from the stack, finding colors for them
-based on the interference graph, and reinsert them back into the graph.
+stage, we will pop nodes one by one from the stack, reinsert them back into the
+graph, and find colors for them based on the current interference graph.
 
 For each node we have to find a color, which is not assigned to any of the
 neighbours. Primarily only nodes with degree lower than the number of available
@@ -6920,7 +6929,7 @@ than those already used in previous sections. Notably, we will use the same
 mechanism for enumerating all node's neighbours in the interference graph. In
 particular, as established in section~\ref[sec:imp-regalloc-simplify] we
 represent removals of nodes (and their edges) from the interference graph
-{\em implicitly}---nodes pushed to the stack are considered to no longer be in
+{\em implicitly}---nodes pushed to the stack are considered to not be present in
 the graph, even though the interference graph representation isn't changed in
 any capacity. In register assignment, we need to do the inverse and reinsert
 nodes back to the graph and we will also represent this {\em implicitly} with
@@ -6932,8 +6941,8 @@ Finding a physical for a virtual register works in three phases:
 * Physical registers used by neighbours are marked as used and not available for
 this allocation.
 
-* Moves of the virtual register are checked and if the other operand of a move
-is available, then it is chosen for the register.
+* Moves of the virtual register are checked and if the register of the other
+operand of a coalescable move is available, then it is chosen for the register.
 
 * Otherwise first free register is chosen.
 \enditems
@@ -6960,7 +6969,8 @@ Oper find_register_for(RegAllocState *ras, Oper u) {
 		Oper op1 = get_alias(ras, move->ops[0]);
 		Oper op2 = get_alias(ras, move->ops[1]);
 		Oper v = op1 != u ? op1 : op2;
-		if (u == v || wl_has(&ras->stack, v) || is_to_be_spilled(ras, v)) {
+		if (u == v || are_interfering(ras, u, v) || wl_has(&ras->stack, v)
+				|| is_to_be_spilled(ras, v)) {
 			continue;
 		}
 		Oper reg = ras->reg_assignment[v];
@@ -6995,7 +7005,6 @@ on the order imposed by the stack:
 
 \begtt
 bool assign_registers(RegAllocState *ras) {
-	// Physical registers are assigned themselves.
 	for (size_t i = 0; i < ras->first_vreg; i++) {
 		ras->reg_assignment[i] = i;
 	}
@@ -7020,19 +7029,19 @@ void spill_virtual_register(RegAllocState *ras, Oper u) {
 }
 \endtt
 
-Actually spilled registers are marked by having a stack slot allocated.
+{\em Actual spills} are marked by having a stack slot allocated.
 
 At this point the assignment of virtual registers to physical registers exists
 only as a mapping in `ras->reg_assignment`. The mapping is applied by a separate
 function, which iterates over all instructions in a function and applies the
-mapping. I.e. for each register operand it does something like this:
+mapping, i.e. for each register operand it does something like this:
 
 \begtt
 inst->ops[i] = ras->reg_assignment[get_alias(ras, inst->ops[i])];
 \endtt
 
-Again, resolution of aliases is important, since the nodes that got merged into
-another are not allocated registers at all (never pushed onto the stack) and
+Again, resolution of aliases is important, since the nodes that got combined into
+another nodes are not allocated registers at all (never pushed onto the stack) and
 don't have valid entries in `reg_assignment`.
 
 \label[sec:imp-regalloc-graphs]
@@ -7042,10 +7051,9 @@ Graphs can be represented in different ways. Different representations are
 suitable for different purposes. In our case, we have seen how we use the
 interference graph in previous subsections:
 
-\begitems \style n
+\begitems \style N
 
-* Checks whether two nodes are neighbours. E.g. in `are_interfering` and while checking for
-existing edge in `add_interference`.
+* Checks whether two nodes are neighbours in `are_interfering`.
 
 * Iteration over all neighbours. Needed for register assignment (finding out
 free registers amongst neighbours) and coalescing (for adding neighbours of one
@@ -7055,8 +7063,9 @@ node to another).
 
 Common representations like adjacency matrix support 1) efficiently, but not 2).
 On the other hand adjacency lists support 2) efficiently, but not 1). For this
-reason, usually {\em both} representations were historically~\cite[Chaitin1982]
-used for interference graphs and we do the same in our implementation.
+reason, usually {\em both} representations were historically used for
+interference graphs~\cite[Chaitin1982], and we do the same in our
+implementation.
 
 The adjacency list representation has for each virtual register an array with
 all adjacent (neighbouring) virtual registers. In our implementation, these
@@ -7074,12 +7083,13 @@ Other representations have been used as alternatives to adjacency matrix, for
 example hash tables~\cite[George1996] or \"split bit-matrix"~\cite[Cooper1998],
 which trade lookup speed for memory. Memory consumption is a big disadvantage of
 the bit matrix, since its size is still $O(n^2)$ and in practice, it is very
-sparse. So far, we stayed with the bit matrix and in case of need for reducing
-memory consumption we can try other tricks like compacting virtual registers as
-many temporaries are optimized before register allocation, which can decreasing
-$n$ and thus size of the bit matrix considerably.
+sparse. So far, we stayed with the bit matrix. In case need for reducing
+memory consumption arises, we can try other tricks, like compacting the virtual
+registers (reindexing them)---many temporaries are optimized out before register
+allocation, and by compacting we can decrease $n$ and thus the size of the
+matrix considerably.
 
-Our implementation maps the bit matrix onto a generic bit set (bit array):
+Our implementation maps the bit matrix onto a generic {\em bit set} (bit array):
 
 \begtt
 bool are_interfering(RegAllocState *ras, Oper u, Oper v) {
@@ -7095,8 +7105,8 @@ registers. The reasons for this are the following:
 
 \begitems
 
-* Adjacency lists are needed for register assignment and physical registers have
-fixed assignment, we don't need to iterate over their neighbours.
+* Adjacency lists are needed in the  register assignment, where we find free physical
+registers for virtual registers. This is not needed for physical registers.
 
 * Adjacency lists for physical registers grow fairly big as physical registers
 are used across the whole function. For example the register `rbp` (used as a
@@ -7149,7 +7159,7 @@ try to access them.
 \enditems
 
 In practice, most of the issues are solved implicitly by adding interferences
-between all physical registers:
+among all physical registers:
 
 \begitems
 * Because physical registers interfere with each other, they are not allowed to
@@ -7157,7 +7167,7 @@ coalesce together.
 
 * If the number of physical registers is $p$, then each physical register has
 hast at least $p-1$ interferences. This means that after all simplifications
-of virtual registers physical registers would be simplified. In practice the
+of virtual registers, physical registers would be simplified. In practice the
 number of available registers ($k$) is strictly less than the number of physical
 registers. For example, on x86-64 we reserve `rbp` and `rsp` for special
 purposes and don't allocate them. Even on other architectures usually at least
@@ -7165,7 +7175,7 @@ one register is reserved for special purposes.
 \enditems
 
 Other issues require more handling and care. For example, to always combine
-physical and virtual register into the virtual register, we always combine into
+physical and virtual register into the physical register, we always combine into
 the register that compares smaller (physical registers are represented by
 smaller integers than virtual registers).
 
@@ -7177,11 +7187,12 @@ and $b$ can be coalesced if, for every neighbor $t$ of $a$, either $t$ already
 interferes with $b$ or $t$ is of insignificant degree". The
 original~\cite[George1996] paper suggested the heuristic only for
 physical registers, but the heuristic can even be used even for virtual
-registers. In fact trying both heuristic when possible can be beneficial, since
+registers. In fact trying both heuristics (when possible) can be beneficial, since
 both are conservative and can detect safe coalescing in different cases.
 
 We try both heuristics for virtual registers. In the implementation we assume
-that if one of the two registers is physical, it is `u`:
+that if one of the two registers is physical, it is `u`, which has to be ensured
+by the caller:
 
 \begtt
 bool are_coalesceble(RegAllocState *ras, Oper u, Oper v) {
