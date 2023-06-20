@@ -12,6 +12,8 @@
 \nonumcitations
 \fnotenumpages
 
+\toksapp\everylist{\toksapp\everytt{\hsize=\dimexpr\hsize-\iindent\relax}}
+
 \draft
 
 \def\definition {\numberedpar B{Definition}}
@@ -103,7 +105,7 @@
 \department{Department of Theoretical Computer Science}
 \title  {x86-64 native backend for TinyC}
 \titleCZ{x86-64 nativní backend pro TinyC}
-\author{Michal Vlasák}
+\author{Bc. Michal Vlasák}
 \date{XX.\,XX.\,TODO}
 \supervisor{Ing. Petr Máj}
 \abstractEN {
@@ -151,27 +153,84 @@ V XX dne XX.\,XX.\,TODO
 
 \chap Introduction
 
-Computers are useful tools that accept programs and input data and produce
-output data. Most computers are based on the binary numeral system---they use zeros
-and ones. Because of this, data and programs also had to be expressed as ones
-and zeros. While representing for example numbers is relatively easy, expressing
-other data, like text is more challenging. Even more so, if the computers
-interact with humans who need to be able to enter data and programs and read
-back results.
+TODO:
 
-Constructing computers with hardwired programs, which essentially can serve only
-a specialized purpose was never feasibly. Compilers are designed to be able to
-read programs as well as the data. This way, they can not just solve different
-variations of the same problem, but different problems altogether.
+\begitems \style n
 
-ISA
+* x86-64 architektura
 
-Backend vs frontend.
+* Compiler IRs, Control flow graph
 
-General instructions sets allow the same algorithm to be implemented in many
-ways using many different instructions and their modes. Because we want to use
-the power of our machines to the maximum, another goal of compilers is to
-translate the programs as well as possible.
+* Popis spillingu a spill costů
+
+* Register classes
+
+* Obrázky datových struktur
+
+* Obrázek graph coloring
+
+* Pseudokódy do register allocation?
+
+* Tiling instruction selection
+
+* Instruction scheduling
+
+* Instruction selection a register allocation přes redukci na jiný problém
+
+* Assembly přes NASM
+
+* Jenom Linux
+
+* Run time
+
+* x86 vs tiny 86
+
+* Benchmarky
+
+* Úvod
+
+* Závěr
+
+* Konzistentní odsazení za bloky s kódem
+
+* Přesunout vysvlětlení reprezentace registrů zvlášť a vysvětlit virtualní vs
+fyzické registry
+
+* Lowering / překlad z middle endu do back endu chce rozšířit. Vysvětlit všechny
+různé konstrukce jako calling conventions, argumenty, alloca instrukce apod.
+Taky chary a struktury.
+
+* Rematerialization in regalloc
+
+* System V AMD64 ABI
+
+* Liveness and interference definitions
+
+* Muchnich, depth, 8
+
+\enditems
+
+%Computers are useful tools that accept programs and input data and produce
+%output data. Most computers are based on the binary numeral system---they use zeros
+%and ones. Because of this, data and programs also had to be expressed as ones
+%and zeros. While representing for example numbers is relatively easy, expressing
+%other data, like text is more challenging. Even more so, if the computers
+%interact with humans who need to be able to enter data and programs and read
+%back results.
+%
+%Constructing computers with hardwired programs, which essentially can serve only
+%a specialized purpose was never feasibly. Compilers are designed to be able to
+%read programs as well as the data. This way, they can not just solve different
+%variations of the same problem, but different problems altogether.
+%
+%ISA
+%
+%Backend vs frontend.
+%
+%General instructions sets allow the same algorithm to be implemented in many
+%ways using many different instructions and their modes. Because we want to use
+%the power of our machines to the maximum, another goal of compilers is to
+%translate the programs as well as possible.
 
 
 \chap x86-64 architecture
@@ -780,45 +839,75 @@ and~\cite[Boissinot2009] do coalescing as part of SSA deconstruction.
 \sec Instruction selection
 
 Instruction selection is the process which translates a compiler's intermediate
-representation to machine instructions. While compiler middleend intermediate
-representations ({\em IRs}, which are machine independent) are usually made to
+representation to machine instructions. While compiler middle end intermediate
+representations ({\em IRs}) are usually machine independent and made to
 be easily optimizable, machine instructions are usually designed to be
-conveniently executable by a processor.
+conveniently executable by a processor. This disconnect, irregularities and
+special constraints imposed by the instructions make the problem of choosing the
+\"best" instructions hard.
 
-To ease translation and split concerns instruction selection is usually allowed
-to assume that there is an infinite amount of registers available. A later
-phase, called {\em register allocation}, then.
+To ease translation and split concerns, instruction selection is usually allowed
+to assume that there is an infinite amount of registers available. These
+{\em virtual registers} are then mapped to physical machine registers in a later
+phase, called {\em register allocation}. We describe register allocation in a
+later section (section~\ref[sec:regalloc]), where we also discuss the problems
+of {\em machine instruction constraints}, where some instructions only work with
+some physical registers (section~\ref[sec:regalloc-constraints]). In this
+chapter we will use the prefix `t` and a number (for example `t12`) for virtual
+registers.
+%and~\ref[sec:regalloc-classes]).
 
 If the middle end IR and machine instruction set are relatively close, then even
 something as simple as one-to-one mappings are possible. For example, this
 middle end IR:
 
+\begtt
+v3 = add v1, v2
+v4 = load v3
+\endtt
+%
 Can be translated to the following RISC-V code:
 
+\begtt
+add v3, v1, v2
+ld t4, 0(t3)
+\endtt
+%
+The mapping is relatively easy, because with RISC machine instructions, all
+operations are
+done on {\em registers}, and only load and store instructions touch memory. This closely
+resembles the three address code used by the IR above. Even on CISC
+architectures (which are known for addressing modes allowing memory operands),
+translation of RISC-like middle end IRs is still straightforward, since simple
+forms of instructions are generally still available and the more advanced
+addressing modes will simply not be used. For example, this is how the piece of
+IR above could be translated to x86-64:
 
-The mapping is easy, because RISC machine instructions, where all operations are
-done on registers, and only load and store instructions touch memory, closely
-resemble the three address code used by the IR above. Even on CISC
-architectures (which are known by allowing most instructions to use memory
-operands and various addressing modes), translation of RISC-like middleend IRs
-is straightforward, since simple forms of instructions are still available and
-the complex features will simply not be used. For example, this is how the
-piece of IR above could be translated to x86-64:
+\begtt
+mov t3, t1
+add t3, t2
+mov t4, [t3]
+\endtt
+%
+The first copy instruction is needed to compile the IR's three address code to
+x86-64 two address code. Use of advanced addressing modes and memory
+operands in arithmetic instructions can improve the generated code considerably:
 
-But use of advanced addressing modes and memory operands in arithmetic
-instructions can improve the generated code considerably:
+\begtt
+mov t4, [t1+t2]
+\endtt
 
-Even though we can intuitively tell that the code is \"better", it is very
+Even though we can intuitively tell that the second x86-64 version is \"better", it is very
 important to consider exactly why. {\em Fewer instructions} are used, but is the code
-{\em smaller}? Does it execute faster? Does \"faster" consider throughput as well
+{\em smaller}? Does it execute {\em faster}? Does \"faster" consider throughput as well
 as latency? These questions should be considered by instruction selection and
 their answers should guide the instruction selector to find better code. Often,
 instruction selectors operate in a {\em cost} based model, where each
 instruction is given a cost  and, if possible, instructions with the lowest cost
-are chosen. This cost should ideally consider all mentioned factors, but can be
-hard to balance between speed and size trade-off, and since both can be important
-in different scenarios, having different instruction costs for different
-situations can make sense.
+are chosen. This cost should ideally consider all mentioned factors, but often
+it can be hard to balance between speed and code size trade-off, and since both can
+be important in different scenarios, having different instruction costs for
+different situations can make sense.
 
 Different orders of instructions can have impact on execution speed as well.
 Usually, this problem is not considered as part of instruction selection, and
@@ -828,8 +917,8 @@ in~\ref[sec:instruction-scheduling].
 
 \secc Techniques
 
-The first two instruction selections presented above, can be done pretty simply
-programatically. Each IR instruction is in turn {\em expanded} into one or more
+The first two instruction selections presented above, can be done relatively simply
+programmatically. Each IR instruction is in turn {\em expanded} into one or more
 machine instructions. Registers (or more precisely {\em virtual registers} in this
 stage before register allocation) are used as means of abstraction---each
 instruction reads operands from registers and writes results to registers.
@@ -837,10 +926,27 @@ Different operand kinds (such as immediates or memory locations) are handled by
 special few instructions that are able to load immediate or perform load from
 memory or store to memory. The use of registers has to be consistent, e.g.
 if an instruction maps to multiple instructions which need a temporary register,
-none of the input registers should be used, since further IR instructions may
-also read from them. Either a fresh virtual register has to be allocated, or one
-of the destination registers can be used, since they will be overwritten
-anyways.
+none of the input registers should be used, since later IR instructions may
+expect the registers to not be modified. Either a fresh virtual register has to
+be allocated, or one of the destination registers can be used, since they will
+be overwritten by the expansion in any case.
+
+%Consider for example, the following typed indexing operations:
+%
+%\begtt
+%v4: int* = getindexptr v1, v3
+%v5: int* = add v4, 1
+%v6: int* = getindexptr v2, v5
+%\endtt
+%
+%The register oriented translation needs to load the number 1 into a register,
+%and translate the indexing operation to machine instructions:
+%
+%\begtt
+%imul t7, t3, 8
+%
+%\endtt
+
 
 This method produces a simple one-to-many translation. While the instruction
 sequence emitted for each single opcode can be optimal, most of the interesting
@@ -848,13 +954,15 @@ instruction selection opportunities stem from the fact that there are
 instructions which combine several operations. In same cases this means
 many-to-many or even many-to-one mappings.
 
-There are three fundamentally different schools of handling instruction selection.
+There are three fundamentally different approaches for handling instruction selection.
 Most existing algorithms for instruction selection fall into one of these three
 categories, though even algorithms falling into the same category can differ
 significantly in their speed (how fast they run), quality (how fast does the
-produced code run) and capabilities (e.g. ability to handle multiple
-destinations).
+produced code run) and capabilities (e.g. ability to handle instructions with
+multiple destinations, like `idiv` on x86-64). In the following subsections we
+introduce the three approaches.
 
+\label[sec:selection-peephole]
 \seccc Peephole optimization
 
 Peephole optimization is a general optimization technique (see
@@ -862,13 +970,13 @@ section~\ref[sec:peephole]). It is applicable to any compiler stage, but in the
 backend peephole optimization is often associated to final improvements to
 machine code after instruction selection, instruction scheduling and register
 allocation. But peephole optimization has been applied even to perform
-instruction selection. To distinguish this, the technique is often called {\em
+instruction selection. To distinguish this, we will call the technique {\em
 instruction selection by peephole optimization}.
 
 The idea for instruction selection by peephole optimization is simple. If the
 naive expansion method produces a simple one-to-many translation, we can improve
 it, by a peephole optimization pass that can find patterns and replace multiple
-instructions with shorter instruction sequences or more efficient ones. Since a
+instructions with either shorter or more efficient instruction sequences. Since a
 lot of expansions are mere translations one-to-one even a relatively small
 peephole window can actually examine many instructions in the original IR.
 
@@ -882,11 +990,11 @@ targeting many architectures.
 
 Influential in this are was the algorithm by Davidson and
 Fraser~\cite[Davidson1980]. Their retargetable peephole optimizer is based on
-{\em register transfers}, which describe simple low level machine
-operations---like actual transfers among registers, but also arithmetic and
-settings of flags. Each machine instruction has an associated {\em register
-transfer list}, which describe the effects of the instruction. Their algorithm
-then operates in three passes:
+{\em register transfers}, which describe very low level machine
+operations---like actual transfers among registers, but also arithmetic
+operations and settings of flags. Each machine instruction has an associated
+{\em register transfer list}, which describe the effects of the instruction.
+Their algorithm then operates in four passes:
 
 \begitems \style n
 * Translate all machine instructions to register transfer lists.
@@ -896,7 +1004,7 @@ effects (register transfers) of each list.
 
 * Iterate over the register transfer lists forwards and check for each pair of
 whether there is an instruction whose register transfer list has the combined
-effects of the pair. If there is, it combine the two register transfers.
+effects of the pair. If there is, it combine the two register transfer lists.
 
 * Iterate forward over the code and for each register transfer list find an
 instruction that implements it and emit it.
@@ -916,7 +1024,7 @@ extra effect. This is a form of dead code elimination (since for example an
 empty register transfer list doesn't translate to any instruction) but the
 extraneous assignments are kept if there isn't an instruction that doesn't have
 them (for example, most arithmetic instructions set flags, even if they are not
-needed, there may be no other instruction that doesn't set the flags).
+needed, and there may be no equivalent instruction that doesn't set the flags).
 
 Important aspect of Davidson's and Fraser's approach is that the correspondence
 between register transfers and machine instruction is described by a textual
@@ -928,7 +1036,7 @@ thus based on operations with strings. This has the advantage that the compiler
 is easily retargetable just by swapping out the machine descriptions. Since in
 the last phase register transfer lists are mapped back to instructions the
 algorithm has to obey an invariant, that any produced register transfer list is
-implementable by at least one instruction, this is why phase 3 is guided by the
+implementable by at least one instruction---this is why phase 3 is guided by the
 machine description and why the machine description has to be written with care.
 In phase 4, if more machine instructions can implement the same register
 transfer list the first one in the machine description is chosen (simply because
@@ -943,12 +1051,12 @@ instructions (and in their approach also performs register allocation).
 Combiner and assigner are now improved and based on finite automaton generated at compile
 time of the compiler ({\em compiler-compile time}), making them much faster.
 Though the simulation of combined effects of instructions happens still on
-strings. {\em Cacher} is a new addition and performs (local) common
+strings. {\em Cacher} is a new addition and performs local common
 subexpression elimination by keeping track of what values are available in what
 registers in a basic block. Another powerful addition was consideration of not
-only {\em lexicographically adjacent} instructions, but also {\em logically
+only {\em physically adjacent} instructions, but also {\em logically
 adjacent} instructions---so instead of considering instructions in their {\em control
-flow} order, they are considered based on {\em data-flow}. This allowed to
+flow} order, they are considered based on {\em data flow}. This allowed to
 consider simple definitions (like constants) to be folded into instructions,
 even if they fell out of the small peephole window.
 
@@ -959,21 +1067,21 @@ operations, performing optimizations and then combining the operations into
 machine instructions. This aspect is kept by a lot of compilers using peephole
 optimization for instruction selection. Even though it makes bigger peephole
 windows necessary, using data-flow helps considerably. The idea of a
-machine description that is preprocessed at compiler-compile time also stuck,
-since it can be slow (as compiler is rarely compiled often by the end user), but
-can speed up the compiler itself tremendously.
+machine description that is preprocessed at compiler-compile time also stuck.
+Being slow at compiler compile time doesn't matter as much as the speed of the
+compiler itself.
 
-Other aspects of the original Davidson and Fraser didn't catch much. For later
+Other aspects of the original Davidson and Fraser design didn't catch much. Later
 algorithms opted for a {\em fixed set of patterns}, in place of deriving them on
 the fly with symbolic execution. These patterns used to be written by
 hand, but considering the existence of the machine descriptions and symbolic
 executors based on them, Davidson and Fraser~\cite[Davidson1984b] used them to
-derive the patterns. They do this by introducing a set of programs known as the
+derive the patterns. They did this by introducing a set of programs known as the
 {\em training set}, over which they run their classical peephole
-optimizer~\cite[Davidson1984a]. With each (unique) performed optimization they
-write it to a file, which is then used to run a more limited peephole optimizer,
+optimizer~\cite[Davidson1984a]. Each unique performed optimization
+was written to a file, which was then used as base of a more limited peephole optimizer,
 which operates only based on these patterns. While the files are still text
-based, they use {\em string interning} through a hash based data structure to
+based, they use {\em string interning} based on a hash based data structure to
 avoid comparing strings and to speed up strings comparisons.
 
 TODO: figure data-flow vs control flow
@@ -1043,16 +1151,6 @@ TODO: examples
 
 \seccc Covering
 
-\seccc Reduction
-
-Dva hlavní přístupy tiling (tree, DAG, dynamic programming, bottom up rewrite,
-LR parsování, ...) a peephole optimalizce (RTL, expanze a komprese)
-
-Oba přístupy v podstatě to samé, jakmile peephole přestane pracovat s
-instrukcemi, kterou jsou po sobě v CFG, ale začne využívat dataflow
-
-\secc Tiling
-
 Základní idea
 
 Asi rychlé představení pár algoritmů tilingu (DP, LR, BURS)
@@ -1061,25 +1159,26 @@ Potřebuje DAG nebo tree.
 
 Nevýhody - instrukce s více výstupy.
 
-\secc Peephole
+\seccc Reduction
 
-Původní návrh Fraser a Davidson. Jejich cíl bylo mít jednoduchý generátor
-naivního kódu pro každou architekturu, univerzální \"register transfer"
-reprezentaci instrukcí a machine description, který jeden stejný peephole
-optimizer interpretoval (jako stringy). Každá dvojice a trojice nahrazena za
-nejoptimálnější sekvenci. Výhody - žádná case analysis v základním code
-generatoru, ani nikde jinde - peephole optimizer bere informace z machine
-description. Problémy - založeno na interpretaci stringů, v podstatě dělá
-abstract interpretation na všech instrukcích.
+\secc Practical considerations
 
-Další jejich vylepšení: expander, cacher, combiner. Uvažování logicky
-následujících instrukcí (dataflow). Vygenerování patternů na
-základě běhu s abstraktní interpretací na nějaké sadě programů ("rule
-inference").
+Using register transfers for representing instructions has an interesting
+parallel in the processor itself. Modern x86-64 implementations like the ones
+from Intel~\cite[IntelDeveloper] split instructions into {\em
+micro-operations}. These micro-operations are small units of work that the
+processor actually executes. Because the processor doesn't execute instructions,
+but only micro-operations, the instructions can be seen just a compact
+or even {\em compressed} representation of micro-operations lists. Register
+transfers can be viewed similarly as the micro-operations. Combining multiple
+register transfers and register transfer lists can then be seen as {\em
+compression} producing the fewest instructions having the same effect.
 
-Pokud je stejná reprezentace použitá i pro register allocation, lze znovu
-spustit jako cleanup fázi i po register allocation
+\label[sec:scheduling]
+\sec Instruction scheduling
 
+\label[sec:scheduling-practical]
+\secc Practical considerations
 
 \label[sec:regalloc]
 \sec Register allocation
@@ -2655,7 +2754,7 @@ In the NI-GEN course at FIT CTU, where TinyC originated, students write
 compilers from TinyC to {\em Tiny 86}.
 
 After careful consideration we set the following goals for the implementation of
-a TinyC backend for x86-64 and a runtime:
+a TinyC backend for x86-64 and the runtime:
 
 \begitems
 
@@ -2667,12 +2766,12 @@ possible.
 
 * Advanced global optimizing techniques should be used.
 
-* The source code may be read by students of the NI-GEN course, who have not yet
-written a compiler back end yet.
-
 * Simplicity of the compiler structure and of the code shall be one of the main
 goals, because the backend will serve as a demonstration of compiling TinyC to a
 real machine architecture.
+
+* The source code should be readable by students of the NI-GEN course, who are
+learning about compiler back ends.
 
 * The number of intermediate representations should be low. This should make the
 code more digestible and prevents much of the code being just translations from
@@ -2683,15 +2782,17 @@ simplify development and implementation, they hide details that are necessarily
 part of the implementation. For educational purposes it is beneficial to fully
 show everything.
 
-* As most compilers usually target multiple architectures, they either need
-separate back ends for each architecture or need to make their back end machine
-independent and driven only by machine descriptions. The goal of this thesis is
-not true machine independence, as we target only one architecture, but
-extensibility to other architectures should be considered.
+* The goal of this thesis is not true machine independence, as we target only
+one architecture, but extensibility to other architectures should be considered.
+
+%As most compilers usually target multiple architectures, they either need
+%separate back ends for each architecture or need to make their back end machine
+%independent and driven only by machine descriptions.
+
 
 * The back end should be a separate program, independent of the TinyC front end.
 This allows the TinyC front end used in the NI-GEN course to adapt to
-circumstances without having to worry about our back end.
+needs of the course without having to worry about our back end.
 
 * The produced x86-64 assembly should be optimized not only for machine
 consumption by an assembler, but also for consumption by a {\em
@@ -2707,22 +2808,23 @@ be possible and the relative performance of our solution should be evaluated.
 
 Next subsections focus on the design and implementation of a TinyC backend for
 x86-64. Many of the algorithms used in the state of the art compilers have been
-introduced in a previous chapter (chapter~\ref[chap:state-of-the-art]). This
+introduced in chapter~\ref[chap:state-of-the-art]. This
 chapter focuses mainly on evaluating the algorithms and their practicality and
-possibility of use in our back end.
+possibility of use in our back end and highlights the chosen architecture of our
+backend (section~\ref[sec:imp-architecture]). We also present data structures
+used for our middle end and back end representations separately
+(section~\ref[sec:data]) and only then delve into how we actually designed and
+implemented the individual components of our architecture.
 
-This chapter also focuses on {\em data structures} in
-section~\ref[sec:data-structures]. Data structures have been so far neglected
-and  whose careful design is very important for any project. The main goal of
-the data structures is to serve the algorithms, but in this thesis we also focus
-on approachability and simplicity. Motivation and design of the data structures
-are presented to allow the reader to imagine the implementation of an algorithm,
-even if it is not presented in full.
+%This chapter also focuses on {\em data structures} in
+%section~\ref[sec:data-structures]. Data structures have been so far neglected
+%and  whose careful design is very important for any project. The main goal of
+%the data structures is to serve the algorithms, but in this thesis we also focus
+%on approachability and simplicity. Motivation and design of the data structures
+%are presented to allow the reader to imagine the implementation of an algorithm,
+%even if it is not presented in full.
 
-
-The main part of our design and solution is the back end. However, to even
-translate code to.
-
+\label[sec:imp-architecture]
 \sec Architecture
 
 TODO The TinyC frontend used in the NI-GEN course
@@ -2737,12 +2839,12 @@ fulfill the goals presented above.
 TODO: nasm
 
 Traditionally compilers have been split into three main parts---front end,
-middle end, and back end (see chapter~\ref[TODO compiler structure]. Our compiler
+middle end, and back end (see section~\ref[TODO compiler structure]). Our compiler
 will have a bit of middle end (as it constitutes the input) and focus mainly on
 the back end. Often these three stages operate on completely different
 intermediate representations. In particular middle ends usually aim for
-representation suitable for (machine independent) optimization and thus often
-employ SSA form. On the other hand, representations in middle ends usually aim
+representation suitable for (machine independent) optimization and often
+employs SSA form (see section~\ref[sec:SSA]). On the other hand, representations in middle ends usually aim
 for producing the best machine code possible, thus they focus on finding
 patterns in the compiled programs as well as the instructions sets, which allow
 choosing the most appropriate instruction sequence.
@@ -2751,18 +2853,23 @@ No instruction scheduling TODO.
 
 \secc Middle end
 
-Our compiler will follow this tradition, and have a separate middle end IR and
-back end IR. In particular, our middle end representation will internally be
-based on {\em value-based SSA} (see section~\ref[sec:ssa-value]). It is proven
-in practice in other compilers like LLVM, and is relatively straightforward,
-while it can still be considered state of the art even today.
+Our compiler will need to process output of the canonical TinyC front end
+implementation, which is a middle end intermediate representation based on {\em
+control flow graphs} (described in section~\ref[sec:cfg]) and is in {\em
+value-based} SSA form (described in section~\ref[sec:SSA-value]).
 
-TODO existing TinyC frontend
+We will follow this design decision. Not only to keep it approachable for
+students of the NI-GEN course familiar with the existing front end, but also
+because such representations are still considered state of the art even today.
 
+Because our compiler will be separate program from the existing TinyC front end,
+we can choose how exactly to represent and even make a few design decisions
+that make it appropriate for our particular implementation and its needs. These
+design decisions are described more in later subsections (in
+particular~\ref[sec:data-backend] and~\ref[sec:imp-lowering]).
+
+\label[sec:imp-backend]
 \secc Back end
-
-In the back end our task is to mainly select the instructions, order them and
-allocate registers.
 
 Main interest of this thesis is a backend. As introduced in
 section~\ref[sec:backend] the main goal of a compiler backend is to translate
@@ -2770,7 +2877,7 @@ from a (preferably machine independent) intermediate representation into machine
 instructions that can be executed by the processor.
 
 For instruction selection, back ends usually use a specialized intermediate
-representation. For example, in the case of instruction by peephole
+representation. For example, in the case of instruction selection by peephole
 optimization, these are the register transfer lists, or for tiling it can be
 trees, DAGs or general graphs.
 
@@ -2782,7 +2889,8 @@ information and the ability to iterate over {\em used} and {\em defined}
 registers.
 
 In our back end, we are dealing with the x86-64 architecture, its machine
-constraints and calling conventions:
+constraints and calling conventions. Practical issues that limit us in our
+design are:
 
 \begitems
 
@@ -2798,16 +2906,16 @@ concrete instructions are limited to one concrete register subclass.
 
 \enditems
 
-The restrictions on registers often mean that register allocators have to either
-be able to represent {\em physical register} in addition to {\em virtual
+The register restrictions mean that register allocator has to either
+be able to represent {\em physical registers} in addition to {\em virtual
 registers}, or otherwise be able to restrict register assignment (like with {\em
-precoloring} in graph coloring register allocators described in
+precoloring} in graph coloring register allocators,
 section~\ref[sec:regalloc-graph-coloring]).
 
-Instruction selection is thus more decisive when it comes to intermediate
+Instruction selection is more decisive when it comes to intermediate
 representations. Advanced intermediate representations like DAGs and register
 transfer lists also come with additional problems---it has to be ensured that
-in every situation the nodes or transfer lists are translatable back to machine
+in every situation the nodes or transfer lists are translatable to machine
 instructions. This is a big problem for ensuring correctness.
 
 The popularity of SSA for middle end optimizations and recent developments in the
@@ -2819,9 +2927,9 @@ dealing with instruction selection and register allocation directly, and not
 focus on heuristics for solving NP-complete problems or offload the work to
 external dependencies.
 
-Considering all these requirements came an idea to use machine instructions as
-the intermediate representation throughout the back end. This is based on
-several observations:
+Considering all these requirements, we decided to use {\em machine
+instructions} as the intermediate representation throughout the back end. This
+is based on several observations:
 
 %Even though multiple different intermediate representations in the back end can
 %be beneficial, our idea is to use only {\em one intermediate representation}
@@ -2836,9 +2944,10 @@ output.
 * Often a peephole optimizer step is run on the machine instructions in the
 final stage of a back end TODO ref and this is done over machine instructions.
 
-* Instruction selection by peephole optimization TODO ref is a very competitive
-technique. It can also be used on a stream of machine instructions, though
-data-flow has to be used to achieve better quality.
+* Instruction selection by peephole optimization (described in
+section~\ref[sec:selection-peephole]) is a very competitive technique. It can
+also be used on a stream of machine instructions, though data-flow has to be
+used to achieve better quality.
 
 * Correctness of instruction selection is more easily achieved if at all times
 the IR directly corresponds to machine instructions.
@@ -2858,14 +2967,14 @@ compiler can consist of the following steps, also highlighted in figure TODO:
 \begitems
 
 * {\em SSA deconstruction}. Even though value-based SSA is convenient for the
-middle end, in the back end we work with machine instructions, which work with
-{\em registers}. Also, we need a place, where we replace $\phi$ functions with
+middle end, in the back end we have machine instructions, which work with
+{\em registers}. We also need to replace $\phi$-functions with
 equivalent copies.
 
 * {\em Code generation}. Translating from middle end to back end IR is often
 in general called {\em lowering}, because often we transform from a higher level
 representation to a lower level one. However, in our case, since back end IR
-represent the machine instructions directly, we can just call the phase {\em
+represents the machine instructions directly, we can just call the phase {\em
 code generation}, since it will generate appropriate code for the target
 architecture. The code generator  has to be machine specific, because it handles
 machine instructions, as well as calling conventions and other machine specific
@@ -2876,14 +2985,15 @@ constraints.
 
 * {\em Instruction selection}. Even though we produced valid instructions, the
 instructions are not necessarily the best possible ones. To improve the
-selection of instructions, we employ instruction by peephole optimization,
-inspired by Davidson and Fraser (see section~\ref[sec:davidson]).
+selection of instructions, we employ instruction selection by peephole optimization,
+inspired by Davidson and Fraser~\cite[Davidson1984a] (see also
+section~\ref[sec:selection-peephole]).
 
 * {\em Register allocation}. To simplify previous stages of our back end, they
 will mainly work with {\em virtual registers}, but they will also refer to
 {\em physical registers} to realize machine constraints and calling conventions.
-Before the machine code is finalized we have to rewrite the machine code to
-refer to only physical registers.
+Before the machine code is finalized we have to rewrite the machine code so that
+it only refers to physical registers.
 
 * {\em Peephole optimization}. Assignment of physical registers may unlock new
 possibilities for optimization. For example, due to coalescing (see
@@ -2893,12 +3003,19 @@ fitting into a peephole window.
 
 \enditems
 
+Notably we omit from our design instruction scheduling. As explained in
+section~\ref[sec:scheduling-practical], modern implementations of architectures
+(including the x86-64) feature powerful out of order execution. Also, considering the
+ever increasing gap between speed of memory (and caches) and the processor
+itself, the chances of saturating execution units in a processor are only
+becoming smaller.
+
 More complicated instruction selection mechanisms on specialized IRs have
 problems with ensuring correctness, because they may not be able to find a
 suitable instruction for a piece of the IR (subtree, register transfer list). In
 an extreme case the IR can be limited so that each piece of IR corresponds to
 one instruction. But, this has to be ensured across all targets, thus
-limitations in one target limit an IR common for all targets.
+limitations in one target limit an IR common to all targets.
 %Our approach takes
 %this idea to the extreme---
 Because we choose the initial instructions in the {\em code generation} step
@@ -2910,12 +3027,13 @@ limit ourselves to the most basic RISC-like operations, which are offered on
 all relevant architectures.
 
 Limiting middle end, based on target architectures might seem like a bad thing,
-but we argue otherwise. We can use a simple, regular RISC-like IR is easy to
-reason about in the middle end, and in fact maybe even preferable even if we had
-a free choice. Additionally, as seen in section TODO ref, peephole optimization
-benefits from {\em expansion} into fundamental operations, because it can match
-them together into machine instructions based on the target architecture's
-available instructions and capabilities.
+but we argue otherwise. A simple, regular RISC-like load-store architecture is
+easy to reason about in the middle end, and in fact may be preferable even if we
+had a free choice. Additionally, as seen in
+section~\ref[sec:selection-peephole], peephole optimization benefits from {\em
+expansion} into fundamental operations, because it can match them together into
+machine instructions based on the target architecture's available instructions
+and capabilities.
 
 In our case, that role could be filled by a very naive code generator, which
 would generate the most simplest sequences of instructions and thus produce the
@@ -2923,70 +3041,15 @@ would generate the most simplest sequences of instructions and thus produce the
 generator simple, because not much case analysis is required. A smarter code
 generator employing more case analysis would even be undesirable, because it
 would hide low level patterns that could have been exploited by the peephole
-optimizer.
-
-%With the overall back end architecture introduced in this section, we introduce
-%details of the different back end parts in the following subsections.
-
-%%%
-
-
-%if the code generator generates the most simplest
-%straightforward code possible for each middle end operation (without any case
-%analysis), the code will be inefficient, but 
-%
-%
-%because only simple, fundamental operations are available, 
-
-
-%With tiling or the expansion based instruction selection, this has to be done in
-%the back end and the problematic IR was the back end one---for example for each
-%subtree or register transfer list, there has to be an instruction that can
-%implement it.
-%
-%But in our approach the problem shifts somewhat---we have to
-%ensure that each middle end operation can be mapped to either one or more
-%machine instructions, because that is where we do the initial selection of
-%machine instructions. In case of more target architectures, we have to ensure
-%that for all of them, potentially making the IR very constrained for the
-%middle end. Though 
-%
-%Following the ideas of Davidson (see section TODO ref), we 
-
-%Having machine instructions as the back end representation means that the
-%lowering step, which translates code from middle end IR to back end IR, is
-%actually the {\em code generator}---it outputs an instruction sequence that
-%implements the middle end IR for the target architecture. By employing
-%instruction selection by peephole optimization we can have the simplest code
-%generator possible, generating the most naive, but obviously correct sequences
-%of instructions implementing the middle end IR. Then, through sequence of many
-%simple transformations, the peephole optimizer improves the instructions.
-%
-%Though like many
-%compilers, even in ours we do register allocation separately, so the code
-%generators outputs only almost valid machine instructions, because there are
-%still.
-%
-%* Physical registers have to ultimately be used by the produced code. Though
-%before register allocation virtual registers are used, and due to machine
-%constraints (see section~\ref[sec:regalloc-constraints]), physical registers are
-%usually also used. Since both kinds of registers need to be supported at the
-%same time, we may as well represent them in a common manner, and allow
-%machine instructions to use both. Register allocation is then responsible for
-%transforming all uses of virtual registers into only uses of physical registers
-%(with appropriate spill code).
-%
-%Therefore either the IR has to be
-%designed such that each single node in the IR corresponds to at least one
-%instruction or 
-
-\seccc Lowering
-
-\seccc Peephole optimization
+optimizer. This is inline with observations made in~\cite[Davidson1984b], where
+they also describe lack of case analysis in the lowering as a great benefit, and
+introduce the concept of an {\em intersection machine}, which implements only
+those operations available for all targets. Our middle end representation can
+thus be seen as an intersection machine.
 
 \seccc Register allocation
 
-The high level means of operation of register allocation are simple---map
+The high level purpose of register allocation are simple---map
 virtual registers to physical registers. The details are much more complicated
 and explained in section~\ref[sec:regalloc]. Here we focus on how to do register
 allocation in practice on our back end representation (machine instructions) for
@@ -2994,7 +3057,7 @@ our target architecture (x86-64).
 
 Since our back end representation is not in SSA form, we can't use register
 allocation techniques requiring it. Though possibilities to use SSA form even
-for machine instructions exist (see section~\ref[sec:ssa-machine]). But in our
+for machine instructions exist (see section~\ref[sec:SSA-machine]), in our
 opinion, the technique is little too disconnected from the traditional state of
 the art compiler structure, which deconstructs SSA before register allocation.
 For educational purposes we don't think it would be a great idea to do register
@@ -3004,7 +3067,7 @@ Local methods like top-down or bottom-up register allocation
 (section~\ref[sec:regalloc-top-down]) are unsuitable, because their local nature
 just doesn't allow them to produce great register assignment.
 
-Linear scan, though a global algorithm does also not quite fit our situation.
+Linear scan, though a global algorithm, does also not quite fit our situation.
 As mention in section~\ref[sec:regalloc-linear-scan], the algorithm was designed
 for JIT compilers, which care very much about {\em run time} of the algorithm
 and for which more sophisticated methods already available at the time were too
@@ -3012,34 +3075,34 @@ slow. We are designing an ahead of time compiler, which doesn't have to worry
 about compile time as much as JITs do.
 
 Reduction of register allocation to another problem is interesting and produces
-good results, but as explained in section~\ref[] we prefer to avoid reductions
-to another problems and instead like to stay close to the original register
-allocation problem.
+good results, but as explained in section~\ref[sec:imp-backend] we prefer to
+avoid reductions to another problems and instead like to stay close to the
+original register allocation problem.
 
 Register allocation by graph coloring (see
 section~\ref[sec:regalloc-graph-coloring] for more details) can also be seen as
 a reduction to another problem. What makes it different, is that usually
 implementations of graph coloring register allocation stay specialized---they
 don't just offload the work to an external graph coloring solver, but they code
-specialized solvers exploiting many of the details of register allocation like
-possibility of coalescing. Register allocation also allows great flexibility
-with regards to machine constraints and also offers solutions for handling
-complex register class hierarchies. For this reason we think register allocation
-is the most suitable register allocation technique for our purpose.
+specialized solvers exploiting many particularities of register allocation like
+possibility of coalescing. Graph coloring register allocation also allows great
+flexibility with regards to machine constraints and also offers solutions for
+handling complex register class hierarchies. For this reason we think register
+allocation is the most suitable register allocation technique for our purpose.
 
 There are many different improvements to Chaitin's original graph coloring
-register allocation. For example, optimistic coloring is a big improvement,
+register allocation. For example, {\em optimistic coloring} is a big improvement,
 while being very simple and efficient. Other improvements to Chaitin's algorithm
 mainly focus on improving coalescing and taking advantage of the special
 properties of interference graphs (see section~\ref[sec:regalloc-chordal]).
 
 Ultimately, we decided to implement Iterated register coalescing as formulated
 in~\cite[George1996]. It has been regarded as the state of the art for a long
-time, and other newer algorithms take it as a reference (for example~\cite[Park2004]
-or~\cite[Pereira2005]). While optimistic coalescing seems great, it is not as
+time---newer algorithms take it as a reference, for example~\cite[Park2004]
+or~\cite[Pereira2005]. While optimistic coalescing seems great, it is not as
 straightforward extension as optimistic coloring. In fact, the exact approach is
 asymptotically impractical, and instead authors~\cite[Park2004] use heuristics
-instead. Graph coloring in perfect elimination of~\cite[Pereira2005] order is
+instead. Graph coloring in perfect elimination order of~\cite[Pereira2005] is
 in today's eyes a remnant from time before special properties of SSA were
 understood. As a result it would be much preferable to use SSA-based register
 allocation due to~\cite[Hack2006], which also focuses on machine constraints and
@@ -3054,59 +3117,53 @@ comprehensive method for handling register classes due to~\cite[Smith2004].
 
 \sec Technology
 
-There 
-
-
-Přístupnost, jednoduchost =>
-
 C (známé, žádné závisloti, možnost reprezentovat datové struktury přesně podle
 potřeby)
 
-malé množství IR (middleend + backend)
-
-pokročilé a dobré algoritmy, ale ne úplně dnešní state of the art
-
-
-\sec Architecture
-
 \sec Data structures
 
+Presenting the data structures before presenting the implementation details and
+needs is a compromise. In practice in our implementation one motivated the
+other. Because the high level ideas of the used algorithms used in our
+architecture (section~\ref[sec:imp-architecture]) are already explained in
+chapter~\ref[chap:state-of-the-art], we hope that the design of data structures
+will be understandable enough even if it becomes fully justified only in later
+sections.
+
 \label[sec:data-structures-middle-end]
-\secc Middle-end
-
-Even though middle-end is not a direct part of a backend in a compiler, they
-interact with each, since the 
-
-SSA IR, inspirované LLVM
+\secc Middle end
 
 The entire middle end is based on control flow graphs (CFGs) and the idea of {\em
-value-based SSA form} (presented in section~\ref[sec:SSA-value]). Most of the
-things the middle end works with can be represented as values. Including
-functions (represented by their addresses, i.e. they are pointers to code),
-blocks (also pointers to code), static variables (also represented by addresses,
-i.e. pointers to `.data` or `.bss` sections).
+value-based SSA form} (presented in section~\ref[sec:SSA-value]).
+Most of the things a middle end works with can be represented as values.
+Including functions (represented by their addresses, i.e. they are {\em pointers
+to code}), blocks (also pointers to code), static variables (also represented by
+addresses, i.e. pointers to `.data` or `.bss` sections).
+
+\seccc Values
 
 Representing everything with values is great, because it is uniform and
-easy to work with. But as there isn't a single kind of value, there are
+easy to work with. But there isn't a single kind of value---there are
 potentially very many if we count each kind of distinct operation as a separate
 kind of value. Different languages have different approaches for expressing the
 idea that a type has many different variants. Object oriented
 languages like C++ use {\em inheritance}. There, we would have a top level class
 `Value` and other classes like `Function`, `BasicBlock` or `Constant` that would
-inherit from it. Each subclass holds data ({\em fields}) appropriate for the particular
-kind of value, but also ones inherited from the base class. Not only are
+inherit from it. Each subclass would hold data ({\em fields}) appropriate for
+the particular
+kind of value, but also fields inherited from the base class. Not only are
 different subclasses of different sizes, but code often wants to work with them
 opaquely---as such it only works with {\em references} to the values (either
 with real references or pointer as in C++ or through the classes being {\em
 reference types} in Java). Behavior supported for all values is defined in
 methods on the top level `Value` class, but subclasses can override it (or even
-may have to override it, if the method is abstract). Choosing the appropriate
-method for a reference to `Value` that may well be `BasicBlock` or a `Function`
-with different overrides is achieved with {\em dynamic dispatch} often implemented
-with {\em virtual tables}. Adding new value variants means introducing new
-subclass, which overrides the methods from its parent class as appropriate.
-Adding new behavior is not that easy, since possibly all subclasses have to be
-extended to handle the new behavior.
+may have to override it, if the method is abstract). Choice of the method
+is achieved with {\em dynamic dispatch} often implemented
+with {\em virtual tables}. Adding new value variants is easy and consists of
+introducing new subclass, which would override the methods from its parent class
+as appropriate. Adding new behavior to values is not that easy, since possibly
+all subclasses have to be touched and extended with method overrides to handle
+the new behavior.
 
 Languages which support algebraic data types support a \"type that has different
 variants" through {\em sum types}. With sum types, we can introduce a (top
@@ -3114,26 +3171,27 @@ level) `Value` which would be a sum type of the types introduced for all the
 variants (like `Function` or `Constant`). Internally, this is usually
 represented either very similarly as the class hierarchy, with a separate
 representation for the different variants, each having only its fields. But there
-would be also once common field---a {\em discriminator} (small integer) which
-distinguishes the variants. Though sometimes more efficient representation
-consists of a {\em tagged union}---the sum type is big enough to store all the
-variants (like in a C `union`), but also contains the discriminating integer
+would be also one common field---the {\em discriminator}, a small integer
+distinguishing the variants. Though sometimes more efficient representation
+consists of a {\em tagged union}, where the sum type is big enough to store all the
+variants (like in a C `union`), but still contains the discriminating integer
 (the {\em tag}). Since the representation is uniform and the sum type has enough
 storage for all variants, it can be used to represent the type directly, there
-is no need for a level of indirection (so for example, array of `Value` would be an
+is no need for a level of indirection (so for example, array of `Value`s would be an
 array of structs not array of pointers to structs). Behavior would be
 implemented in functions, which would check the discriminator to choose the
 behavior for the variant at hand. Many languages aid the discriminator checking
-with more powerful pattern matching. Adding new behaviors is easy, since just
-one more functions is added. Adding new variants is not as easy, because all
+with more powerful {\em pattern matching}. Adding new behaviors is easy, since just
+one more function is added. Adding new variants is not as easy, because all
 functions have to be extended with the behavior for the new variant.
 
 The class hierarchy and sum type approach are essentially complements  each
 other---one makes it easy to add new variants and the other makes it easy to add
-new behavior. This is known as the {\em expression problem} and a lot of common
-languages (including C, C++, Java and Rust and OCaml) don't offer any real
-solution. Since our implementation language is C, which can implement both, we
-can decide on the approach freely and most appropriately to our use case.
+new behavior. This is known as the {\em expression problem}~\cite[Wadler1998]
+and a lot of common languages (including C, C++, Java, Rust and OCaml) don't
+offer any easy solution. Since our implementation language is C, which can
+implement both approaches, we can decide on the approach freely and most
+appropriately to our use case.
 
 Our `Value` type has a relatively {\em fixed set of variants}---there are
 arithmetic operations and constants like functions, basic blocks and global
@@ -3144,26 +3202,27 @@ middle end can consider.
 On the other hand, there are many different {\em behaviors} for middle end
 values. We want to print them, translate them to potentially many different
 architectures, and most importantly {\em optimize them}. There can be many
-different optimization passes over the middle end. These can be largely
+different optimization passes over the middle end. The optimizations can be largely
 independent and benefit from being fully contained in a single place (either
 function or module).
 
 For both of the above reasons sum types seem better for this use case. However,
 we can achieve the same with class hierarchy thanks to the {\em visitor
-pattern}. With visitor pattern we introduce a central dispatching place (the
-base `Visitor` class, which makes it hard to introduce new independent variants,
-the benefit of the class hierarchy approach), but allows new behaviours to be
-introduced by subclassing the `Visitor`. Different visitors can be introduced
-independently and also can group all the code implementing a single behavior,
-instead of interspersing it all over the subclasses constituting the variants.
+pattern} described by~\cite[Gamma1994]. With visitor pattern we introduce a central
+dispatching place---the base `Visitor` class. This makes it hard to introduce
+new independent variants (the benefit of the class hierarchy approach), but
+allows new behaviours to be introduced by subclassing the `Visitor`. Different
+visitors can be introduced independently and also can group all the code
+implementing a single behavior, instead of interspersing it all over the
+subclasses constituting the variants.
 
 However there is still a difference in the two and it is in how we work with the
-variants and how we {\em distinguish} between them. In our middle end, our
+variants and how we {\em distinguish} between them. In a middle end
 optimizations often want to check for the nature of the values. For example, a
 peephole optimizer may want to check whether a value is an operation on
-two constants and replace it with the constant equal to the result (to perform
-{\em constant folding}). Elsewhere we may need to check whether a load
-loads from stack slot. This means that apart from checking the variant of a
+two constants and replace it with a constant equal to the result ({\em constant
+folding}). Elsewhere we may need to check whether a load operation
+loads from a stack slot. This means that apart from checking the variant of a
 single value, we often want {\em nested checks}. Sum types with their
 discriminator allow such checks easily and languages with pattern matching allow
 even nice nested checks. In a class hierarchy for such questions we would have
@@ -3182,7 +3241,7 @@ reasons:
 unconditional branch \"contains" (has as a field) the destination of the jump.
 And this is true for essentially all operations which are just values produced
 from other values. Recursive types usually have to be implemented with a layer
-of indirection (in C this is done explicitly with{\em pointers}). Because of
+of indirection (in C this is done explicitly with {\em pointers}). Because of
 this, tagged unions which normally allow less indirection are not that
 beneficial.
 
@@ -3190,7 +3249,7 @@ beneficial.
 usually not that many functions, but we may need to store a lot of information
 about them. On the other hand there may be many numeric constants, which
 essentially store just their tag and the constant itself. Tagged unions would
-have required us to have them all of the same size. Differences in size of
+have required us to have all the variants with the same size. Differences in size of
 the variants can be mitigated by adding a level of indirection to same variants
 and represent them with pointers. But having some variants with indirection and
 others not makes the structure slightly less nice to work with and since we need
@@ -3200,12 +3259,12 @@ inheritance.
 * Tagged unions require all the types used to represent the variants to be
 listed in the `union`. With inheritance new types can be introduced more
 independently, since most consumers of the types don't care about the size of
-a \"`Value`", they work with pointers to values, i.e. \"`Value *`". The benefit
-of this independence is not big, since the tags have to be listed in one central
-place (commonly an `enum` in C).
+a \"`Value`", they work with pointers to values, i.e. \"`Value *`". Though the
+benefit of this independence is not big, since the tags still have to be listed
+in one central place (commonly an `enum` in C).
 \enditems
 
-Currently, the `Value` representation looks like this:
+As of now the representation of `Value` looks like this:
 
 \begtt
 typedef struct Value Value;
@@ -3229,21 +3288,22 @@ we found it useful to have also other fields:
 \begitems
 * All values have a type (one of the TinyC types, e.g. \"`int`" or \"`char *`").
 
-* Each is given a unique index in its scope. For example, all operations in a
+* Each value is given a unique index in its scope. For example, all operations in a
 function have distinct indices in the particular function. Each function has a
 distinct index from all other functions and basic blocks in one function also
-have distinct indices. Indices are assigned from zero and serve a few purposes"
+have distinct indices. Indices are assigned from zero and serve a few purposes:
 
 \begitems
-* Textual representation (see section~\ref[sec:ssa]).
-* Assignment to virtual registers (see section~\ref[sec:ssa-deconstruction]).
-* Indices to off the side arrays containing information (temporarily) associated
+* Textual representation (see section~\ref[sec:SSA]).
+* Assignment to virtual registers (see section~\ref[sec:imp-ssa-deconstruction]).
+* Indices to off the side temporary arrays containing information associated
 with values. Indices can essentially provide much faster and compact way of
 mapping values to something, then for example a hash table could.
 \enditems
 
 Since operations link to each other directly with pointers, the indices don't
-have much {\em semantic} meaning (except for the SSA deconstruction stage). This
+have much {\em semantic} meaning (except for the SSA deconstruction stage, where
+we violate that a little bit, see section~\ref[sec:imp-ssa-deconstruction]). This
 for example means that the assignment of indices to values can be changed
 arbitrarily, without changing the meaning of values.
 
@@ -3254,68 +3314,71 @@ are in. This is can sometimes be convenient.
 * Each `Value` has a link to next and previous one. This is mostly convenient
 for operations, which due to our control flow graph based representation have to
 be ordered. These links make up the explicit order. Since the linked list is
-contained in the structure itself, this is called an {\em intrusive list}, (as
-opposed to for example something like a {\everyintt={}`std::list<T>`} in C++).
-Intrusive lists are a convenient way for representing linked lists in C.
+contained in the structure itself, this is an {\em intrusive list}, (as
+opposed to for example something like a {\everyintt={}`std::list<T>`} in C++,
+which is an {\em extrusive list}). Intrusive lists are a convenient way for
+representing linked lists in C.
 
 * Even though not all values are operations, we still want to associate an
 operand count with each value. For values which are not operations, this count
 is simply zero. For some operations the operand count can be determined
-implicitly from the value's kind---for example multiplication of two values has
-always the operands. But operations like $\phi$ nodes or calls, which can have
+implicitly from the value's kind---for example multiplication has
+always two operands. But operations like phis or calls, which can have
 different number of operands (depending on the number of predecessor blocks or
 call arguments respectively) require the number of operands to be determined in
 other way than just with a check of the value's kind.
 
-Originally, we were able to determine the number of operands for $\phi$ nodes
-through parent link to basic block, which stores the number of block
-predecessors. The number of operands of a call operation was determined from the
-type of the first operand (the called function)---it's type also knows the
+We are able to determine the number of operands for $\phi$ nodes
+through parent link to a basic block, which stores the number of block
+predecessors. The number of operands of a call operation could be determined from the
+type of the first operand (the called function)---a function type also knows the
 number of arguments the function takes. However this became problematic when
 function with variable number of arguments became supported---for them the
-number of {\em parameters} is only lower bound for the number of parameters. So
-the operand count became stored explicitly.
+number of {\em parameters} is only lower bound for the number of parameters. For
+this reason we started storing the operand count explicitly.
 
 * A `visited` field of values can be used by graph algorithms over values. This
 is used for example by the depth first traversal which computes the postorder
 of basic blocks in a function.
 \enditems
 
-The linked lists deserve a bit of attention. Operations in basic blocks are
-ordered through linked lists, because insertions, deletions and reordering in
-the middle are convenient with them. Since the middle end is incomplete and
-doesn't actually do much, this amount of flexibility is not needed. But linked
-lists are convenient to work with in C, since C for example has no conveniences
-for dynamic arrays.
+The choice of a linked lists instead of an array deserve a bit of attention.
+Operations in basic blocks are ordered through linked lists, because insertions,
+deletions and reordering in the middle end are convenient with them. Since our
+middle end is not complete and doesn't actually do that much, this amount of
+flexibility is not fully needed. But linked lists are convenient to work with in C,
+since C for example has no conveniences for dynamic arrays.
 
 With ordinary doubly linked lists, there is {\em head} and often also a {\em
-tail} pointer which are like the entry points to the linked list---they are the
-pointers from outside to inside the list. However, these bring several special
+tail} pointer which are like the entry points to the linked list---they are
+pointers from outside to the inside of the list. However, these bring several special
 cases to an doubly linked list implementation. For example a deletion of a first
 node in a linked list should (apart from changing the `prev` field of the second
-node) change also the head of the linked list. Even just construction of the lists
+node) change also the head of the linked list. Even a construction of a list
 encounters a few special cases.
 
 {\em Circular doubly linked lists} solve most of the problems. Since \"last"
-node points to the first and vice versa, there is no longer a special case. All
+node points to the \"first" and vice versa, there is no longer a special case. All
 nodes can be treated as if they were in the middle. The problem with circular
 linked lists is that there can not easily be something like a `head` pointer
 from the outside to the linked list---or rather there could be, but it would
 bring back the special cases of non-circular doubly linked list. But in our use
 case, we want to link together operations inside a basic block to a linked list
-rooted in the basic block---the basic block should contain a pointer to the head (or
+rooted in the basic block---a basic block should contain a pointer to the head (or
 also the tail) of the linked list of instructions. Our solution is to make basic
 blocks part of the doubly linked list of instructions they contain. This can be
 done, since basic blocks inherit from `Value` as well and thus have `next` and
-`prev` fields and can be part of the list. But in that case actually `next` and
-`prev` of the basic block serve as the `head` and `tail` pointers to the list of
+`prev` fields and can be part of the list. Then `next` and
+`prev` fields of the basic block serve as the `head` and `tail` pointers to the list of
 instructions. But thanks to the linked list being circular, they are updated
 transparently.
 
 Because the `next` and `prev` fields of basic blocks are used for holding the
 instruction lists, they may not be used to link together all basic blocks in a
-function, thus we need to handle it differently, see
-section~\ref[TODO-function-representation].
+function, thus we need to handle it differently (discussed in
+section~\ref[sec:data-structures-middle-end-function]).
+
+\seccc Constants
 
 Here we show how some concrete value variants are represented:
 
@@ -3342,8 +3405,8 @@ value variants inherit `Value` in a first field called `base`. This makes it
 easy to both downcast (`(Global *) value`) or upcast (`&global->base`), since
 for example pointer to `Constant` and its `Value` base are the same.
 
-Both `Constant` (which represents actual integer or character constants, number
-literals) and `Global` represent constant values. Their fields should identify
+Both `Constant` (which represents actual integer or character constants) and
+`Global` represent constant values. Their fields should identify
 them sufficiently. For numeric constants, this can be done with a single field
 holding a 64-bit integer (the largest size supported by TinyC). Global values
 are more interesting as they are named. With external linkage, we need to
@@ -3357,13 +3420,17 @@ initializers is the same behavior as in the C programming language.\fnote{If a
 global variable were to be initialized with a non-constant value it would be
 questionable {\em when} the value should actually be evaluated---for example the
 global variables should certainly be initialized before `main` runs, but in what
-order, and how to run code before `main`? For instance C++ allows non-constant
-initializers and runs them through hooks running before `main` offered by the C
-runtime which is the one calling `main`.} Type of a `Global` is actually a {\em
-pointer} to the type of the global variable---in a sense the value represents the address
-of the global variable, not the global variable itself.
+order, and how to run code before `main`? C++ allows non-constant
+initializers and runs them through hooks which execute before `main` and which
+are offered by the C runtime which is the one calling `main`.}
+Type of a `Global` is actually a {\em pointer} to the type of the global
+variable---in a sense the value represents the address of the global variable,
+not the global variable itself.
 
-Operations are the only values which reference other values. Operations consist
+\seccc Operations
+
+Operations are the main kinds of values which reference other values. Operations
+consist
 purely of the base and an array of operands. The array of operands uses a
 feature of the C programming language called {\em flexible array member}, which
 allows the array to be part of the structure, but to be dynamically sized. This
@@ -3374,8 +3441,8 @@ size. The actual number of operands is given by the `operand_cnt` field of the
 
 This representation of operations is very uniform and allows tasks as iteration
 over all operands very easily. This simplifies operations on the middle end
-representation quite a lot and requires no case analysis, since values that are
-not operands simply have `operand_cnt` of zero. Iteration over all operands is
+representation quite a lot and requires no case analysis, since values that
+don't have operands simply have `operand_cnt` of zero. Iteration over all operands is
 very common for many operations on the middle end IR---printing, translation to
 machine code, use analysis, etc.
 
@@ -3397,8 +3464,8 @@ typedef struct {
 \endtt
 
 Though the advantage of this representation is, that operands are available
-through have human readable. For our operation structure, this can be remedied
-through macros:
+through human readable names like `left` and `right`. For our operation
+structure, this can be remedied through macros:
 
 \begtt
 #define OPER(v, i) (((Operation *) (v))->operands[i])
@@ -3408,9 +3475,10 @@ through macros:
 #define BINARY_RIGHT(v)  OPER(v, 1)
 \endtt
 
-Though the macros are much useful in cases where there the order of operands is
-not so obvious. These are mainly the operations which don't correspond to
-classic arithmetic, and which we introduce here:
+Here the mapping of indices to binary or unary operation operands is reasonably
+clear. But the macros are the are much useful in cases where there the order of
+operands is not so obvious. These are mainly the operations which don't
+correspond to classic arithmetic, and which we introduce here:
 
 \begitems
 
@@ -3432,12 +3500,11 @@ operations, store doesn't evaluate to anything---it is only useful for its
 \endtt
 
 Currently, we model the fact that an operation doesn't return anything with the
-TinyC `void` type. This is a bit weird, since in fact the store operation itself
-represents a value, while `void` should represent an absence of a value
-altogether. A bit more flexibility could be achieved if stores would return a
-{\em unit} value of the {\em unit type}, but so far we kept the type system used
-in the middle IR to exactly the same as the one used for the TinyC programming
-language.
+TinyC `void` type. This is not entirely correct, since the store operation {\em itself}
+represents a value, while `void` represents an {\em absence} of a value
+altogether. A bit more flexibility could be achieved if the stores would be of
+the {\em unit type}, but so far we kept the type system used in the middle IR to
+exactly the same as the one used for the TinyC programming language.
 
 * {\em Call}. Call operation has as its first operand the function to be called
 (a value with type of function pointer), and the arguments are in the operands
@@ -3477,6 +3544,8 @@ also called {\em zero type} or {\em never type}), which has no values and thus
 can be more suitable for representing control flow changing operations, since
 they don't ever return.
 
+\seccc Basic blocks
+
 Basic blocks apart from being the heads of the linked lists of instructions
 through their `next` and `prev` pointers in `base` also explicitly hold the
 {\em predecessors} through a dynamically growable array:
@@ -3497,9 +3566,9 @@ terminating operations. Thus block's successors can be found implicitly by
 investigating it's last operation through the `base.prev` field. Explicitly
 storing successor blocks would only lead to duplication, which can easily result
 in inconsistencies. One special value held by basic blocks is the loop nesting
-depth which is used to calculate spill costs TODO explain somewhere spill cost
-calculation. There is also a link to a machine block, which is further explained
-in section~\ref[sec:data-backend].
+depth which is used to calculate spill costs (see
+section~\ref[sec:imp-spill-cost]). There is also a link to a machine block, which
+is further explained in section~\ref[sec:data-backend].
 
 Other operation that deserves mention is the $\phi$, denoted with `phi` in the
 textual form of the IR and often simply written as \"phi". They are deeply
@@ -3511,7 +3580,7 @@ flow, and may encounter phi operations. However such code will always require
 special care, because of the non-standard nature of phis. 
 
 \label[sec:data-structures-middle-end-function]
-\secc Representation of functions
+\seccc Functions
 
 Representation of functions is show below:
 
@@ -3540,17 +3609,18 @@ blocks in some random order or the order they were created in. Instead, we want 
 iterate over them in an order that is beneficial for performed analysis and
 optimization passes. Often this order is either reverse postorder (where all
 non-cyclic predecessors are visited {\em before} the block itself) or postorder
-(where a block is visited {\em after} all its non-cyclic predecessors).
+(where a block is visited {\em after} all its non-cyclic predecessors), which is
+useful for example for liveness analysis (section~\ref[sec:imp-liveness]).
 
-Postorder is easily computed with depth first search TODO cite dragon book,
-and an array with (pointers to) basic blocks is stored in functions. The array
+Postorder is easily computed with depth first search~\cite[Aho2006],
+and we store it as an array of (pointers to) basic blocks. The array
 is dynamically growable, since blocks can be added or deleted to functions. The
 only explicitly stored basic block for a functions is the {\em entry} basic
 block. All useful blocks are (recursively) reachable through it and listed in
-the postorder. By using the post order to iterate over the blocks, unreachable
-blocks are automatically skipped. Iteration over the postorder either is
-possible also easily possible in reverse, so in a way a reverse postorder is
-simultaneously also available.
+the postorder. By using the postorder to iterate over the blocks, unreachable
+blocks are automatically skipped. Iteration over an array with the postorder
+can be also done in reverse, so in a way a reverse postorder is simultaneously
+also available.
 
 Special values are function arguments. From the perspective of the called
 function they are constants. Because of this, they don't appear in the control
@@ -3565,234 +3635,32 @@ explicitly storing the index of each argument proved to be convenient.
 Function with variable number of arguments are currently not allowed to be
 defined in TinyC, but they wouldn't require many special provision
 here---handling of variable arguments such as with C's `va_arg` is stateful
-(arguments are extracted one at a time ) and thus a corresponding `va_arg`
+(arguments are extracted one at a time) and thus a corresponding `va_arg`
 would have to be an operation over a `va_list`, thus no longer a constant, and
 very distinct from `Argument`.
 
-\label[sec:imp-critical-edge]
-\sec Critical edge splitting
+\label[sec:data-backend]
+\secc Back end
 
-Critical edges and their implications for SSA deconstruction are explained in
-section~\ref[sec:ssa-deconstruction]. In our implementation we chose to split
-all critical edges.
+This section describes the reasoning, motivation and design of the data
+structures core to the backend. There are three main data structures in the back
+end which are introduced in the following subsections:
 
-The splitting can be realized in a single linear pass over all basic blocks in a
-function. For each block, if it has multiple predecessors, we check for each
-predecessor whether it has multiple successors---if it does, we have found 
-critical edge. The edge is split by introducing a new basic block, which
-contains just one jump operation into the successor, and has one successor---the
-original predecessor of the edge. The new block has to also be set as the new
-successor to the original predecessor and new predecessor to the original
-successor.
+\begitems \style n
 
-Full implementation critical edge splitting in our implementation is shown in
-listing~\ref[TODO]. The algorithm is rather simple and shows the use of our
-design and data structures.
+* Machine instruction (section~\ref[sec:data-instruction]).
 
-A few key points in the implementation deserve a mention:
+* Machine block holding a contiguous sequence of machine instructions
+(section~\ref[sec:data-block]).
 
-\begitems
-
-* Iteration over blocks is based on reverse post order, by iterating over the
-precomputed post order in reverse. New blocks are {\em not} added to the post
-order on the fly. We don't need to visit them in our algorithm, since they are
-created without critical edges.
-
-* Since the post order isn't updated during the run of the algorithm, it is
-updated after it finishes.
-
-* Adding an operation to the end of a basic block can be realized with a
-`prepend_value` function, which prepends a value to a doubly linked list of
-values. Since the block serves is part of the circular doubly linked list of
-instructions, anything prepended to it will become the last instruction.
-
-* We have to iterate linearly to find a predecessor/successor to replace in the
-list of them.
+* Machine function holding a linear sequence of basic blocks.
 
 \enditems
 
-\begtt
-void split_critical_edges(Arena *arena, Function *function) {
-	for (size_t b = function->block_cnt; b--;) {
-		Block *succ = function->post_order[b];
-		if (block_pred_cnt(succ) <= 1)
-			continue;
+\seccc Registers
 
-		FOR_EACH_BLOCK_PRED(succ, pred_) {
-			Block *pred = *pred_;
-			if (block_succ_cnt(pred) <= 1)
-				continue;
-
-			Block *new_block = create_block(arena, function);
-			block_add_pred(new_block, pred);
-			Value *jump = create_unary(arena, VK_JUMP, &TYPE_VOID, &succ->base);
-			jump->parent = &new_block->base;
-			jump->index = function->value_cnt++;
-			prepend_value(&new_block->base, jump);
-
-			FOR_EACH_BLOCK_SUCC(pred, s)
-				if (*s == succ)
-					*s = new_block;
-
-			FOR_EACH_BLOCK_PRED(succ, p)
-				if (*p == pred)
-					*p = new_block;
-		}
-	}
-
-	compute_postorder(function);
-}
-\endtt
-
-We don't have to split {\em all} critical edges. From the perspective of our
-back end, only edges to blocks with $\phi$ functions are problematic (see
-sections~\ref[sec:ssa-deconstruction] and~\ref[sec:imp-ssa-deconstruction]). TODO
-
-\label[sec:imp-ssa-deconstruction]
-\sec SSA deconstruction
-
-In the middle end we use value-based SSA (introduced in
-section~\ref[ssa:value]) and also $\phi$-functions. In the back end we work with
-machine instructions and virtual and physical registers. Thus we need to map
-values to virtual registers (to be mapped to physical register later) and
-replace uses of $\phi$-functions with copy (`mov`) instructions.
-
-Assignment of virtual registers is simple in our representation. Since we
-already assign an index to a `Value` for printing and array indexing purposes
-(see section~\ref[sec:data-structures-middle-end]), then we can use the integer
-indices directly as virtual registers. Since the virtual registers are assigned
-directly from SSA form, the virtual registers will obey the single assignment
-property and thus also correspond to {\em live ranges} for which we want to
-allocate registers.
-
-In our design we will do SSA deconstruction on the value-based representation
-with method 1 from~\cite[Sreedhar1999] (see section~\ref[sec:ssa-deconstruction]
-for more details). Doing it one the middle end value-based representation turns
-out to be more straightforward and is also how Sreedhar's method nominally
-works.
-
-Sreedhar's method 1 consists of adding a copy instruction to each predecessor of
-the block holding the $\phi$-operation and also an extra copy after the $\phi$
-itself. Next all virtual registers involved in the $\phi$-instruction itself are
-given the same virtual register and the $\phi$-instruction can be safely
-removed.
-
-In our implementation we operate with {\em values}, not instructions themselves.
-So realizing copy instructions is not possible in the strict sense. Though we
-can introduce {\em identity} operations. These are operations with single
-operand, that just copy the operand. Since we will also be using the `index`
-field of values as the virtual registers, we can assign the same virtual
-registers to all the identity operations (to-be copy instructions), and also
-replace the $\phi$-operation itself with a copy instruction, which copies from
-the same virtual register by inserting a dummy value with the right index.
-
-Consider for example the following function `f`, which returns 4 or 3 depending
-on the truthiness of the first integer argument:
-
-\begtt
-f:
-        v0: int = argument 0
-block0:
-        branch v0, block2, block5
-block5: block0
-        jump block4
-block2: block0
-        jump block4
-block4: block2, block5
-        v4: int = phi 4, 3
-        ret v4
-\endtt
-
-We deconstruct the phi by introducing copies to block 2 and block 5 and changing
-the phi to be a copy itself. All the copies need to be based on the same index
-(which will become a virtual register):
-
-\begtt
-f:
-        v0: int = argument 0
-block0:
-        branch v0, block2, block5
-block5: block0
-        v6: int = identity 3
-        jump block4
-block2: block0
-        v6: int = identity 4
-        jump block4
-block4: block2, block5
-        v4: int = identity v6
-        ret v4
-\endtt
-
-Our value based SSA form always stays in SSA, since values can't be assigned.
-But by making the indices semantically meaningful, we can deconstruct the SSA
-with essentially copy operations.
-
-Doing the SSA deconstruction on the SSA form has one significant advantage over
-doing it on the machine form---the control flow graph is fully built already,
-and we can easily just insert copies into predecessors. Doing it in the code
-generator would not be as straightforward. We plan our code generator to be very
-simple and single pass. Requiring copies in predecessor blocks becomes
-troublesome in such generator, because at the time of lowering a block with
-$\phi$-operations the predecessor block may have not been translated yet and
-there may be no place for the $\phi$ insertion! Alternatively, we could flip the
-idea of SSA deconstruction, and instead of inserting copies into predecessors
-while processing the block, we can insert the copies to the predecessors, while
-lowering {\em them}---this is easier, since we base this on the existence of
-$\phi$-operations in {\em successor} blocks in the middle end representation.
-However, in Sreedhar's method we have to introduce a new virtual register for
-the copies, and suddenly coordinating when and how the virtual register is
-allocated becomes more messy than doing it in the middle end IR.
-
-We considered even doing the two step copying method (see
-section~\ref[ssa-deconstruction]), which works well even when done when
-processing the predecessors---the two rounds of copies are fully self contained
-in the predecessors, no indexes have to be changed or coordinated elsewhere.
-However, as the two copy method puts a lot of unnecessary burden on register
-coalescing, we decided to go with Sreedhar's method 1 instead. Other methods are
-able to save even more on future coalescing by inserting the copies in a smarter
-way, by essentially doing the coalescing in the SSA deconstruction stage, but we
-haven't yet found the need to justify a much more complicated algorithm for not
-as that many benefits.
-
-%We shall highlight one issue our simple $\phi$ deconstruction would have if we
-%didn't split critical edges. Split critical edges guarantee us, that a block
-%with multiple predecessors (i.e. a block which {\em can} have a
-%$\phi$-operation), those predecessors only have {\em one successor}---the block
-%with the $\phi$. In other words, all the predecessors end with a `jump`, not
-%`branch`. If we had something like our example above, but without the split of
-%critical edge:
-%
-%\begtt
-%f:
-%        v0: int = argument 0
-%block0:
-%        branch v0, block2, block4
-%block2: block0
-%        jump block4
-%block4: block2, block0
-%        v3: int = phi 4, 3
-%        ret v3
-%\endtt
-%
-%\begtt
-%f:
-%        v0: int = argument 0
-%block0:
-%        v5: int = identity 3
-%        branch v0, block2, block4
-%block2: block0
-%        v5: int = identity 4
-%        jump block4
-%block4: block2, block0
-%        v3: int = identity v5
-%        ret v3
-%\endtt
-
-\label[sec:data-backend]
-\secc Back-end
-
-This section describes the reasoning, motivation and design of the data
-structures core to the backend.
+\label[sec:data-instruction]
+\seccc Machine instructions
 
 %Even though compiler backends are usually considered architecture specific,
 %often we wa
@@ -3805,26 +3673,23 @@ structures core to the backend.
 
 Machine instructions usually consist of two essential parts:
 
-\begitems
-* opcode
-
-* operands
-\enditems
-
-The opcode usually packs together a few things:
+\begitems \style n
+* {\em Opcode}. An opcode usually packs together a few things:
 
 \begitems
 * the operation itself,
 
-* the number of operands and their kinds,
+* the number of operands and their kinds.
 \enditems
 
-Operand kinds are usually:
+* {\em Operands}. Operand kinds are usually:
 
 \begitems
  * registers,
- * immediates
- * memory locations
+ * immediates,
+ * and memory locations.
+\enditems
+
 \enditems
 
 One possible representation for instructions contains the opcode and the
@@ -3832,11 +3697,11 @@ operands, where the operands also encode their kind. In such representations,
 tagged unions can be used with advantage: the `kind` field in a structure
 encodes the operand kind, while the (anonymous) `union` allows the storage for
 the data (\"payloads") of all the different kinds of operands. This
-representation of x86-64 instructions is sketched here TODO:
+representation of x86-64 instructions is sketched here:
 
 \begtt
-typedef uint32_t Register;
-typedef uint64_t Immediate;
+typedef u32 Register;
+typedef u64 Immediate;
 
 typedef enum {
 	ML_REG,
@@ -3901,20 +3766,20 @@ registers and after register allocation only references to physical registers
 would be allowed. Physical registers are used even before register allocation to
 express {\em machine constraints} (see section~\ref[sec:regalloc-constraints]).
 
-Operands array is represented with a flexible array member, which means that
+Array of operands is represented with a flexible array member, which means that
 number of allocated operands may be customized for each instruction. On
 x86-64, instructions have at most three operands, so the array could be
-statically sized, if wasting a bit of memory is acceptable for each instruction
+statically sized, if wasting a bit of memory each instruction
 is acceptable.
 
-The number of operands can be usually derived from the opcode. (This also
-implies that two and three operand multiplications have to be distinguished by
+The number of operands can be usually derived from the opcode. But this
+implies, that two and three operand multiplications have to be distinguished by
 the {\em opcode}, even though they use the same {\em mnemonic} in assembly. See
-section~\ref[x86-instructions] for more details.)
+section~\ref[x86-instructions] for more details.
 
 One problem with the representation is, that it allows invalid forms of
-instructions to be easily represented. For example even three memory operands are
-allowed, even though x86-64 only allows at most one memory operand. Since
+instructions to be easily represented. For example more than one memory operand
+is allowed, even though x86-64 only allows at most one. Since
 `MemoryLocation` is the biggest member of the `union`, this also makes the
 struct larger than necessary if only one memory operand is ever used.
 
@@ -4027,8 +3892,9 @@ typedef struct {
 #define DISPLACEMENT(mem) ((mem)->imm[1))
 \endtt
 
-We have essentially {\em flattened} the memory location representation to a form
-that allows easy addressing of individual fields as well as iteration.
+With either, we have essentially {\em flattened} the memory location
+representation to a form that allows easy addressing of individual fields as
+well as iteration.
 
 Going back to the full instruction representation, we can apply similar
 flattening principles. In particular, we can also make the representation even
@@ -4048,22 +3914,22 @@ typedef struct {
 \endtt
 
 The meaning of individual slots in the operands array could either depend on the
-opcode, or be the same for opcodes if we are willing to sacrifice memory and
+opcode, or be the same for all opcodes if we are willing to sacrifice memory and
 keep representation of all instruction uniform---in that case the flexible array
 member could also be replaced by fixed size array.
 
-In the end, the following representation is what we arrived at:
+In the end, the following representation is what we chose for our implementation:
 
 \begtt
-typedef uint32_t Oper;
+typedef u32 Oper;
 
 typedef struct Inst Inst;
 struct Inst {
 	Inst *next;
 	Inst *prev;
-	uint8_t kind;
-	uint8_t subkind;
-	uint8_t mode;
+	u8 kind;
+	u8 subkind;
+	u8 mode;
 	[...]
 	Oper ops[];
 };
@@ -4089,7 +3955,7 @@ particular opcode (`subkind`), just the fact that it is an indirect jump
 
 Conveniently conditional jumps, conditional moves, and conditional set
 instructions are all based on the same 16 {\em condition codes} (see
-section~\ref[x86-cc]), so `subkind` can be the condition code for all three of
+section~\ref[x86-cc]), so `subkind` can be a condition code for all three of
 these.
 
 The `mode` field is what gives the meaning to the individual slots of `ops`
@@ -4108,9 +3974,9 @@ However, for register allocation we want more information about the involved
 registers. In particular, we want to iterate over all the {\em defined} and all
 {\em used} registers separately. Registers used for forming memory locations are
 only used, never defined, even if the instruction is store instruction which
-writes a value---the value is stored to {\em memory}, not the register.
-But other register operands may actually be either just defined, just
-used or both. The  For example, consider the following instructions:
+writes a value---the value is stored to {\em memory}, not to the register.
+But other register operands may actually be either both used and defined, or one
+of those. For example, consider the following instructions:
 
 \begtt
 mov rax, 1       ; rax just used
@@ -4122,11 +3988,11 @@ mov rax, [rcx]   ; rax just defined, rcx just used
 xor [rbp+16], -1 ; rbp just used
 \endtt
 
-Interestingly, `add`  and `cmp` which on the x86-64 are very similar and can be
-grouped under the same `kind` use different mode even in the two register form:
-`cmp` unlike `add` doesn't write to the first register. This is one of the
-benefits of separating `mode` and `kind` instead of grouping them into a single
-`opcode` field.
+Notably, `add`  and `cmp`, which on the x86-64 are very similar and can be
+grouped under the same `kind`, have a different mode even in the two register form:
+`cmp` unlike `add` doesn't write to the first register. The ability to tell this
+just from the `mode` alone without investigating `kind` is one of the benefits
+of splitting them, instead of having a single `opcode` field.
 
 `kind`, `subkind` and `mode` are all small integers. And while
 they have their meaning by themselves, other information may be associated with
@@ -4140,10 +4006,10 @@ used} registers:
 
 \begtt
 typedef struct {
-	uint8_t def_start;
-	uint8_t def_end;
-	uint8_t use_start;
-	uint8_t use_end;
+	u8 def_start;
+	u8 def_end;
+	u8 use_start;
+	u8 use_end;
 	[...]
 } ModeDescriptor;
 \endtt
@@ -4173,7 +4039,7 @@ The naming convention for modes has one operand per each letter after
 underscore. Here the letter `r` means only used register, `R` used and defined register,
 `C` only defined register and `M` stands for memory. This representation with
 indices is nice for x86-64, because it allows {\em overlap} between the used and
-defined registers. For example, the first mode used and later defines the same
+defined registers. For example, the first mode uses and later defines the same
 register, hence it is covered by both ranges.
 
 The reason for representing modes with small integers as indices into arrays, as
@@ -4181,7 +4047,7 @@ opposed to, for example, pointers to the descriptors (which would allow even
 more opaqueness and similar target independence of the representation), is
 not only because the integers can be much smaller than pointer, but ultimately
 in our peephole optimizer we want to do {\em pattern matching} over the
-instructions. Small integers more flexible in this regard: for
+instructions. Small integers are more flexible in this regard: for
 example matching one of multiple modes can be done with bitwise operations
 instead of sequential comparisons of pointers. The integers are also more
 flexible since more tables can be associated with the same indices (or the same
@@ -4196,20 +4062,18 @@ any overlap between used and defined registers, and if a register is both used
 and defined, then it would be listed twice in the representation. However, since
 there is only one register logically, only one of these two would get serialized
 (e.g. or printed to assembly) and both of them would have to be kept in sync.
-
 Keeping the two mentions of the same registers in sync is tricky in situations
 like spilling, where uses and definitions of a register are replaced by loads
 and stores through fresh virtual registers. In case a register that is both
 used and defined, a single virtual register has to be used for both the load and
 store.
 
-Actual layout of the `ops` for x86-64 is illustrated by figure TODO. The
+The layout of the `ops` used for x86-64 is illustrated by figure TODO. The
 representation fits operands for each mode into just 6 operand slots. Not all modes
 use all 6 slots, but they are allocated with them nonetheless, since it makes it
 universally possible to just change mode and some operands to transform one
-instruction into another. It also simplifies memory management, since the
-it prevents fragmentation of memory and additionally free instructions kept in
-one simple free list.
+instruction into another. It also simplifies memory management, because
+for objects of single size, memory fragmentation is not a problem.
 
 All 6 operand slots are needed for only one instruction: 3 operand `imul` with
 register (1 slot), memory (2 register and 2 immediate slots) and immediate (1
@@ -4219,11 +4083,25 @@ Different slots are used for different purposes in different addressing modes.
 But the assignment has been kept consistent as long as possible. For example,
 most modes have one main register, which is always in the first slot. The single
 memory operand always uses the slots 1 through 4. Slot 1 is also used in case
-there are two registers involved---in which case memory operand is not used.
+there are two registers involved---in which case memory operand is not used. The
+following macros are used to access the operands:
+
+\begtt
+#define IREG(inst)     ((inst)->ops[0])
+#define IREG1(inst)    ((inst)->ops[0])
+#define IBASE(inst)    ((inst)->ops[1])
+#define IREG2(inst)    ((inst)->ops[1])
+#define IINDEX(inst)   ((inst)->ops[2])
+#define ILABEL(inst)   ((inst)->ops[3])
+#define ISCALE(inst)   ((inst)->ops[3])
+#define IDISP(inst)    ((inst)->ops[4])
+#define IIMM(inst)     ((inst)->ops[5])
+#define IARG_CNT(inst) ((inst)->ops[5])
+\endtt
 
 The fact that different slots have different purposes in different modes sadly
 makes the representation a bit harder to understand. On the other hand, most of
-it is hidden behind accessor macros and is really close to the encoding of the
+it is hidden behind accessor macros and the really close to the encoding of the
 x86-64 instructions. Of course the actual x86-64 encoding is much more compact.
 But for example the following two instruction (load and store) are encoded in
 the same way in both the backend representation and the actual x86-64 encoding:
@@ -4238,8 +4116,8 @@ In x86-64 serialization, the only difference is one bit in the opcode field
 mode (`M_CM`, i.e. register and memory vs `M_Mr`, i.e. memory and register).
 
 So far, the fact that `Oper` is defined as 32-bit unsigned integer has been
-neglected. It may seem as a weird choice, considering that when an immediates
-are generally considered signed by the architecture. In practice, there are two
+neglected. It may seem as a weird choice, considering that immediates
+are usually considered signed by the architecture. In practice, there are two
 good reasons for this:
 
 
@@ -4262,12 +4140,12 @@ of machine the compiler is running on. Two's complement semantics should be used
 for immediates, which is easier to do portably on unsigned numbers.
 \enditems
 
-Notably the \"move immediate into register" is the only x86-64 instruction
+Notably the \"move immediate into register" (i.e. `mov rax, 1`) is the only x86-64 instruction
 supported by our backend, which allows a 64-bit immediate. It stores the immediate
 in two 32-bit operand slots. The large immediate is only accessible through two
-accessor functions, which promote careful handling.
+accessor functions, which signalize the need for careful handling.
 
-The fields of the `Inst` structure are accessed through macros:
+The fields of the `Inst` structure are usually accessed through macros:
 
 \begtt
 #define IK(inst) ((inst)->kind)
@@ -4275,7 +4153,8 @@ The fields of the `Inst` structure are accessed through macros:
 #define IM(inst) ((inst)->mode)
 \endtt
 
-Naming is intentionally very terse, especially the peephole uses them {\em a
+Naming is intentionally very terse, because especially in the peephole
+optimizer, they are used {\em a
 lot}---in our opinion long names would bring no sizeable benefits. The \"`I`"
 prefix on all the macros stands for \"`Inst`", which accomplishes at least some
 namespacing in C.
@@ -4283,7 +4162,7 @@ namespacing in C.
 Another so far neglected aspect of the modes and operands were {\em labels}.
 Even though ultimately all instructions compile out the memory location
 displacements into up to 32-bit numbers, some addresses are {\em logically}
-connected to (often named) objects. In the following example, the address of the
+connected to (often named) objects. In the following TinyC example, the address of the
 second field of a global variable has an address relative to the start of the
 global variable:
 
@@ -4302,11 +4181,11 @@ S global_struct;
 
 As explained in section~\ref[x86-rip], we want to (or even need to) use
 RIP-relative addressing for global variables. RIP-relative addressing uses the
-instruction pointer (\"register" `rip`) and a 32-bit displacement. However, the
+instruction pointer (`rip`) and a 32-bit displacement. However, the
 real displacement to `global_struct.b` or even to `global_struct` is not known
-until after the final executable is linked together. As a zero-initialized
+until after the final executable is {\em linked} together. As a zero-initialized
 global variable, `global_struct` will be put into the `.bss` section.
-`.bss` sections from all object files are merged into one `.bss` section, so
+During linking, `.bss` sections from all object files are merged into one `.bss` section, so
 the real displacements cannot be known until all object files are linked
 together. Hence earlier compiler stages need to somehow encode relative address
 without knowing the final displacements. Without going into further details, in
@@ -4334,7 +4213,7 @@ with the label. But even if it did produce object files directly, it would be
 necessary to associate the address of global variable's field with the global
 variable itself.
 
-For this {\em labels} are used. Like other `Oper`s, labels are just integers. In
+For this we use the concept of {\em labels} are used. Like other `Oper`s, labels are just integers. In
 this case each integer corresponds to an entry in a label array, which has a
 pointer to a `Value`. Hence a label can freely point to global variable,
 function, strings literal, etc. But importantly the label operand is stored
@@ -4342,9 +4221,9 @@ separately from the displacement operand---in a distinct operand slot. So there
 is still a displacement involved, but only relative to the label. Since labels
 are only interesting in RIP-relative addressing, which doesn't use neither base,
 nor index register or scale, their slots can actually be reused---label is
-stored inside scale's slot and special register value in base's slot is used to
-signalize RIP-relative addressing. Displacement is stored in the same way in
-both addressing modes.
+stored inside scale's slot and special register value (`R_NONE`) in base's slot
+is used to signalize RIP-relative addressing. Displacement is stored in the same
+way in both addressing modes.
 
 Instructions also contain pointers to the previous and next one. Like `Value` in
 the middle-end, they are linked together in an {\em intrusive linked list}.
@@ -4353,15 +4232,21 @@ of a sequence of instructions, which are exactly the operation a peephole
 optimizer does. Circular doubly linked list is especially nice for these
 operations, because it has no special cases for insertion or deletions at the
 end or the beginning of the linked list, simply because there is no real start
-or end of the linked---every node may be presumed to be in the middle. For this
-to work nicely, the {\em head} of the linked list (i.e. the pointer to the
+or end of the linked---every node may be presumed to be in the middle.
+
+\label[sec:data-block]
+\seccc Machine block
+
+To allow circular linked lists for instructions to work nicely
+the {\em head} of the linked list (i.e. the pointer to the
 linked list of instructions) should also be part of the linked list itself. With
 our middle-end representation this was fairly easy, since \"instrucions" were
 `Value`s with next and previous links, and basic blocks were values as well, so
 the next and previous links of basic blocks served the purpose of the \"head"
 and \"tail" fields. Similar thing would be needed here to allow machine basic
-block to be the head, but also part of the linked list of instructions. This can
-be achieved by \"inheriting" the `Inst` struct in machine basic block struct:
+block to be the head of the linked list, but also {\em part} of the linked list of
+instructions. This can be achieved by \"inheriting" the `Inst` struct in machine
+basic block struct:
 
 \begtt
 struct MBlock {
@@ -4372,7 +4257,7 @@ struct MBlock {
 	Inst insts;
 };
 \endtt
-
+%
 Adding `Inst` as field of `MBlock` means that it is now able to be part of the
 linked list of instructions. The next and prev pointers serve as head and tail
 respectively. Other fields like `mode` or `kind` are also inherited---special
@@ -4380,8 +4265,8 @@ values can be reserved for them and for example peephole optimizer's pattern
 matching on instructions can then transparently skip machine basic blocks, if it
 gets to them while investigating neighbours of instructions. As a result of the
 representation, the rolling window in the peephole optimizer actually
-transparently skips patterns that would reach out of bounds, because the kind of
-the basic block will match no usual pattern.
+transparently skips patterns that would reach out of bounds, because
+basic block's kind doesn't match any usual pattern.
 
 Other than that, currently a machine block just links back to a middle-end basic
 block. Since currently the backend lacks the ability to do big changes to
@@ -4392,7 +4277,232 @@ Figure TODO shows examples of a few x86-64 as represented in a linked list of
 `Inst` structures together with the head of the linked list an `Inst` in
 `MBlock`.
 
-\label[sec:imp-lower]
+\label[sec:imp-critical-edge]
+\sec Critical edge splitting
+
+Critical edges and their implications for SSA deconstruction are explained in
+section~\ref[sec:ssa-deconstruction]. We don't have to split {\em all} critical
+edges. From the perspective of our back end, only edges to
+blocks with $\phi$ functions are problematic (see also
+section~\ref[sec:imp-ssa-deconstruction]). But we choose to split all critical
+edges, since later optimizations can undo the splits, if it turns out they are
+not needed after all (see section~\ref[sec:imp-peephole-block]).
+
+The splitting can be realized in a single linear pass over all basic blocks in a
+function. For each block, if it has multiple predecessors, we check for each
+predecessor whether it has multiple successors---if it does, we have found 
+critical edge. The edge is split by introducing a new basic block, which
+contains just one jump operation into the successor, and has one predecessor---the
+original predecessor of the edge.
+
+Full implementation critical edge splitting in our implementation is shown
+below. The algorithm is rather simple and shows the use of our design and data
+structures. In particular, we do the critical edge splitting on the {\em middle
+end} representation. This is not only because splitting of critical edges is
+fully machine independent, but also because we currently don't allow all kinds
+of control flow changes in the back end representation.
+
+A few key points in the implementation deserve a mention:
+
+\begitems
+
+* Iteration over blocks is based on reverse postorder, by iterating over the
+precomputed postorder in reverse. New blocks are {\em not} added to the post
+order on the fly. We don't need to visit them in our algorithm, since they are
+created without critical edges.
+
+* Since the postorder isn't updated during the run of the algorithm, it is
+updated after the algorithm finishes.
+
+* Adding an operation to the end of a basic block can be realized with a
+`prepend_value` function, which prepends a value to a doubly linked list of
+values. Since the block is the head of the circular doubly linked list of
+instructions, anything prepended to it will become the last instruction.
+
+* We have to iterate linearly to find a predecessor/successor to replace in the
+list of them.
+
+\enditems
+
+\begtt
+void split_critical_edges(Arena *arena, Function *function) {
+	for (size_t b = function->block_cnt; b--;) {
+		Block *succ = function->post_order[b];
+		if (block_pred_cnt(succ) <= 1)
+			continue;
+
+		FOR_EACH_BLOCK_PRED(succ, pred_) {
+			Block *pred = *pred_;
+			if (block_succ_cnt(pred) <= 1)
+				continue;
+
+			Block *new_block = create_block(arena, function);
+			block_add_pred(new_block, pred);
+			Value *jump = create_unary(arena, VK_JUMP, &TYPE_VOID, &succ->base);
+			jump->parent = &new_block->base;
+			jump->index = function->value_cnt++;
+			prepend_value(&new_block->base, jump);
+
+			FOR_EACH_BLOCK_SUCC(pred, s)
+				if (*s == succ)
+					*s = new_block;
+
+			FOR_EACH_BLOCK_PRED(succ, p)
+				if (*p == pred)
+					*p = new_block;
+		}
+	}
+
+	compute_postorder(function);
+}
+\endtt
+
+\label[sec:imp-ssa-deconstruction]
+\sec SSA deconstruction
+
+In the middle end we use value-based SSA (introduced in
+section~\ref[sec:SSA-value]) and also $\phi$-functions. In the back end we work with
+machine instructions and virtual and physical registers. Thus we need to map
+values to virtual registers (to be mapped to physical registers later) and
+also need to replace uses of $\phi$-functions with copy (`mov`) instructions.
+
+Assignment of virtual registers is simple in our representation. Because we
+already assign an index to a `Value` for printing and array indexing purposes
+(see section~\ref[sec:data-structures-middle-end]), we can use the integer
+indices directly as virtual registers. Since the virtual registers are assigned
+directly from SSA form, the virtual registers will obey the single assignment
+property and thus also correspond to {\em live ranges} for which we want to
+allocate registers.
+
+In our design we will do SSA deconstruction on the value-based representation
+with method 1 from~\cite[Sreedhar1999] (see section~\ref[sec:ssa-deconstruction]
+for more details). Doing it on the middle end value-based representation turns
+out to be more straightforward and is also how Sreedhar's method nominally
+works.
+
+Sreedhar's method 1 consists of adding a copy instruction to each predecessor of
+the block holding the $\phi$-operation and also an extra copy after the $\phi$
+itself. Next all virtual registers involved in the $\phi$-instruction itself are
+given the same virtual register and the $\phi$-instruction can be safely
+removed.
+
+In our implementation we operate with {\em values}, not instructions themselves.
+So realizing copy instructions is not possible in the strict sense. Though we
+can introduce {\em identity operations}. These are operations with single
+operand, that just copy the operand. Since we will also be using the `index`
+field of values as the virtual registers, we can assign the same virtual
+registers to all the identity operations (the to-be copy instructions), and also
+replace the $\phi$-operation itself with a copy instruction, which copies from
+the same virtual register by inserting a dummy value with the right index.
+
+Consider for example the following function `f`, which returns 4 or 3 depending
+on the truthiness of the first integer argument:
+
+\begtt
+f:
+        v0: int = argument 0
+block0:
+        branch v0, block2, block5
+block5: block0
+        jump block4
+block2: block0
+        jump block4
+block4: block2, block5
+        v4: int = phi 4, 3
+        ret v4
+\endtt
+
+We deconstruct the phi by introducing copies to block 2 and block 5 and changing
+the phi to be a copy itself. All the copies need to be based on the same index
+(which will become a virtual register):
+
+\begtt
+f:
+        v0: int = argument 0
+block0:
+        branch v0, block2, block5
+block5: block0
+        v6: int = identity 3
+        jump block4
+block2: block0
+        v6: int = identity 4
+        jump block4
+block4: block2, block5
+        v4: int = identity v6
+        ret v4
+\endtt
+
+Our value based SSA form always stays in SSA, since values can't be assigned.
+But by making the indices semantically meaningful, we can deconstruct the SSA
+with the right assignment of virtual registers and identity operations that
+translate to copy (`mov`) instructions.
+
+Doing the SSA deconstruction on the SSA form has one significant advantage over
+doing it on the machine form---the control flow graph is fully built already,
+and we can easily just insert copies into predecessors. Doing it in the code
+generator would not be as straightforward. We plan our code generator to be very
+simple and single pass. Requiring copies in predecessor blocks becomes
+troublesome in such generator, because at the time of lowering a block with
+$\phi$-operations the predecessor block may have not been translated yet and
+there may be no place for the copy insertion! Alternatively, we could flip the
+idea of SSA deconstruction, and instead of inserting copies into predecessors
+while processing the block, we can insert the copies to the predecessors, while
+lowering {\em them}---this is easier, since we base this on the existence of
+$\phi$-operations in {\em successor} blocks in the middle end representation and
+don't need the successors to be already translated.
+However, in Sreedhar's method we have to introduce a new virtual register for
+the copies, and suddenly coordinating when and how the virtual register is
+allocated becomes more messy than doing it in the middle end IR.
+
+We considered even doing the two step copying method (see
+section~\ref[sec:ssa-deconstruction]), which works well even when done when
+processing the predecessors---the two rounds of copies are fully self contained
+in the predecessors, no indexes have to be changed or coordinated elsewhere.
+However, as the two copy method puts a lot of unnecessary burden on register
+coalescing, we decided to go with Sreedhar's method 1 instead. Other methods are
+able to save even more on future coalescing by inserting the copies in a smarter
+way, by essentially doing the coalescing in the SSA deconstruction stage, but we
+haven't yet found the need to justify a much more complicated algorithm for not
+as that many benefits. If we ever do, \cite[Boissinot2009]'s approach is the way
+to go.
+
+%We shall highlight one issue our simple $\phi$ deconstruction would have if we
+%didn't split critical edges. Split critical edges guarantee us, that a block
+%with multiple predecessors (i.e. a block which {\em can} have a
+%$\phi$-operation), those predecessors only have {\em one successor}---the block
+%with the $\phi$. In other words, all the predecessors end with a `jump`, not
+%`branch`. If we had something like our example above, but without the split of
+%critical edge:
+%
+%\begtt
+%f:
+%        v0: int = argument 0
+%block0:
+%        branch v0, block2, block4
+%block2: block0
+%        jump block4
+%block4: block2, block0
+%        v3: int = phi 4, 3
+%        ret v3
+%\endtt
+%
+%\begtt
+%f:
+%        v0: int = argument 0
+%block0:
+%        v5: int = identity 3
+%        branch v0, block2, block4
+%block2: block0
+%        v5: int = identity 4
+%        jump block4
+%block4: block2, block0
+%        v3: int = identity v5
+%        ret v3
+%\endtt
+
+
+
+\label[sec:imp-lowering]
 \sec Lowering
 
 Code generation or {\em lowering} is the stage where we go from middle end
@@ -4402,7 +4512,7 @@ as input a RISC-like value based IR and will transform it to RISC-like x86-64
 machine instructions.
 
 We mostly solved SSA deconstruction in
-section~\ref[sec:impl-ssa-deconstruction] and thus have already assigned virtual
+section~\ref[sec:imp-ssa-deconstruction] and thus have already assigned virtual
 registers. The lowering step should then simply go over the values in the
 control flow graph one by one and translate them to corresponding instructions.
 For following analysis in register allocation, we will preserve the basic
@@ -4411,7 +4521,7 @@ done one-to-one in terms of basic blocks. Not as much with instructions, where
 one middle end operation may require multiple x86-64 instructions.
 
 In section about implementation of SSA deconstruction
-(\ref[sec:impl-ssa-deconstruction]) we claimed that for values we simply use
+(\ref[sec:imp-ssa-deconstruction]) we claimed that for values we simply use
 their index as the virtual register. So in order to transform an operation like
 the following addition:
 
@@ -4419,11 +4529,11 @@ the following addition:
 v5: int = add v3, v4
 \endtt
 
-We would like to emit an add instruction adding virtual register 3 and virtual
+We want to emit an `add` instruction adding virtual register 3 and virtual
 register 4 into virtual register 5. However, there is no such instruction on the
 x86-64. We only have available two address code instructions (see
 section~\ref[x86-two-address-code] for more details), where the result is put
-into the first source register. Thus we can add virtual register 3 and virtual
+into the first source register. We can only `add` virtual register 3 and virtual
 register 4 into virtual register 3\fnote{Notice that we use the letter `t` as in
 \"temporary" for virtual registers to distinguish them from values which are
 prefixed with letter `v`, however for readability and ease of implementation we
@@ -4454,7 +4564,7 @@ operations are very similar, we go from:
 \begtt
 v3: int = neg v2
 \endtt
-
+%
 to:
 
 \begtt
@@ -4466,24 +4576,25 @@ Instructions which have special register constraints are realized through copies
 to or from the required registers (see section~\ref[sec:regalloc-constraints]),
 thus effectively we perform {\em live range splitting} (explained more
 thoroughly in section~\ref[sec:regalloc-splitting]). For example shifts which
-require the shift amount to be in register `cl`:
+require the shift amount to be in register `cl`, i.e. the following:
 
 \begtt
 v3 = shl v1, v2
 \endtt
-
+%
+needs to translate to:
 \begtt
 mov t3, t1
 mov rcx, t2
 shl t3, cl
 \endtt
 
-Or (signed) division which essentially requires the dividend to be 128
+Another example is (signed) division which essentially requires the dividend to be 128
 bits: lower 64 bits in `rax`, upper in `rdx`. Since we only need 64-bit
 division, we can move the 64-bit dividend into `rax` and sign extend it into
 `rdx` with the special purpose instruction `cqo` (\"convert quadword to
-octoword"). After the division, the quotient is in `rax` and we need to move it
-to a temporary as well:
+octoword"), which does exactly that. After the division, the quotient is in
+`rax` and we need to move it to a temporary as well:
 
 \begtt
 v3 = sdiv v1, v2
@@ -4513,6 +4624,8 @@ mov t7, v6
 add t7, 1
 \endtt
 
+TODO: tady to moc nenavazuje, upravit
+
 However, here we encounter a problem which we have so far neglected: how are
 {\em constants} assigned virtual registers? Operations are embedded in the
 concrete places in control flow graph and represent the {\em value} resulting
@@ -4536,7 +4649,7 @@ because much more constants can be used than there physical registers available.
 As opposed to operations, constants are {\em always} available. Because they are
 also {\em compile time constants}, instead of assigning virtual registers to
 constants, we can materialize the constants to registers {\em on demand}, when
-needed---and each time into a new, fresh, virtual register. This way, we not
+needed---and each time into a new, {\em fresh}, virtual register. This way, we not
 only keep the constants close to their uses (allowing easier peephole
 optimization), but also keep the fresh virtual registers very short lived. This
 way we alleviate much of the need for {\em rematerialization of constants} in register
@@ -4552,8 +4665,8 @@ v1: int = constant 1
 v2: int = constant 2
 v3: int = add v1, v2
 \endtt
-
-But as:
+%
+but as:
 
 \begtt
 v3: int = add 1, 2
@@ -4583,8 +4696,8 @@ translate
 v3 = add 1, 2
 v4 = call f, v3, 1, 2
 \endtt
-
-To the following:
+%
+to the following:
 
 \begtt
 mov t10, 1
@@ -4603,9 +4716,9 @@ mov rdx, t14
 call t12
 \endtt
 
-Above, the first group instructions realizes the addition including the
+Above, the first group of instructions realizes the addition including the
 materialization of constants. In the second group, the constants for the call
-are materialized---the address of the functions is loaded into a register, just
+are materialized---the address of the function is loaded into a register, just
 as well as the constants. In the third group, there are copies to registers imposed by the
 calling registers---i.e. first argument to `rdi`, etc. And finally in the last
 instruction the function is called indirectly through a function pointer.
@@ -4687,7 +4800,7 @@ Local optimizations are the classic peephole optimizations based on small
 windows {\em peepholes} into instructions. They are very limited, since they
 have only very local knowledge about the code.
 
-As mentioned when discussing coalescing (section~\ref[regalloc-coalescing]), the
+As mentioned when discussing coalescing (section~\ref[sec:regalloc-coalescing]), the
 register allocator tries to assign virtual registers involved in the same move
 instruction the same physical register. In that case we can end up with
 instruction like:
@@ -4696,84 +4809,86 @@ instruction like:
 mov rax, rax
 \endtt
 
-Copy instruction where the source is the same as destination can be deleted
-freely, because they have no effect---they don't even set flags. Due to our
-handling of callee saved registers, even for the simplest functions, like one
-returning the integer 1:
+On the x86-64, copy instruction where the source is the same as destination can be deleted
+freely, because they have no effect---they don't even set flags.
 
-\begtt
-one:
-block0:
-        ret 1
-\endtt
-
-We generate code that generally looks like this:
-
-\begtt
-one:
-.L0:
-        ; entry
-        push rbp
-        mov rbp, rsp
-        sub rsp, 42
-        mov t19, rbx
-        mov t20, r12
-        mov t21, r13
-        mov t22, r14
-        mov t23, r15
-        mov t24, 1
-        mov rax, t24
-        mov rbx, t19
-        mov r12, t20
-        mov r13, t21
-        mov r14, t22
-        mov r15, t23
-        mov rsp, rbp
-        pop rbp
-        ret
-\endtt
-
-In most functions with low register pressure, often none of the 5 callee saved
-are spilled. Thus after register allocation we get:
-
-\begtt
-one:
-.L0:
-        ; entry
-        push rbp
-        mov rbp, rsp
-        sub rsp, 42
-        mov rbx, rbx
-        mov r12, r12
-        mov r13, r13
-        mov r14, r14
-        mov r15, r15
-        mov t24, 1
-        mov rax, t24
-        mov rbx, rbx
-        mov r12, r12
-        mov r13, r13
-        mov r14, r14
-        mov r15, r15
-        mov rsp, rbp
-        pop rbp
-        ret
-\endtt
-
-Which we simplify to:
-
-\begtt
-one:
-.L0:
-        ; entry
-        push rbp
-        mov rbp, rsp
-        sub rsp, 42
-        mov rax, 1
-        mov rsp, rbp
-        pop rbp
-        ret
-\endtt
+%Due to our
+%handling of callee saved registers, even for the simplest functions, like one
+%returning the integer 1:
+%
+%\begtt
+%one:
+%block0:
+%        ret 1
+%\endtt
+%
+%We generate code that generally looks like this:
+%
+%\begtt
+%one:
+%.L0:
+%        ; entry
+%        push rbp
+%        mov rbp, rsp
+%        sub rsp, 42
+%        mov t19, rbx
+%        mov t20, r12
+%        mov t21, r13
+%        mov t22, r14
+%        mov t23, r15
+%        mov t24, 1
+%        mov rax, t24
+%        mov rbx, t19
+%        mov r12, t20
+%        mov r13, t21
+%        mov r14, t22
+%        mov r15, t23
+%        mov rsp, rbp
+%        pop rbp
+%        ret
+%\endtt
+%
+%In most functions with low register pressure, often none of the 5 callee saved
+%are spilled. Thus after register allocation we get:
+%
+%\begtt
+%one:
+%.L0:
+%        ; entry
+%        push rbp
+%        mov rbp, rsp
+%        sub rsp, 42
+%        mov rbx, rbx
+%        mov r12, r12
+%        mov r13, r13
+%        mov r14, r14
+%        mov r15, r15
+%        mov t24, 1
+%        mov rax, t24
+%        mov rbx, rbx
+%        mov r12, r12
+%        mov r13, r13
+%        mov r14, r14
+%        mov r15, r15
+%        mov rsp, rbp
+%        pop rbp
+%        ret
+%\endtt
+%
+%Which we simplify to:
+%
+%\begtt
+%one:
+%.L0:
+%        ; entry
+%        push rbp
+%        mov rbp, rsp
+%        sub rsp, 42
+%        mov rax, 1
+%        mov rsp, rbp
+%        pop rbp
+%        ret
+%\endtt
 
 For an implementation of this particular peephole pattern, we need to match the
 {\em exact opcode}. In this case we need to match a `mov` from register to
@@ -4782,8 +4897,7 @@ section~\ref[sec:data-backend]), we split the opcode information into three
 parts: {\em kind}, {\em subkind} and {\em mode}. This split is especially
 targeted at peephole patterns, where we can get a lot of patterns sharing the
 same kind, but with different subkinds, or the patterns can be applicable to
-same instruction with different modes (or perhaps with slight adjustments for
-each mode).
+different instructions with the same mode.
 
 Kind (\"instruction kind", `IK`) for this pattern would be `IK_MOV`, subkind
 `MOV`\fnote{There are multiple variations of the `mov` opcode, in particular for
@@ -4805,19 +4919,21 @@ if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_Cr
 \endtt
 
 Here, the macros `IK`, `IS` and `IM` respectively allow terse access to the
-`kind`, `subkind` and `mode` fields of the instructions. If the pattern matches,
+`kind`, `subkind` and `mode` fields of the instructions (see
+section~\ref[sec:data-instruction] for
+more details). If the pattern matches,
 we can remove the instruction by unlinking it from the circular doubly linked
 list by pointing the previous node's next field to the next instruction and
 likewise for the `prev` field of the next instruction.
 
-There are more single instruction peephole patterns that are possible. For
-example. For example a comparison of a register with a 0:
+There are more single instruction peephole patterns that are possible.
+For example a comparison of a register with a 0:
 
 \begtt
 cmp t12, 0
 \endtt
-
-Is the same as using `test` instruction (which performs bitwise and of the two
+%
+is the same as using `test` instruction (which performs bitwise and of the two
 operands and sets flags based on the result) on the register with itself:
 
 \begtt
@@ -4840,13 +4956,14 @@ We check for kind, subkind, mode and then the special properties we are looking
 for, in this case that the 32-bit immediate is zero. To realize the replacement
 of the instruction we don't have to allocate a new one and free the old one. We
 can use the existing instruction and modify it in place. This saves as quite a
-bit of relinking we would have to, but more importantly it allows us to keep
-some fields {\em unchanged}. Here we for example don't need to change the first
-register---it stays the same for both instructions. In more complicated patterns
-this can be more interesting---often we e.g. don't care about how the address of
-a load instruction is calculated, but just that it is a load instruction.
+bit of relinking we would have to do, but more importantly it allows us to keep
+some fields {\em unchanged}, which is really handy for some patterns. Here we for
+example don't need to change the first register---it stays the same for both
+instructions. In more complicated patterns this can be more interesting---often
+we e.g. don't care about how a memory operand looks, we can just pass it
+through.
 
-When considering peephole patterns we don't just need to find just {\em useful}
+When considering peephole patterns we don't need to just find just {\em useful}
 patterns, they need to be {\em reachable} as well. For example, the
 transformation of comparison with zero to `test` presented above is useful
 (produces shorter instruction encoding), but it as of now, it is not
@@ -4866,8 +4983,8 @@ This pattern is more general---certainly we don't need it to be limited to just
 zero. But we need to consider the fact, that on the x86-64 immediate operands
 can be at most 32-bit signed values, so \"small" positive and negative
 immediates (which are the most common ones) are applicable. The pattern is also
-not limited to the `cmp` instruction---the pattern will also work with `add` or
-`sub`. All of these are conveniently in the `IK_BINALU` subkind, since they
+not limited to the `cmp` instruction---it will also work with `add` or
+`sub`. All of these are conveniently in the `IK_BINALU` kind, since they
 have very similar addressing modes. But the mode is different---`cmp` like
 `test`, but unlike e.g. `add` {\em doesn't} write to any register---it just
 changes the flags. Thus we don't need to match for any particular {\em subkind},
@@ -4886,22 +5003,24 @@ if (IK(inst) == IK_BINALU && (IM(inst) == M_Rr || IM(inst) == M_rr)
 \endtt
 
 As hinted above, we check the current instruction (`inst`) for the right kind
-and mode, but we also investigate the previous instruction (here already in the
-local variable `prev`). We expect it to be a `mov` with mode `M_CI`, i.e. we
-write an immediate into a register. The big letter `I` signifies a 64-bit
+and mode, but we also investigate the previous instruction (here designated by
+the local variable `prev`). We expect it to be a `mov` with mode `M_CI`.
+The big letter `I` signifies a 64-bit
 immediate---moves of immediates into registers are one of the very few
-instructions where 64-bit moves are allowed. Hence before applying this pattern
+instructions where 64-bit immediates are allowed. Hence before applying this pattern
 we also need to check whether the immediate from the `mov` instruction actually
 fits into 32-bit with the sign bit. Here we do that, with helper functions which
 extract the 64-bit immediate from two 32-bit `Oper` slots, and then try to fit
-it into the 32-bit `Oper` of the arithmetic instruction. Since the function
-performs side effect, but returns a boolean indicating success, we run it last.
-Then we update the mode of the instruction accordingly---we will use `i` for the
-second operand (since it is now a 32-bit to-be sign extended immediate), but we
-need to preserve the read or write property on the first register. Also, since
+it into the 32-bit `Oper` of the arithmetic instruction. The function
+returns a boolean indicating success, but also performs a side effect, for this
+reason we call it as last check.
+If successful, we update the mode of the instruction accordingly---we will use
+mode with `i` for the
+second operand (since it is now a 32-bit to-be sign extended immediate), and
+we preserve the use and def property on the first register. Also, since
 generally we keep unset fields set to zero, we also set the (now unused) second
 register field to 0 (or the symbolic constant `R_NONE` which is defined to be
-0)---we don't need to do this, since as long as the mode doesn't need the slot,
+0)---we don't need to do this, because as long as the mode doesn't need the slot,
 it is not going to be read, but the zero-initialized property is sometimes
 useful and we chose to preserve it.
 
@@ -4915,7 +5034,7 @@ mov t14, t12
 sub t14, t13
 \endtt
 
-The copy in the middle prevents the pattern to match. Though if `t14` and `t12`
+then the copy in the middle prevents the pattern to match. Though if `t14` and `t12`
 get coalesced:
 
 \begtt
@@ -4924,7 +5043,7 @@ mov rcx, rcx
 sub rcx, rax
 \endtt
 
-The pattern will match after the previous redundant copy applies:
+the pattern will match after the redundant copy is optimized out:
 
 \begtt
 sub rcx, 10
@@ -4934,7 +5053,7 @@ Though the code is better, and uses a better addressing mode, we missed an
 optimization---by waiting until after register allocation, we had to allocate
 a physical register for the short lived temporary. This could have caused a long
 lived temporary to get spilled or at least makes the register allocation problem
-harder by keeping more interferences, etc. Thus we really do want to make
+harder by keeping more interferences. Thus we really do want to make
 optimizations in the first peephole pass {\em before} register allocation. Here
 we can notice the pattern with the move in the middle and introduce a three
 instruction pattern. The new pattern should probably check fully that the middle
@@ -4954,32 +5073,33 @@ variable might look like this:
 lea t25, [rbp-24]
 mov t26, [t25]
 \endtt
-
-And can be easily optimized to this:
+%
+and can be easily optimized to this:
 
 \begtt
 mov t26, [rbp-24]
 \endtt
 
-The address computation in a `lea` (\"load effective address") instruction uses
+This optimization is nicely possible, because the address computation in the
+`lea` (\"load effective address") instruction uses
 the same memory addressing as all other instructions referencing memory. Similar
 memory addressing optimizations are also applicable for stores and operands of
 arithmetic instructions.
 
 Peephole optimizations don't only involve simple identities or addressing mode
-changes. Opportunities arise for example for eliminate a load from a just stored
-address:
+changes. Opportunities arise for example for elimination of a load from just
+stored address:
 
 \begtt
 mov [G], t27
 mov t28, [G]
 \endtt
 
-Instead of loading from the global variable `G`, it is possible to use the
-register `t27`. However, all uses of `t28` currently refer to `t28` and we can't
-easily changed them without additional bookkeeping. Merging the registers into
-one practically is just like coalescing, and we can encourage the register
-allocator to coalesce just by rewriting the load into a copy:
+Instead of loading from the global variable `G`, it would seemingly be possible
+to use the register `t27`. However, all uses of `t28` currently refer to `t28`
+and we can't easily changed them without additional bookkeeping. Merging the
+registers into one practically is just like coalescing, and we can encourage the
+register allocator to coalesce just by rewriting the load into a copy:
 
 \begtt
 mov [G], t27
@@ -4988,7 +5108,11 @@ mov t28, t27
 
 The advantage to leaving the coalescing to the register allocator is, that it
 has the knowledge about interferences and will not combine `t28` with `t27` if
-they {\em interfere} (see section~\ref[regalloc-graph-coloring]).
+they {\em interfere} (see section~\ref[sec:regalloc-graph-coloring]). Virtual
+registers which interfere are {\em live} at the same time at some point, and
+can't share a single physical register. Our limited view in the peephole
+optimizer doesn't allow us to tell if the optimization would be safe, so we
+always stay with safer copies if applicable.
 
 \label[sec:imp-peephole-flag]
 \secc Flag based optimizations
@@ -5005,7 +5129,7 @@ add rax, 0
 
 While the register `rax` isn't changed by the instruction at all, the {\em
 flags} register gets updated based on the {\em result} of addition---in this
-case based on `rax`. If a later instruction depends on the flags, we can't just
+it will reflect `rax`. If a later instruction depends on the flags, we can't just
 delete this instruction.
 
 Similar need for flags prevents the use of `lea` for arithmetic, because unlike
@@ -5016,17 +5140,18 @@ following addition:
 mov t26, t18
 add t26, t34
 \endtt
-
-Can only be optimized to `lea` if the flags are not observed after the `add`:
+%
+can only be optimized to the below `lea` if the flags are not observed after the
+`add`:
 
 \begtt
 lea t26, [t18+t34]
 \endtt
 
 Normally our code generator doesn't generate `lea` instructions except for
-materialization of constants (see section~\ref[sec:imp-lower]). However, as shown in
+materialization of constants (see section~\ref[sec:imp-lowering]). However, as shown in
 the previous section (section~\ref[sec:imp-peephole-local]), we are able to
-transform uses of `lea`s in for example loads and stores or other instructions
+transform uses of `lea`s in loads and stores or other instructions
 that allow memory operands. So transforming address calculations involving `add`
 or `imul` into `lea` instructions is important to allow these better addressing
 modes. Transforming even ordinary arithmetic (i.e. not address calculations)
@@ -5035,7 +5160,7 @@ other instructions can write a different register than any of the read
 registers, so its use may constrain register allocation less.
 
 As our code generator doesn't do any case analysis, it inserts explicit `cmp`
-instructions for setting the flags. Thus we could perform the optimizations
+instructions to set the flags. Thus we could perform the optimizations
 described above freely. But then we would have to give up the optimizations that
 are able to {\em use} the flags. For example a loop might be decrementing a
 register until it becomes zero:
@@ -5047,15 +5172,16 @@ jz .L3
 \endtt
 
 Using `test` to set flags according to `rax`'s value is redundant, since the
-flags are already set by the previous arithmetic instruction. We have shown like
-optimizations can replace comparison with zero to `test` with itself in previous
-the previous section (section~\ref[imp-peephole-local]).
+flags are already set by the previous arithmetic instruction. The instruction
+sequence above is not unreal---we have shown how optimizations can replace
+comparison with zero to `test` with itself in
+section~\ref[sec:imp-peephole-local].
 
 Ideally we would like to support both kinds of optimizations---removing
 redundant settings of flags when the flags are already set by arithmetic
 instructions, as well as making use of instructions not setting the flags if the
 flags are not needed. For this we need to track whether flags set by an
-instruction are {\em observed} later. We do that by introducing three flags to
+instruction are {\em observed}. We do that by introducing three flags to
 each instruction:
 
 \begtt
@@ -5073,34 +5199,31 @@ read and write flags in a single backwards pass over a basic block:
 
 \begtt
 bool flags_needed = false;
-for (Inst *inst = mblock->insts.prev; inst != &mblock->insts; inst = inst->prev) {
+for (Inst *inst = block->insts.prev; inst != &block->insts; inst = inst->prev) {
 	inst->flags_observed = flags_needed;
-
 	if (inst->writes_flags)
 		flags_needed = false;
-
 	if (inst->reads_flags)
 		flags_needed = true;
 }
 \endtt
 
-This way instructions which set flags which are needed in the future, as well as
+This way instructions which set flags needed in the future, as well as
 instructions through which needed flags pass through are marked. More
 complicated data-flow analysis is not needed, since we don't ever assume
 anything about the state of flags at basic block starts and can thus assume the
 flags are not needed at the end of a basic block.
 
-The boolean flags on `Inst` are flexible, but unnecessarily since whether the
-instruction writes or reads flags can be determined by the instruction {\em
-kind}, so it would be possible to have an array mapping kinds (as indices) to
-the boolean flags. But since in our implementation instructions had spare space
+The boolean flags on `Inst` are flexible, but perhaps unnecessarily since whether the
+instruction writes or reads flags could be derived from the instruction {\em
+kind}. But since in our implementation instructions had spare space
 for the two flags due to alignment, we didn't yet find the need for such
 improvement.
 
 Now with sufficient information, we may realize simple arithmetic identities
 like addition of zero or multiplication by one: depending on whether the flags
 are observed, we can either remove the instruction completely, or change it to
-`test` of the register with itself, which is a better way of setting the flags
+`test` of the register with itself. `test` is a better way of setting the flags
 then an arithmetic instruction, if only because it doesn't involve an immediate.
 
 The information about flag observation can be used for even more optimizations.
@@ -5121,7 +5244,7 @@ might actually get into situation where the flags are not set and instead a
 previous incorrect value of the flag register would be read. For this reason we
 don't set `writes_flags` for shift instructions. This way, if flags are needed
 after the instruction, the peephole optimizer will be forced to leave the `cmp`
-instruction inserted by the code generator. Though this will then be marked as flags
+instruction inserted by the code generator. This will then be marked as
 pass-through of flags by our algorithm above, though this isn't a problem with
 code patterns generated by our generator, where we always set flags and read
 flags in the same expansion, not across expansions.
@@ -5138,8 +5261,8 @@ instruction. For example from:
 mov t13, 0
 cmp t12, t13
 \endtt
-
-To:
+%
+to:
 
 \begtt
 cmp t12, 0
@@ -5152,7 +5275,7 @@ However, there are a few problems with this optimization:
 * The optimization is actually incorrect. We can't remove the definition of
 `t13`, since there may be other uses of the register. In practice, since during
 code generation we {\em materialize constants} for each use (see
-section~\ref[imp-lowering]), there are {\em no} other uses of the constants. But
+section~\ref[sec:imp-lowering]), there are {\em no} other uses of the constants. But
 other optimizations can change that.
 
 * It is not powerful enough. The optimization only takes place when there are
@@ -5162,7 +5285,7 @@ two (physically) consecutive instructions.
 We can improve on both points by tracking {\em uses} and {\em definitions}. We
 call this {\em use-def} based peephole optimization. Our approach and idea are
 pretty simple: for each register we track the number of definitions, the number
-of uses and if there is only one definition, the defining instruction. These
+of uses and if there is only one definition, then we also track the defining instruction. These
 properties are precalculated once, before the peephole pass, and in the
 implementation we actually do it as part of the backwards pass over blocks where
 we track flag information.
@@ -5197,7 +5320,7 @@ register is defined as an immediate that fits into 32-bits, or a memory location
 computed using `lea`, etc. and use these definitions directly in the instruction
 with a better addressing mode. Additionally, if the original register with the
 constant is used only once, the definition can be deleted. With a right set of
-functions abstracting the check for constant definition and the folding, we can
+functions that abstract the check for constant definition and the folding, we can
 specify the peephole optimization patterns in a pretty terse way. Just for
 illustration:
 
@@ -5223,7 +5346,7 @@ if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_CM
 }
 \endtt
 
-This pattern can fold the memory location of the address in a load instruction.
+The above pattern can fold the memory location of the address in a load instruction.
 I.e. to go from the following:
 
 \begtt
@@ -5231,7 +5354,7 @@ lea t25, [rbp-24]
 mov t26, [t25]
 \endtt
 
-To:
+to:
 
 \begtt
 mov t26, [rbp-24]
@@ -5245,14 +5368,20 @@ example above), it only looks at the memory specification. If the {\em base}
 register used in the specification (`t25` above) has only one unique definition,
 which is a `lea` instruction and the {\em base} register of the `lea` (`rbp`
 above) is either `R_NONE` (meaning that RIP-relative, i.e. label addressing is
-used) or `rbp` or other register with {\em one unique definition} then it will
+used) or `rbp`\fnote{We have to special case `rbp`, because it actually has two
+definitions---one saving it in the prologue and one restoring it in the
+epilogue.} or other register with {\em one unique definition} then it will
 try to combine the base, index, scale and displacement fields of the two memory
-locations. So for example, even the following two would get folded:
+locations. So for example, even these two memory locations can be folded:
 
 \begtt
 lea t27, [a-4]
 mov t28, [t27+8]
+\endtt
+%
+and these two as well:
 
+\begtt
 lea t29, [4*t25] // say t25 has only one definition
 mov [t29+16], 1
 \endtt
@@ -5261,23 +5390,24 @@ The implementation currently doesn't support all possibilities that {\em could}
 be optimized. But sufficient number of them found in real programs using the
 advanced addressing modes are supported.
 
-Similar function is used to transform `lea` instructions loading function
+Similar helper function is used to transform `lea` instructions loading function
 addresses and indirect calls into direct calls:
 
 \begtt
-if (IK(inst) == IK_CALL && IM(inst) == M_rCALL && try_combine_label(mfunction, inst)) {
+if (IK(inst) == IK_CALL && IM(inst) == M_rCALL
+		&& try_combine_label(mfunction, inst)) {
 	IM(inst) = M_LCALL;
 }
 \endtt
-
-I.e. this goes from:
+%
+i.e. this goes from:
 
 \begtt
 lea rax, [function]
 call rax
 \endtt
-
-To:
+%
+to:
 
 \begtt
 call function
@@ -5286,7 +5416,7 @@ call function
 \label[sec:imp-peephole-block]
 \secc Inter-block optimizations
 
-During code generation (section~\ref[imp-lowering]) we lowered jump and
+During code generation (section~\ref[sec:imp-lowering]) we lowered jump and
 conditional jump operations at the end of basic blocks into `jmp` and `jcc`
 instructions. Depending on how the blocks are ordered, some of the instructions
 are unnecessary---unlike our middle end representation, which needs explicit
@@ -5314,7 +5444,7 @@ jump to the following block:
 
 The `jmp` instruction above is always redundant. This also applies to
 unconditional jumps which result from translation of {\em conditional jumps}:
-T
+
 \begtt
 	[...]
 	jge .BB4
@@ -5360,7 +5490,7 @@ Even when the merge is possible, we can no longer speak about basic blocks,
 because there could be jump instructions in the middle---notably, if a block
 ended with a conditional jump compiled into `jcc` and `jmp` and `jmp` gets
 optimized away and the block gets merged with the following fallthrough block,
-the `jcc` instruction leaves the block in the middle. The block is no longer
+the `jcc` instruction remains as an exit point in the middle of the block. The block is no longer
 basic. For example if we optimize from:
 
 \begtt
@@ -5390,11 +5520,13 @@ We see how the label `.BB7` corresponding to block 7 gets eliminated, because
 blocks 6 and 7 are merged. The resulting merged block 6 is no longer
 basic---it can be left in the middle. Some distinction of {\em blocks} is still
 useful, since they still correspond to sequences of instructions which are
-executed after each other, but the blocks are no longer basic, because not all
-instructions have to execute. But this is fine from the perspective of peephole
-optimization, which optimizes physically neighbouring instructions. There we can
+executed after each other, even if the blocks are not basic. It is not a problem
+from the perspective of peephole optimization, which optimizes physically
+neighbouring instructions. There we can
 take advantage of the fact that the sequence is not entered in the middle, and
-we don't mind that it can be left in the middle. And even following up to the
+we don't mind that it can be left in the middle.
+
+Additionally, following up to the
 example above, we can notice that the whole purpose of the conditional jump
 above is to skip the copy instruction. On the x86-64 architecture the same
 behavior can be achieved with a `cmovcc` instruction with an inverted condition
@@ -5415,12 +5547,12 @@ instructions in them are created by critical edge splitting
 section~\ref[sec:imp-ssa-deconstruction]). Coalescing is often able to assign the
 virtual registers the same {\em physical} register and the copies are often
 removed. By removing coalesced copies, transforming simple jumps around copies
-into `cmovcc` and by merging blocks through peephole optimizations we can often
-get straight code that is even more amenable to peephole optimization.
+into `cmovcc` and merging blocks through peephole optimizations we can often
+get straight line code that is even more amenable to peephole optimization.
 
-To track the number of references to a block (which for our purposes here is
-more like a label). When last reference of the block is removed from physically
-preceding block, the two blocks can be merged together.
+For each block we track the number of references to it. When last reference of
+the block is removed from physically preceding block, the two blocks can be
+merged together.
 
 \label[sec:imp-peephole-imp]
 \secc Implementation
@@ -5433,7 +5565,7 @@ even on the same instruction, how to represent and move the peephole sliding
 window, etc.
 
 Considering only intra-block optimization first, we want to go through the
-instruction sequence, try to match a pattern and apply the optimizations, and to
+instruction sequence, try to match a pattern, apply the optimization and to
 readjust the peephole window according to what the optimization does to the
 instructions. Our patterns are also not of one uniform size: we have patterns
 that match on a single instruction, but also patterns matching up to four
@@ -5450,7 +5582,7 @@ matching is tried again with the same patterns. Since the {\em current}
 instruction is the last one in the peephole window, each optimization should set
 the current instruction to be the instruction most further back on which
 peephole optimizations are worthwhile, i.e. the instruction furthest back, which
-{\em changed}. This is because changed instructions can allow match of new or
+{\em changed}. This is because changed instructions can allow match of
 different patterns, so it is beneficial to go back and try them.
 
 This construction has another advantage---it may even be used in an online way.
@@ -5462,14 +5594,17 @@ A state machine would be a great match for this kind of problem. The state
 machine could in its states remember the previous instructions encountered, and
 provide efficient matching and lookup of patterns to execute. In practice, the
 patterns, especially the use-def based (section~\ref[sec:imp-peephole-use-def])
-don't fit into this model that well. The predicates used for matching the
+don't fit into this model that well. The fact that we can go back a few
+instructions would also mean a big number of states keeping the context.
+Additionally, the
+predicates used for matching the
 instructions are not always straightforward and often benefit of being coded in
-C, like shown in previous sections. Creating a state machine generator also
+C, like shown in previous sections. Ultimately, creating a state machine generator also
 doesn't pay off that much until multiple target architectures are needed, so we
-did ultimately settle on ad hoc pattern matching and optimization with C code.
+settled on ad hoc pattern matching and optimization with C code.
 
-In our implementation, we iterate the instruction sequence, try to match each
-pattern in turn, if any of them matches, its associated code executes and
+In the implementation, we iterate the instruction sequence, try to match each
+pattern in turn, and, if any of them matches, its associated code executes and
 also sets the new current instruction, which we try matching next. If no pattern
 matches, we set current instruction to the instruction following the current
 one.
@@ -5507,7 +5642,7 @@ The choice to do peephole optimization on instruction sequences limited to
 blocks instead of doing it on whole functions is not an obvious trade-off. In
 our architecture we do peephole optimization twice---before and after register
 allocation. For register allocation (due to liveness analysis,
-section~\ref[TODO]) as well as flag analysis
+section~\ref[sec:imp-liveness]) as well as flag analysis
 (section~\ref[sec:imp-peephole-flag]) we want to have {\em basic blocks}. But,
 for peephole optimization itself, we don't care about basic block that much. We
 can have either blocks that are not basic as hinted in
@@ -5515,21 +5650,22 @@ section~\ref[sec:imp-peephole-block], or just a single instruction sequence for 
 whole function. Though still with a single instruction sequence we need a way to
 do jumps, which could be represented with {\em label} nodes, similar to what is
 done in~\cite[Wulf1975]. By having a linked list of instructions and labels, we
-could iterate over the whole function and not handling blocks as a special
-case---as labels they would be part of normal patterns. After a label would
-become unreferenced, it would be deleted and instructions formerly separated
-would become eligible for peephole optimization.
+could iterate over the whole function and not handle blocks as a special
+case---being represented as labels they would be part of normal patterns. After
+a label would become unreferenced, it would be deleted and instructions formerly
+separated would become adjacent and eligible for peephole optimization.
 
 However, since we do a round of peephole optimization before register
 allocation's liveness analysis, we would need to derive information about basic
 blocks for it specially. Then we would have to be careful about keeping the
-basic block boundary representation valid even through the spill stage, which
+basic block boundary representation valid even throughout the spill stage, which
 inserts new instruction (which depending on the boundary representation can be
 problematic e.g. if a load is inserted {\em before} the first instruction in a
 basic block) or we would have to recompute basic block information after
 spilling. Another problematic point for some representations of basic blocks is
 the fact, that liveness analysis needs to iterate over the blocks {\em
-backwards}, as well as keep them in a worklist for fast data-flow analysis.
+backwards}, as well as keep them in a worklist for fast data-flow analysis (see
+section~\ref[sec:imp-liveness]).
 
 In our approach we chose to keep middle end basic blocks tied to machine blocks.
 Control flow graph from the middle end representation is used even in the back
@@ -5573,11 +5709,11 @@ if (<there is a following block>) {
 All in all, the peephole optimization seems to do fairly well. Early deletions of
 instructions are particularly important for getting good results out of peephole
 optimizations. In particular, dead instruction removal should be done as soon as
-possible, in the one pass, not for example left to the second pass. These
+possible, in the pass, not for example left to the next pass. These
 removals can bring closer instructions that would have otherwise not been
 covered by the same peephole window.
 
-There are a couple of disadvantages to our peephole optimization design:
+There are also a couple of disadvantages to our peephole optimization design:
 
 \begitems
 
@@ -5588,6 +5724,9 @@ of constants far away from current instruction can still result in new
 cascading improvements.
 
 \enditems
+%
+Improvements on all points are of course possible, but require quite a different
+approach and are thus not yet implemented.
 
 \seccc Copy propagation
 
@@ -5630,30 +5769,31 @@ mov t18, t27
 
 As this optimization removes an instruction it allows more optimizations that
 would otherwise be outside of reach. Despite being a simple form of copy
-propagation it works so well, because due a lot of copies are present in
-translation to x86-64's two address code.
+propagation it works so well, because a lot of copies are present in
+translation to x86-64's two address code, many of them can be fused together
+with constant materialization.
 
 \seccc Duplication of patterns
 
 Even though use-def based optimization can propagate constants or memory
 locations, they are currently only tried last. Less general local peephole
 optimization patterns are tried first. For example, with the proper use and def
-count checks the following pattern from:
+count checks a pattern which transforms the following:
 
 \begtt
 mov t22, [H]
 mov t23, [...]
 add t23, t22
 \endtt
-
-To:
+%
+to:
 
 \begtt
 mov t23, ...
 add t23, [H]
 \endtt
-
-Performs much better than the \"data-flow" version from
+%
+performs much better than the \"data-flow" version from
 section~\ref[sec:imp-peephole-use-def] based on the `try_combine_memory`
 function. This is purely because it is able to bring the peephole window back
 to the first instruction, which cascades to many other optimizations.
@@ -5686,25 +5826,28 @@ mov [rdi+8*rcx], rax
 
 This stems from the great composability of the `lea` instruction. To not miss
 these optimizations our peephole optimizer prefers `lea` even for situations
-where other instructions might be better:
+where other instructions might be better, e.g. it can generate the following
+`lea`s:
 
 \begtt
 lea t12, [t12+t13]
-
 lea t12, [t12+1]
 lea t12, [t12-1]
 \endtt
 
 The first instruction could be replaced by a single `add` instruction. On some
-Intel microarchitectures~\cite[IntelOptimization], the `add` is recommended,
-because for example low end processors use separate Address Generation Unit
+low-end Intel microarchitectures~\cite[IntelOptimization], the `add` is recommended,
+because the processors use separate Address Generation Unit
 (AGU) for `lea` calculations which means doing normal arithmetic there imposes
-additional synchronization. The last two instruction are replaceable by `inc`
-and `dec` respectively. These have their own problems with flags (see
+additional synchronization.
+
+The last two instructions are replaceable by `inc` and `dec` respectively. These
+have their own problems with partial writes to flags (see
 section~\ref[sec:imp-peephole-flag]), but there are no big penalties on recent
 processors.
 
-As using `lea` is generally not worse in any significant way, we believe it is
+As using `lea` is generally not worse in any significant way (and certainly not
+so on recent microarchitectures~\cite[IntelOptimization]), we believe it is
 okay to leave the situation as is.
 
 
@@ -5712,13 +5855,13 @@ okay to leave the situation as is.
 
 Register allocation by graph coloring and in particular the Iterated register
 coalescing~\cite[George1996] algorithm we implement, does not consist of one
-simple step, but of multiple, and additionally, the algorithm is repeated until
+simple step, but of multiple. Additionally, the algorithm is repeated until
 it succeeds. The basic means of operation of the algorithm are shown in
 figure~\ref[fig:todo], and briefly introduced here:
 
 \begitems \style n
 
-* {\em Liveness analysis}. First we need to analyze where what variable are {\em
+* {\em Liveness analysis}. First we need to analyze where are virtual registers {\em
 live}.
 
 %Before we are able to construct the interference
@@ -5733,7 +5876,8 @@ virtual register be as well as mark some registers unspillable (see
 section~\ref[sec:use-of-spilled]).
 
 * {\em Perform iteration of iterated register coalescing graph coloring}. This
-is the initialization and main loop of the~\cite[George1996] algorithm.
+is the initialization and main loop of the~\cite[George1996] algorithm. It runs
+until the graph is fully simplified, which also determines a coloring order.
 
 * {\em Assign registers}. Virtual registers are colored one by one according to
 the order and coalescing determined in the previous step. The previous step
@@ -5752,9 +5896,9 @@ occurrences of virtual register to their assigned physical registers.
 
 \enditems
 
-The specialty of the Iterated register coalescing algorithm lie mainly in step
-4, but it has also great consequences of previous steps. Notably in design of
-data structures.
+The specialty of the Iterated register coalescing algorithm lies mainly in step
+4, but it has also consequences on previous steps, notably on the design of
+data structures (discussed in section~\ref[sec:imp-regalloc-coalescing]).
 
 The overall design of the register allocator in our compiler keeps it as a
 separate, opaque component. We store all data needed for the register allocator
@@ -5763,9 +5907,9 @@ obtains the state with a call to a {\em create} function and frees the state wit
 {\em free} function. Register allocation itself requires the allocated state and
 a machine function for which to do the register allocation. The register
 allocator returns the function modified to not use any virtual register, which
-sometimes means that additional spill code is added. This API allows a single
-state to be reused for allocating register for many functions and thus greatly
-reducing the costs of memory allocation.
+sometimes means that additional spill code is added. The API design allows a single
+state to be reused for register allocation of many functions and thus greatly
+reducing the costs of allocating the state.
 
 \begtt
 RegAllocState *reg_alloc_state_create(Arena *arena);
@@ -5774,7 +5918,7 @@ void reg_alloc_state_free(RegAllocState *ras);
 void reg_alloc_function(RegAllocState *ras, MFunction *mfunction);
 \endtt
 
-Most of the register allocator is target independent. Only x86-64 dependent
+Most of the register allocator is target independent. The only x86-64 dependent
 things are currently the routines for creating loads and stores from stack,
 allocation of stack slots and the number of physical registers as well as the
 descriptor tables (see section~\ref[sec:data-backend] for more details about
@@ -5797,7 +5941,7 @@ data-flow analysis:
 
 \enditems
 
-In liveness we propagate information in control flow from future to past, each
+In liveness we propagate information in control flow from future to past---each
 {\em use} means that a virtual register starts being {\em live} and each {\em
 definition} means that a virtual register stops being {\em live}. Concrete
 data-flow equations that capture this are given for example by~\cite[Appel1998]:
@@ -5811,7 +5955,7 @@ $$ \eqalignno {
 
 The formulation is based on {\em live-in} and {\em live-out} sets, which capture
 the state of liveness along control flow edges. Liveness information in a
-control flow nodes is given by the liveness in all {\em successors}, i.e. we
+control flow node is given by the liveness in all {\em successors}, i.e. we
 propagate information from the future to past.
 
 Iterative data-flow analysis starts with all {\em live-in} and {\em live-out}
@@ -5835,17 +5979,17 @@ to equation (2).
 
 * We use a {\em work list} based approach~\cite[Cooper2006] in which we first
 insert all blocks into a work list, then as long as the work list is not empty,
-we remove blocks from it, recompute its liveness sets and insert its {\em
+we keep removing a block from it, recompute its liveness sets and insert its {\em
 predecessors} back to the work list. This means that we iterate over each block
-once in the beginning, and then only on demand as we find changes in block {\em
+once in the beginning, and then only on demand as we find changes in block's {\em
 successors}.
 
 * Blocks use information from their {\em successors}, which means that if we
-processed all blocks after their successors, we could find the solution in a
+processed all blocks {\em after} their successors, we could find the solution in a
 single iteration. In practice, control flow graphs contain loops, so processing
 all successors of a block before the block is not possible, but we can use a
-block order which tries to put block successors of a block before it, such as the
-post order of the control flow graph, which we already have available (see
+block order which tries to put block's successors before it, such as the
+postorder of the control flow graph, which we already have available (see
 section~\ref[sec:data-structures-middle-end-function]).
 
 \enditems
@@ -5864,8 +6008,11 @@ void liveness_analysis(RegAllocState *ras) {
 		Block *block = mblock->block;
 		get_live_out(ras, block, live_set);
 
-		for (Inst *inst = mblock->insts.prev; inst != &mblock->insts; inst = inst->prev)
+		Inst *inst = mblock->insts.prev;
+		while (inst != &mblock->insts) {
 			live_step(live_set, mfunction, inst);
+			inst = inst->prev;
+		}
 
 		if (!wl_eq(live_set, &ras->live_in[b])) {
 			WorkList tmp = ras->live_in[b];
@@ -5882,9 +6029,9 @@ The same data structure (`WorkList`) is used for representing both the work list
 for blocks that need to be processed as well as the {\em liveness
 sets}---sets need to support fast unique addition as well as removal and
 iteration and clearing, which is pretty similar to work list's needs. Our work list
-implementation (section~\ref[sec:imp-worklist]) supports those operations all of
-these use cases. Live-out sets are only computed when a block is processed,
-`RegAllocState` only holds live-in sets:
+implementation (section~\ref[sec:imp-worklist]) supports all these operations.
+As mentioned live-out sets are not stored, `RegAllocState` only holds live-in
+sets:
 
 \begtt
 struct RegAllocState {
@@ -5926,9 +6073,10 @@ for our representation for instructions (see section~\ref[sec:data-backend]) and
 it works out nicely, since we can use generic callback-based iterators for
 iterating over all definitions and uses.
 
-\begtt
-add t17, t15
-\endtt
+% maybe show uses and definitions of: ?
+%\begtt
+%add t17, t15
+%\endtt
 
 After the function `liveness_analysis` runs, `live_in` sets for each block are
 calculated. From these we can derive the set of live virtual registers at any
@@ -5942,16 +6090,16 @@ Now that we know which virtual registers are live at different program points,
 we use them to construct the {\em interference graph}.
 
 Formally, two virtual registers interfere when they are live at the same
-time~\cite[Chaitin1981]. We can find the live-set for each program point by
+time~\cite[Chaitin1981] TODO refer to interference definition. We can find the live-set for each program point by
 iterating over all blocks (in any order) and instructions (backwards)
 maintaining a live-set with the `live_step` function. But adding interference
-between all live simultaneously would mean adding $\ell \cdot (\ell - 1)$ at each
+between all $\ell$ live in the live-set would mean adding $\ell \cdot (\ell - 1)$ at each
 program point---this is both expensive and adds too many edges repeatedly if
 virtual registers are alive for longer periods of times.
 
 Instead Chaitin~\cite[Chaitin1981] suggests to use a different notion of
 interference: \"{\em two virtual registers interfere if one of them is live at
-the definition point of other}". This translates much better to an
+the definition point of other}" TODO second definition. This translates much better to an
 implementation, because this means at each instruction adding interference for
 all definitions in that instruction with all $\ell$ members of live-set (thus for
 most instruction this is $\ell$ edges, in general $c \cdot \ell$, where $c$ is a
@@ -5985,13 +6133,13 @@ The most important part above is the loop which for each member of `live_set`
 adds interference with each definition. But before doing that, we actually add
 all {\em definitions} to the live set. By adding definitions to the live-set and
 then adding interferences of all definitions with all live, we also add
-interferences across all {\em defined registers}---important, to
+interferences across all {\em defined registers}, which is important, to
 prevent assignment of the same physical register to any two definitions in the
 same instruction. Adding the definitions to the live set is not really correct
 in the iteration, since we ought to add {\em uses}, not {\em definitions}. But
 when stepping the liveness for an instruction, we actually remove definitions
-from the live set, {\em before} adding the uses, so the fact that we add had
-added the definitions to the live set temporarily is not observable from the
+from the live set, {\em before} adding the uses, so the fact that we add
+the definitions to the live set temporarily is not observable from the
 outside. The liveness step is realized by the last two calls, which are the same
 as in `live_step`.
 
@@ -6020,8 +6168,8 @@ coalescing algorithm in section~\ref[TODO].
 In sections~\ref[sec:regalloc-constraints] and~\ref[sec:regalloc-graph-coloring] we
 claimed that the combination of live range splitting and interferences added
 through right definitions and uses can be used to model calling conventions
-passing arguments in physical registers, which is done on all commonly used
-x86-64 calling conventions (see section~\ref[TODO]). In
+passing arguments or return values in physical registers (which is done on all commonly used
+x86-64 calling conventions, see section~\ref[TODO]). In
 section~\ref[sec:imp-lowering-prologue-epilogue] we described how the live range
 splitting of callee saved registers is handled. But so far we haven't explained
 how the interferences are added in our implementation, since the instruction
@@ -6091,12 +6239,12 @@ are added in two instructions and the result is moved to `rax`, the return value
 register.
 
 The `call` instruction has only one argument---the label of the function to
-call. It doesn't in any way communicate explicitly, that the function call
+call. It doesn't in any way communicate explicitly, that the
 caller saved registers (like `rdi` or `rsi` which are also used for passing
 arguments) are not preserved throughout the call. There is also no explicit
 definition of the callee saved and argument registers, even though we use them
 in the function. As established mainly in
-section~\ref[sec:regalloc-constraints]), we want to mainly add:
+section~\ref[sec:regalloc-constraints], we want to add:
 
 \begitems
 * Uses of actually used {\em argument registers} to the `call` instruction.
@@ -6124,7 +6272,8 @@ But in our case, they are split, and their definitions appear right before the
 epilogue and thus they are kept in the live set only for a short time. It is
 still important that we model the uses in the `ret` instruction though---it
 adds interferences to the registers holding the callee saved register values.
-These interferences are important for graph coloring algorithm.
+These interferences are important for graph coloring algorithm, as precise
+degrees of nodes are expected.
 
 * Definitions of {\em argument and callee saved registers} in the entry point.
 They are \"passed" by the caller. Adding the definitions isn't strictly needed
@@ -6136,10 +6285,10 @@ registers, see section~\ref[sec:imp-peephole-use-def]).
 \enditems
 
 Adding all the uses and definitions as additional {\em operands} to the `Inst`
-structure (introduced in section~\ref[sec:data-backend]), is a bit wasteful
-considering that to the same kinds of instruction we want to attach same kinds
-of defined and used register, except sometimes we want to limit the number to
-{\em argument count}.
+structure (introduced in section~\ref[sec:data-backend]), is a bit wasteful,
+considering we want to attach the extra defined and used registers mostly
+statically to instructions kinds, except sometimes we want to limit the number of
+registers to {\em argument count}.
 
 Because of this regularity, we opted to attach the additional uses and
 definitions to instruction {\em modes}. Already existing `M_LCALL` (call label)
@@ -6270,6 +6419,7 @@ other callee saved registers coalescing didn't help much---the registers were
 mostly restricted by the calling convention or interfered with each other due to
 being live at the same time.
 
+\label[sec:imp-spill-cost]
 \secc Calculate spill costs
 
 \label[sec:imp-regalloc-simplify]
@@ -6972,6 +7122,7 @@ void add_interference(RegAllocState *ras, Oper u, Oper v) {
 }
 \endtt
 
+\label[sec:imp-regalloc-coalescing]
 \secc Physical registers, coalescing
 
 For register assignment (section~\ref[sec:imp-regalloc-assignment]) and

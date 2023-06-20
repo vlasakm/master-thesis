@@ -2,15 +2,15 @@
 
 #include "inst.h"
 
-#define IREG(inst) ((inst)->ops[0])
-#define IREG1(inst) ((inst)->ops[0])
-#define IBASE(inst) ((inst)->ops[1])
-#define IREG2(inst) ((inst)->ops[1])
-#define IINDEX(inst) ((inst)->ops[2])
-#define ILABEL(inst) ((inst)->ops[3])
-#define ISCALE(inst) ((inst)->ops[3])
-#define IDISP(inst) ((inst)->ops[4])
-#define IIMM(inst) (((inst)->ops[5]))
+#define IREG(inst)     ((inst)->ops[0])
+#define IREG1(inst)    ((inst)->ops[0])
+#define IBASE(inst)    ((inst)->ops[1])
+#define IREG2(inst)    ((inst)->ops[1])
+#define IINDEX(inst)   ((inst)->ops[2])
+#define ILABEL(inst)   ((inst)->ops[3])
+#define ISCALE(inst)   ((inst)->ops[3])
+#define IDISP(inst)    ((inst)->ops[4])
+#define IIMM(inst)     ((inst)->ops[5])
 #define IARG_CNT(inst) ((inst)->ops[5])
 
 void set_imm64(Inst *inst, u64 imm);
