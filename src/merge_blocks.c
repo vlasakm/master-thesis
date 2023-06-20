@@ -56,4 +56,3 @@ merge_blocks(Arena *arena, Function *function)
 	// Recompute function->post_order, since we invalidated it.
 	compute_postorder(function);
 }
-
