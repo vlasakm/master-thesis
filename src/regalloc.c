@@ -1261,7 +1261,7 @@ find_register_for(RegAllocState *ras, Oper u)
 		assert(u == op1 || u == op2);
 		Oper v = op1 != u ? op1 : op2;
 		// skip also coalesced moves (mov t27, t27)
-		if (u == v || wl_has(&ras->stack, v) || is_to_be_spilled(ras, v)) {
+		if (u == v || are_interfering(ras, u, v) || wl_has(&ras->stack, v) || is_to_be_spilled(ras, v)) {
 			continue;
 		}
 		Oper reg = ras->reg_assignment[v];
