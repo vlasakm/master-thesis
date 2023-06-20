@@ -231,7 +231,7 @@ main(int argc, char **argv)
 	printf("\tglobal _start\n");
 	printf("_start:\n");
 	printf("\txor rbp, rbp\n");
-	printf("\tand rsp, -8\n");
+	printf("\tand rsp, -16\n");
 	printf("\tcall main\n");
 	printf("\tmov rdi, rax\n");
 	printf("\tmov rax, 60\n");
