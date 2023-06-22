@@ -372,6 +372,14 @@ add_interference_with(void *user_data, Oper *oper)
 	add_interference(is->ras, *oper, is->live);
 }
 
+static bool
+is_move(Inst *inst)
+{
+	// NOTE: This is x86-64 specific, and should be replaced if we ever
+	// support multiple architectures.
+	return IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_Cr;
+}
+
 void
 add_move(RegAllocState *ras, Inst *inst)
 {
@@ -401,7 +409,7 @@ interference_step(RegAllocState *ras, WorkList *live_set, Inst *inst)
 	//    destination.
 	// 2) We want to note all moves and for all nodes the moves they are
 	//    contained in, because we want to try to coalesce the moves later.
-	if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_Cr) {
+	if (is_move(inst)) {
 		// Remove uses from live to prevent interference between move
 		// destination and source.
 		for_each_use(inst, remove_from_set, live_set);
@@ -595,7 +603,7 @@ rewrite_program(RegAllocState *ras)
 			fprintf(stderr, "\n");
 			print_inst(stderr, mfunction, inst);
 			fprintf(stderr, "\n");
-			if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_Cr) {
+			if (is_move(inst)) {
 				Oper dest = inst->ops[0];
 				Oper src = inst->ops[1];
 				bool spill_dest = is_to_be_spilled(ras, dest);
@@ -662,6 +670,13 @@ apply_coalescing(RegAllocState *ras)
 	ZERO_ARRAY(ras->reg_assignment, ras->mfunction->vreg_cnt);
 }
 
+
+u16
+cost_in_depth(u64 depth)
+{
+	return 1 << (3 * depth);
+}
+
 void
 mark_defs_with_uninterrupted_uses_unspillable(void *user_data, Oper *def_)
 {
@@ -679,9 +694,7 @@ mark_defs_with_uninterrupted_uses_unspillable(void *user_data, Oper *def_)
 			fprintf(stderr, " as unspillable\n");
 		}
 	}
-	// Update def cost by the depth of the current block, which is zero
-	// based, so we offset by one to not have zero cost in the top level.
-	ras->def_cost[def] += 1 << (3 * (ras->mblock->block->depth + 1));
+	ras->def_cost[def] += cost_in_depth(ras->mblock->block->depth);
 	// Update liveness.
 	wl_remove(&ras->live_set, def);
 }
@@ -707,7 +720,7 @@ add_live(void *user_data, Oper *use_)
 	RegAllocState *ras = user_data;
 	Oper use = *use_;
 	// Update use count.
-	ras->use_cost[use] += 1 << (3 * (ras->mblock->block->depth + 1));
+	ras->use_cost[use] += cost_in_depth(ras->mblock->block->depth);
 	// Update liveness and add note that this use is uninterrupted for now.
 	wl_add(&ras->live_set, use);
 	wl_add(&ras->uninterrupted, use);
