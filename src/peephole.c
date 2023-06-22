@@ -492,7 +492,7 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 			// =>
 			// mov t14, t34
 			// add t14, 8
-			if (false && IK(inst) == IK_BINALU && IM(inst) == M_Rr && IK(prev) == IK_MOV && IS(prev) == MOV && IM(prev) == M_Cr && IK(pprev) == IK_MOV && IS(pprev) == MOV && IM(pprev) == M_CI && IREG(pprev) == IREG2(inst) && use_cnt[IREG2(inst)] == 1 && pack_into_oper(get_imm64(pprev), &IIMM(inst))) {
+			if (IK(inst) == IK_BINALU && IM(inst) == M_Rr && IK(prev) == IK_MOV && IS(prev) == MOV && IM(prev) == M_Cr && IK(pprev) == IK_MOV && IS(pprev) == MOV && IM(pprev) == M_CI && IREG(pprev) == IREG2(inst) && use_cnt[IREG2(inst)] == 1 && pack_into_oper(get_imm64(pprev), &IIMM(inst))) {
 				def_cnt[IREG2(inst)]--;
 				use_cnt[IREG2(inst)]--;
 				IM(inst) = M_Ri;
