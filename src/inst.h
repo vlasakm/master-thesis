@@ -69,6 +69,11 @@ void print_mfunction(FILE *f, MFunction *mfunction);
 
 MBlock *mblock_create(Arena *arena, Block *block);
 
+void remove_inst(Inst *inst);
+void prepend_inst(Inst *pos, Inst *new);
+void append_inst(Inst *pos, Inst *new);
+
+
 void for_each_def(Inst *inst, void (*fun)(void *user_data, Oper *def), void *user_data);
 void for_each_use(Inst *inst, void (*fun)(void *user_data, Oper *use), void *user_data);
 

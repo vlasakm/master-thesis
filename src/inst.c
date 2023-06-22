@@ -91,6 +91,33 @@ mblock_create(Arena *arena, Block *block)
 }
 
 void
+remove_inst(Inst *inst)
+{
+	inst->prev->next = inst->next;
+	inst->next->prev = inst->prev;
+}
+
+void
+prepend_inst(Inst *pos, Inst *new)
+{
+	Inst *prev = pos->prev;
+	new->prev = prev;
+	new->next = pos;
+	prev->next = new;
+	pos->prev = new;
+}
+
+void
+append_inst(Inst *pos, Inst *new)
+{
+	Inst *next = pos->next;
+	new->next = next;
+	new->prev = pos;
+	next->prev = new;
+	pos->next = new;
+}
+
+void
 for_each_def(Inst *inst, void (*fun)(void *user_data, Oper *def), void *user_data)
 {
 	ModeDescriptor *mode = &mode_descs[inst->mode];

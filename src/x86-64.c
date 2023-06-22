@@ -295,6 +295,26 @@ create_inst(Arena *arena, InstKind kind, u8 subkind, X86Mode mode)
 	return inst;
 }
 
+Inst *
+create_load_with_disp(Arena *arena, Oper dest, Oper base, Oper disp)
+{
+	Inst *inst = create_inst(arena, IK_MOV, MOV, M_CM);
+	IREG(inst) = dest;
+	IBASE(inst) = base;
+	IDISP(inst) = disp;
+	return inst;
+}
+
+Inst *
+create_store_with_disp(Arena *arena, Oper base, Oper disp, Oper value)
+{
+	Inst *inst = create_inst(arena, IK_MOV, MOV, M_Mr);
+	IBASE(inst) = base;
+	IDISP(inst) = disp;
+	IREG(inst) = value;
+	return inst;
+}
+
 void
 set_imm64(Inst *inst, u64 imm)
 {

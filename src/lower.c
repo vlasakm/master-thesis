@@ -15,12 +15,7 @@ typedef struct {
 static void
 add_inst_to_block(MBlock *block, Inst *new)
 {
-	Inst *head = &block->insts;
-	Inst *last = head->prev;
-	new->prev = last;
-	new->next = head;
-	last->next = new;
-	head->prev = new;
+	prepend_inst(&block->insts, new);
 }
 
 
@@ -252,15 +247,11 @@ translate_call(TranslationState *ts, Oper res, Oper fun, Oper *args, size_t arg_
 	add_copy(ts, res, R_RAX);
 }
 
-static Inst *
-add_load_with_disp(TranslationState *ts, Oper dest, Oper addr, Oper disp)
+static void
+add_load_with_disp(TranslationState *ts, Oper dest, Oper base, Oper disp)
 {
-	Inst *inst = add_inst(ts, IK_MOV, MOV, M_CM);
-	inst->mode = M_CM;
-	IREG(inst) = dest;
-	IBASE(inst) = addr;
-	IDISP(inst) = disp;
-	return inst;
+	Inst *load = create_load_with_disp(ts->arena, dest, base, disp);
+	add_inst_to_block(ts->block, load);
 }
 
 static void

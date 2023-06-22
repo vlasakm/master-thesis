@@ -204,6 +204,10 @@ void peephole(MFunction *mfunction, Arena *arena, bool last_pass);
 
 Inst *create_inst(Arena *arena, InstKind kind, u8 subkind, X86Mode mode);
 
+Inst *create_load_with_disp(Arena *arena, Oper dest, Oper base, Oper disp);
+Inst *create_store_with_disp(Arena *arena, Oper dest, Oper base, Oper disp);
+
+
 void print_reg(FILE *f, Oper reg);
 void print_inst(FILE *f, MFunction *mfunction, Inst *inst);
 bool mode_has_memory(X86Mode m);

@@ -491,23 +491,15 @@ insert_loads_of_spilled(void *user_data, Oper *src)
 	if (!is_to_be_spilled(ras, *src)) {
 		return;
 	}
-	Inst *inst = ss->inst;
-
 	Oper temp = get_fresh_vreg_for_spill(ras);
 	ras->to_spill[temp] = ras->to_spill[*src];
 	fprintf(stderr, "load ");
 	print_reg(stderr, *src);
 	fprintf(stderr, " through ");
 	print_reg(stderr, temp);
-	Inst *load = create_inst(ras->arena, IK_MOV, MOV, M_CM);
-	load->prev = inst->prev;
-	load->next = inst;
-	IREG(load) = temp;
-	IBASE(load) = R_RBP;
-	IDISP(load) = spill_displacement(ras, *src);
-
-	inst->prev->next = load;
-	inst->prev = load;
+	Oper disp = spill_displacement(ras, *src);
+	Inst *load = create_load_with_disp(ras->arena, temp, R_RBP, disp);
+	prepend_inst(ss->inst, load);
 
 	*src = temp;
 }
@@ -520,8 +512,6 @@ insert_stores_of_spilled(void *user_data, Oper *dest)
 	if (!is_to_be_spilled(ras, *dest)) {
 		return;
 	}
-	Inst *inst = ss->inst;
-
 	// If the "to be spilled" register has actually been introduced only
 	// after we started spilling (i.e. it is bigger than `spill_start`, then
 	// we actually have a definition of a use in this same instruction.
@@ -576,20 +566,22 @@ insert_stores_of_spilled(void *user_data, Oper *dest)
 	print_reg(stderr, temp);
 	fprintf(stderr, "\n");
 
-	Inst *store = create_inst(ras->arena, IK_MOV, MOV, M_Mr);
-	store->prev = inst;
-	store->next = inst->next;
-	IREG(store) = temp;
-	IBASE(store) = R_RBP;
-	IDISP(store) = spill_displacement(ras, *dest);
+	Oper disp = spill_displacement(ras, *dest);
+	Inst *store = create_store_with_disp(ras->arena, R_RBP, disp, temp);
+	append_inst(ss->inst, store);
 
-	inst->next->prev = store;
-	inst->next = store;
-	inst = inst->next;
+	// Advance the current instruction pointer to the store instruction.
+	// This means that if we insert multiple stores for a single
+	// instruction, we insert them in the right order and additionally skip
+	// the store instructions below where we iterate over all instructions.
+	ss->inst = store;
 
 	*dest = temp;
 }
 
+// Tries to special case spills of move (copy) instructions, which can often get
+// rid of the copy instruction. Returns whether inserting loads and stores
+// should be skipped.
 void
 spill_move(RegAllocState *ras, Inst *inst)
 {
@@ -598,13 +590,23 @@ spill_move(RegAllocState *ras, Inst *inst)
 	bool spill_dest = is_to_be_spilled(ras, dest);
 	bool spill_src = is_to_be_spilled(ras, src);
 	if (spill_dest && spill_src) {
+		Oper dest_disp = spill_displacement(ras, dest);
+		Oper src_disp = spill_displacement(ras, src);
 		// If this would be essentially:
 		//    mov [rbp+X], [rbp+X]
 		// we can just get rid of the copy.
-		if (spill_displacement(ras, dest) == spill_displacement(ras, src)) {
-			inst->prev->next = inst->next;
-			inst->next->prev = inst->prev;
+		if (dest_disp == src_disp) {
+			remove_inst(inst);
 		}
+		// Otherwise we want:
+		// mov temp, [rbp+Y]
+		// mov [rbp+X], temp
+		Oper temp = get_fresh_vreg_for_spill(ras);
+		Inst *load = create_load_with_disp(ras->arena, temp, R_RBP, src_disp);
+		Inst *store = create_store_with_disp(ras->arena, R_RBP, dest_disp, temp);
+		prepend_inst(inst, load);
+		append_inst(inst, store);
+		remove_inst(inst);
 	} else if (spill_dest) {
 		inst->mode = M_Mr;
 		IREG(inst) = src;
@@ -616,7 +618,6 @@ spill_move(RegAllocState *ras, Inst *inst)
 		IBASE(inst) = R_RBP;
 		IDISP(inst) = spill_displacement(ras, src);
 	}
-
 }
 
 // Add spill code.
@@ -631,7 +632,11 @@ rewrite_program(RegAllocState *ras)
 	print_mfunction(stderr, mfunction);
 	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
 		MBlock *mblock = mfunction->mblocks[b];
-		for (Inst *inst = mblock->insts.next; inst != &mblock->insts; inst = inst->next) {
+		// NOTE: Beware subtlety ahead:
+		// If we insert new store instructions, we want to skip and not
+		// investigate them. For this we iterate with `ss->inst`, which
+		// is advanced every time a new store instruction is inserted.
+		for (Inst *inst = mblock->insts.next; inst != &mblock->insts; inst = ss->inst->next) {
 			ss->inst = inst;
 			fprintf(stderr, "\n");
 			print_inst(stderr, mfunction, inst);
