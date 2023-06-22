@@ -220,36 +220,34 @@ V XX dne XX.\,XX.\,TODO
 
 Computers with hard-wired programs can serve only a specialized purpose and are
 not practical. For this reason computers accept input data as well as the {\em
-programs}---the computers are {\em programmable}. The programs are {\em
-interpreted}, have data available as input and produce other data. Because most
-computers today are based on the binary numeral system (using only ones and
-zeros), data as well as programs have to be encoded in {\em binary}.
+programs} to run. The programs are interpreted by the processor, and from the
+input data produce other data as output. Because most computers today are based
+on the binary numeral system (using only ones and zeros), the data as well as
+programs have to be encoded in {\em binary}.
 
 Encoding machine instructions into binary by hand is tedious and error prone.
-Soon assembly language came up as an abstraction---human readable textual
-notation of the instructions. Assembly can be directly mapped to binary encoding
-of the instructions by a program called {\em assembler}.
-
+Assembly language, a human readable textual notation of the instructions, came up
+as an abstraction and convenience for humans.
 However, still every computer or rather its CPU ({\em central processing unit})
 can have different capabilities and support different instructions. Assembly
-doesn't abstract that---assembly language is {\em machine specific}. High
+doesn't abstract that---it is {\em machine specific}. High
 diversity was mainly true in the early days where every computer could be
-very different. But since then the industry settled, and while CPUs can be still
-very different {\em internally}, they all support one of the prominent {\em
-instruction set architectures}. The instruction set defines the interface of the
-processor---what instructions it supports and how they are encoded, and the CPU
-is an implementation of the interface.
+very different. But since then, the industry settled, and while CPUs can be still
+very different {\em internally}, they usually support one of the prominent {\em
+instruction set architectures}. The instruction set architecture (ISA) defines
+the interface of the processor---what instructions it supports and how they are
+encoded. A CPU implements that interface.
 
 A more powerful abstraction for writing programs came with the advent of {\em
 programming languages}, which allow expressing programs at high level, without
 being tied to any machine or its capabilities. Programs written in programming
-languages are readable by humans, but executable by machines. Often programming
-languages are translated ({\em compiled}) to machine instructions in order to
-run on the target machine directly.
+languages are readable by humans, but not executable by machines. Programs
+usually have to be translated ({\em compiled}) to machine instructions, in order
+to run on the target machine.
 
 Compilation can be a difficult process, because modern high level languages care to
 provide useful tools to the programmers, while machine instructions often
-support rather elementary operations. Also, as there are many instruction set
+support rather elementary operations. As there are many instruction set
 architectures and many programming languages, it may seem that a different
 compiler is needed for every combination.
 
@@ -277,19 +275,19 @@ intermediate representation in a common third part of a modern compiler:
 \begitems \style n \itemnum=2
 * {\em Middle end}. Performs programming language and machine independent
 transformations on the intermediate representation. Often these are {\em
-optimizations} that improve simplify or improve the code.
+optimizations} that simplify or otherwise improve the code.
 \enditems
 
 In the real world, there is still a place for newer or better compilers, that
 produce more efficient or smaller machine code. Not only are new programming
-languages created by the industry or academic research, occasionally even new
-instruction set architectures come up, or the existing architectures are
+languages created by the industry or academic research, but rarely even new
+instruction set architectures come up, or more often the existing architectures are
 extended with newer capabilities. Existing instruction sets are also implemented
 in newer and more modern processors, which may excel at slightly different
-operations and compiler writers often exploit even these little implementation
+operations and compiler writers often exploit even these implementation
 details, just to generate better code.
 
-This means that even just from a back end perspective there is a need for new
+This means that even just from a back end perspective there is still a need for new
 compiler engineers. At the Faculty of Information Technology of Czech Technical
 University in Prague, there is a master's compiler course NI-GEN (\"Code
 generation"), where students learn mainly about compiler back ends. The course
@@ -307,10 +305,10 @@ translations to machine code.
 
 x86-64 although tracing its history almost 50 years back, can still in these
 days be considered the prevalent architecture. It poses many challenges not
-present in later designs. For example: low number of registers, register aliases
-and in general non-trivial register class hierarchy, complex addressing modes
+present in later designs, e.g. low number of registers,
+irregular register class hierarchy, complex addressing modes
 which are only partly regular, etc. As the original instruction set got extended
-throughout the years, and some of the problematic areas were improved, but due
+throughout the years, some of the problematic areas were improved, but due
 to extensive backwards compatibility, we have to still account for them even
 today.
 
@@ -329,7 +327,8 @@ tools.
 * We can compare the generated code to the output of existing C compilers.
 \enditems
 
-Naturally, the back end will be usable by other front ends. We aim to 
+Naturally, the back end will be usable by other front ends, so it is not
+strictly limited to TinyC.
 
 %In this thesis, we look at compilation from TinyC to {\em x86-64}. As a real
 %architecture with rich history, the x86-64 is much more challenging from a
@@ -347,15 +346,15 @@ making these requests to the operating system is usually the job of a component
 called {\em runtime}. On the x86-64 the situation is no exception: there are
 instructions that allow the program to make requests to the operating system
 ({\em system calls}), but different operating systems allow system calls to be
-used differently and don't support the same features. TinyC for example, doesn't
-support calls into the operating system at all, and a {\em runtime} component
-that allows TinyC to use system resources as well as to just run has to be
-provided and integrated into TinyC.
+used differently and don't support the same features. The TinyC language doesn't
+nominally support calls into the operating system at all, and a {\em runtime}
+component that allows TinyC to use system resources has to be provided and made
+available to the TinyC language.
 
 The following chapters provide a description of the x86-64 architecture and its
 challenges (chapter~\ref[chap:x86]), a look of the state of the art in the
-area of compiler back ends (chapter~\ref[chap:state-of-the-art]), and a
-close look at the design and implementation of an x86-64 backend for TinyC and
+area of compiler back ends (chapter~\ref[chap:state-of-the-art]), a
+close look at the design and implementation of an x86-64 back end for TinyC and
 the accompanying runtime (chapter~\ref[chap:design]) and evaluation accompanied
 with comparison to existing C compilers (chapter~\ref[chap:evaluation]).
 
@@ -7386,23 +7385,97 @@ Srovnání s GCC apod.
 
 \chap Conclusion
 
-In this thesis we studied x86-64, one of the most prevalent architectures today,
-and looked at an implementation for a back end translating the TinyC programming
-language into it.
+In this thesis we studied x86-64, one of the most prevalent architectures today.
+We designed and implemented a back end for translating TinyC IR into x86-64
+machine code. To achieve this, we investigated existing literature on the topic of
+compiler back ends. This final chapter provides some reflections, practical
+considerations and ideas for future work.
 
 The x86-64 features many constraints that make it harder to compile for. A lot
-of these constraints can be overcome with the right use of live range splitting
-and 
+of these constraints can be overcome with the right use of live range splitting.
+The problems with register classes on x86-64 can be avoided by not using
+problematic registers (like `ah`)---this not only makes register allocation
+simpler, but the resulting code is also also faster in practice, because use of
+the historical register classes is associated with big penalties on modern
+superscalar processors.
 
-The implemented backend is based on existing substantial research in the area of
-compiler back ends. However, due to many specialities, irregularities or
-limitations of the x86-64 architecture, there are other challenges, which are
-sometimes which are not always catered for by the publications on topics like
-instruction selection or register allocation.
+Irregularities in the x86-64 instruction set and the addressing modes make it
+harder for a compiler to model instruction selection with trees or DAGs. In our
+design, we chose to first do a naive translation to x86-64 machine instructions
+and then optimize the generated code successively with {\em peephole
+optimizations}. This is an application of the Davidson-Fraser
+model~\cite[Davidson1984a], though we work on instructions directly, instead of
+on a separate low level intermediate representation. In this model we can easily
+express the constraints mentioned above---our naive code generation provides
+correctness, while the optimizations make the produced code efficient.
 
-In our implementation we chose to 
+Peephole optimization itself proved to be capable of improving the code to take
+advantage of the various x86-64 addressing modes, though data-flow based
+optimizations have to be used, otherwise many optimizations can be missed due to
+not falling into a peephole window. Writing the peephole patterns by hand, is
+tractable for a single architecture, but it is error prone---patterns are not
+too hard to create in isolation, but their interactions can sometimes become
+problematic. Some automation or a domain specific language for writing the
+patterns would be a must for a compiler with more target architectures or a big
+number of patterns. On the other hand, hand-written patterns proved to be quite
+expressive and can easily cover more cases then automatically derived patterns
+could.
 
-Correctness then optimization
+Modern optimizing compilers use SSA form in their middle ends. Deconstructing
+the $\phi$-functions (not executable by machines) into copy instructions is not
+as trivial as it may seem, but correct and simple algorithms are available.
+
+Live range splitting, compilation to x86-64's two address code as well as SSA
+deconstruction can all produce a large number of copy instructions. Coalescing,
+which is able to remove the copy instructions if possible, is needed to produce
+efficient code. Coalescing has to be done carefully to ensure both correctness
+as well as code quality, since excessive coalescing can lead to spilling. This
+is one of the reasons why we used the iterated register coalescing
+algorithm~\cite[George1996] for register allocation---it is based on the classic
+well known technique of graph coloring register allocation, but is able to
+eliminate many more copy instructions than previous approaches.
+
+Although the produced code is good for code sequences that are
+covered by our peephole patterns, the code quality goes down significantly if
+our patterns are weak enough and not able to optimize a sequence of
+instructions. A lot of times this can be attributed to translation from middle
+end IR that was not sufficiently optimized---the inoptimalities are only
+magnified in our back end, which is mostly focused on making use of x86-64's
+features as much as possible. The middle end is much more suited for
+optimizations that are not x86-64 specific, not only because improvements there
+apply to other architectures, but also because it works with a higher level
+abstractions and still has some knowledge about semantics, while the backend
+already works mostly with untyped integers.
+
+This thesis, both the text and the actual implementation, can hopefully serve as
+examples to the students at FIT CTU considering advancing their compilers beyond
+the simplified Tiny86 architecture.
+
+\sec Future work
+
+The back end works, and can be used as is. However there are still some
+interesting areas that could be explored in future work.
+
+We tried to design the back end with porting to other target architectures in
+mind. It would be great to exercise that in practice and add a second target
+architecture to our compiler. Starting without a peephole optimizer, the port
+should hopefully be relatively straightforward. Porting to an architecture like
+AArch64 would be the most interesting, since it features register classes that
+require more care than the ones on x86-64.
+
+Ports to other calling conventions (like Microsoft's) or to operating systems
+which require system calls to be performed directly (like Windows or OpenBSD)
+would exercise other parts of the compiler.
+
+The back end produces textual NASM assembly, that can be turned into a final
+executable with external programs (NASM assembler and system linker). This works
+great for inspection and allows linking with external code, but still shows all
+important aspects of the compiler. Making the back end produce executables
+directly could however make it more self-contained as external dependencies
+would no longer be required.
+
+As of now, the back end is implemented as a standalone program. Turning it into a
+library could make it more universally usable.
 
 
 
