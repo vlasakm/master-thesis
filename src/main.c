@@ -247,6 +247,7 @@ main(int argc, char **argv)
 	printf("\tmov rdi, rax\n");
 	printf("\tmov rax, 60\n");
 	printf("\tsyscall\n");
+	// TODO: argc, argv
 	*/
 
 	for (size_t i = 0; i < function_cnt; i++) {
