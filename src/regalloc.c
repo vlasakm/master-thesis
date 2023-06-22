@@ -589,6 +589,35 @@ insert_stores_of_spilled(void *user_data, Oper *dest)
 	*dest = temp;
 }
 
+void
+spill_move(RegAllocState *ras, Inst *inst)
+{
+	Oper dest = inst->ops[0];
+	Oper src = inst->ops[1];
+	bool spill_dest = is_to_be_spilled(ras, dest);
+	bool spill_src = is_to_be_spilled(ras, src);
+	if (spill_dest && spill_src) {
+		// If this would be essentially:
+		//    mov [rbp+X], [rbp+X]
+		// we can just get rid of the copy.
+		if (spill_displacement(ras, dest) == spill_displacement(ras, src)) {
+			inst->prev->next = inst->next;
+			inst->next->prev = inst->prev;
+		}
+	} else if (spill_dest) {
+		inst->mode = M_Mr;
+		IREG(inst) = src;
+		IBASE(inst) = R_RBP;
+		IDISP(inst) = spill_displacement(ras, dest);
+	} else if (spill_src) {
+		inst->mode = M_CM;
+		IREG(inst) = dest;
+		IBASE(inst) = R_RBP;
+		IDISP(inst) = spill_displacement(ras, src);
+	}
+
+}
+
 // Add spill code.
 void
 rewrite_program(RegAllocState *ras)
@@ -607,29 +636,7 @@ rewrite_program(RegAllocState *ras)
 			print_inst(stderr, mfunction, inst);
 			fprintf(stderr, "\n");
 			if (is_move(inst)) {
-				Oper dest = inst->ops[0];
-				Oper src = inst->ops[1];
-				bool spill_dest = is_to_be_spilled(ras, dest);
-				bool spill_src = is_to_be_spilled(ras, src);
-				if (spill_dest && spill_src) {
-					// If this would be essentially:
-					//    mov [rbp+X], [rbp+X]
-					// we can just get rid of the copy.
-					if (spill_displacement(ras, dest) == spill_displacement(ras, src)) {
-						inst->prev->next = inst->next;
-						inst->next->prev = inst->prev;
-					}
-				} else if (spill_dest) {
-					inst->mode = M_Mr;
-					IREG(inst) = src;
-					IBASE(inst) = R_RBP;
-					IDISP(inst) = spill_displacement(ras, dest);
-				} else if (spill_src) {
-					inst->mode = M_CM;
-					IREG(inst) = dest;
-					IBASE(inst) = R_RBP;
-					IDISP(inst) = spill_displacement(ras, src);
-				}
+				spill_move(ras, inst);
 				continue;
 			}
 			//print_inst_d(stderr, inst);
