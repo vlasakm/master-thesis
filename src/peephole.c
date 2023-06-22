@@ -431,7 +431,9 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 			// =>
 			// lea t14, [rbp-8]
 			if (IK(inst) == IK_BINALU && IS(inst) == G1_ADD && IM(inst) == M_Ri && IK(prev) == IK_MOV && IS(prev) == LEA && IREG(prev) == IREG(inst)) {
-				def_cnt[IREG(inst)]--;
+				if (--def_cnt[IREG(inst)] == 1) {
+					mfunction->only_def[IREG(inst)] = prev;
+				}
 				use_cnt[IREG(inst)]--;
 				IDISP(prev) += IIMM(inst);
 				prev->next = inst->next;
