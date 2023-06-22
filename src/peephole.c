@@ -177,26 +177,6 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 				continue;
 			}
 
-			// add rax, 0 (and flags not observed)
-			// =>
-			// [deleted]
-			//
-			// add rax, 0 (and flags observed)
-			// =>
-			// test rax, rax
-			if (IK(inst) == IK_BINALU && IM(inst) == M_Ri && (((IS(inst) == G1_ADD || IS(inst) == G1_SUB || IS(inst) == G1_OR || IS(inst) == G1_XOR) && IIMM(inst) == 0) || (IS(inst) == G1_IMUL && IIMM(inst) == 1))) {
-				if (IOF(inst)) {
-					IK(inst) = IK_BINALU;
-					IS(inst) = G1_TEST;
-					IM(inst) = M_rr;
-					IREG2(inst) = IREG(inst);
-				} else {
-					inst->prev->next = inst->next;
-					inst->next->prev = inst->prev;
-				}
-				goto next;
-			}
-
 			// add ..., 1 (and flags not observed)
 			// =>
 			// inc ...
@@ -782,6 +762,31 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 			if (IK(inst) == IK_CALL && IM(inst) == M_rCALL && try_combine_label(mfunction, inst)) {
 				IM(inst) = M_LCALL;
 				continue;
+			}
+
+			// Want to run the below only if everything else fails.
+
+			// add rax, 0 (and flags not observed)
+			// =>
+			// [deleted]
+			//
+			// add rax, 0 (and flags observed)
+			// =>
+			// test rax, rax
+			if (IK(inst) == IK_BINALU && IM(inst) == M_Ri && (((IS(inst) == G1_ADD || IS(inst) == G1_SUB || IS(inst) == G1_OR || IS(inst) == G1_XOR) && IIMM(inst) == 0) || (IS(inst) == G1_IMUL && IIMM(inst) == 1))) {
+				if (IOF(inst)) {
+					use_cnt[IREG(inst)]++;
+					IK(inst) = IK_BINALU;
+					IS(inst) = G1_TEST;
+					IM(inst) = M_rr;
+					IREG2(inst) = IREG(inst);
+				} else {
+					use_cnt[IREG(inst)]--;
+					def_cnt[IREG(inst)]--;
+					inst->prev->next = inst->next;
+					inst->next->prev = inst->prev;
+				}
+				goto next;
 			}
 
 			// mov t26, t18
