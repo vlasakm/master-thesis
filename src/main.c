@@ -171,8 +171,8 @@ main(int argc, char **argv)
 		deconstruct_ssa(arena, functions[i]);
 		print_function(stderr, functions[i]);
 		translate_function(arena, &labels, functions[i]);
-		calculate_def_use_info(functions[i]->mfunction);
 		print_mfunction(stderr, functions[i]->mfunction);
+		calculate_def_use_info(functions[i]->mfunction);
 		peephole(functions[i]->mfunction, arena, false);
 		print_mfunction(stderr, functions[i]->mfunction);
 		reg_alloc_function(ras, functions[i]->mfunction);
