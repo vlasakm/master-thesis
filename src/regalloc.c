@@ -589,8 +589,7 @@ insert_stores_of_spilled(void *user_data, Oper *dest)
 	*dest = temp;
 }
 
-// Add spill code, coalesce registers that were found to be coalescable before
-// the first potential spill.
+// Add spill code.
 void
 rewrite_program(RegAllocState *ras)
 {
