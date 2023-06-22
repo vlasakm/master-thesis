@@ -515,78 +515,30 @@ translate_value(TranslationState *ts, Value *v)
 		UNREACHABLE();
 		break;
 
-	case VK_ADD:
-		translate_binop(ts, G1_ADD, res, ops[0], ops[1]);
-		break;
-	case VK_SUB:
-		translate_binop(ts, G1_SUB, res, ops[0], ops[1]);
-		break;
-	case VK_MUL:
-		translate_binop(ts, G1_IMUL, res, ops[0], ops[1]);
-		break;
-	case VK_UDIV:
-		translate_div(ts, res, ops[0], ops[1], SK_UNSIGNED, DR_QUOTIENT);
-		break;
-	case VK_SDIV:
-		translate_div(ts, res, ops[0], ops[1], SK_SIGNED, DR_QUOTIENT);
-		break;
-	case VK_UREM:
-		translate_div(ts, res, ops[0], ops[1], SK_UNSIGNED, DR_REMAINDER);
-		break;
-	case VK_SREM:
-		translate_div(ts, res, ops[0], ops[1], SK_SIGNED, DR_REMAINDER);
-		break;
-	case VK_AND:
-		translate_binop(ts, G1_AND, res, ops[0], ops[1]);
-		break;
-	case VK_OR:
-		translate_binop(ts, G1_OR, res, ops[0], ops[1]);
-		break;
-	case VK_SHL:
-		translate_shift(ts, G2_SHL, res, ops[0], ops[1]);
-		break;
-	case VK_SAR:
-		translate_shift(ts, G2_SAR, res, ops[0], ops[1]);
-		break;
-	case VK_SLR:
-		translate_shift(ts, G2_SHR, res, ops[0], ops[1]);
-		break;
-	case VK_NEG:
-		translate_unop(ts, G3_NEG, res, ops[0]);
-		break;
-	case VK_NOT:
-		translate_unop(ts, G3_NOT, res, ops[0]);
-		break;
-	case VK_EQ:
-		translate_cmpop(ts, CC_E, res, ops[0], ops[1]);
-		break;
-	case VK_NEQ:
-		translate_cmpop(ts, CC_NE, res, ops[0], ops[1]);
-		break;
-	case VK_SLT:
-		translate_cmpop(ts, CC_L, res, ops[0], ops[1]);
-		break;
-	case VK_SLEQ:
-		translate_cmpop(ts, CC_LE, res, ops[0], ops[1]);
-		break;
-	case VK_SGT:
-		translate_cmpop(ts, CC_G, res, ops[0], ops[1]);
-		break;
-	case VK_SGEQ:
-		translate_cmpop(ts, CC_GE, res, ops[0], ops[1]);
-		break;
-	case VK_ULT:
-		translate_cmpop(ts, CC_B, res, ops[0], ops[1]);
-		break;
-	case VK_ULEQ:
-		translate_cmpop(ts, CC_BE, res, ops[0], ops[1]);
-		break;
-	case VK_UGT:
-		translate_cmpop(ts, CC_A, res, ops[0], ops[1]);
-		break;
-	case VK_UGEQ:
-		translate_cmpop(ts, CC_AE, res, ops[0], ops[1]);
-		break;
+	case VK_ADD:  translate_binop(ts, G1_ADD, res, ops[0], ops[1]); break;
+	case VK_SUB:  translate_binop(ts, G1_SUB, res, ops[0], ops[1]); break;
+	case VK_MUL:  translate_binop(ts, G1_IMUL, res, ops[0], ops[1]); break;
+	case VK_UDIV: translate_div(ts, res, ops[0], ops[1], SK_UNSIGNED, DR_QUOTIENT); break;
+	case VK_SDIV: translate_div(ts, res, ops[0], ops[1], SK_SIGNED, DR_QUOTIENT); break;
+	case VK_UREM: translate_div(ts, res, ops[0], ops[1], SK_UNSIGNED, DR_REMAINDER); break;
+	case VK_SREM: translate_div(ts, res, ops[0], ops[1], SK_SIGNED, DR_REMAINDER); break;
+	case VK_AND:  translate_binop(ts, G1_AND, res, ops[0], ops[1]); break;
+	case VK_OR:   translate_binop(ts, G1_OR, res, ops[0], ops[1]); break;
+	case VK_SHL:  translate_shift(ts, G2_SHL, res, ops[0], ops[1]); break;
+	case VK_SAR:  translate_shift(ts, G2_SAR, res, ops[0], ops[1]); break;
+	case VK_SLR:  translate_shift(ts, G2_SHR, res, ops[0], ops[1]); break;
+	case VK_NEG:  translate_unop(ts, G3_NEG, res, ops[0]); break;
+	case VK_NOT:  translate_unop(ts, G3_NOT, res, ops[0]); break;
+	case VK_EQ:   translate_cmpop(ts, CC_E, res, ops[0], ops[1]); break;
+	case VK_NEQ:  translate_cmpop(ts, CC_NE, res, ops[0], ops[1]); break;
+	case VK_SLT:  translate_cmpop(ts, CC_L, res, ops[0], ops[1]); break;
+	case VK_SLEQ: translate_cmpop(ts, CC_LE, res, ops[0], ops[1]); break;
+	case VK_SGT:  translate_cmpop(ts, CC_G, res, ops[0], ops[1]); break;
+	case VK_SGEQ: translate_cmpop(ts, CC_GE, res, ops[0], ops[1]); break;
+	case VK_ULT:  translate_cmpop(ts, CC_B, res, ops[0], ops[1]); break;
+	case VK_ULEQ: translate_cmpop(ts, CC_BE, res, ops[0], ops[1]); break;
+	case VK_UGT:  translate_cmpop(ts, CC_A, res, ops[0], ops[1]); break;
+	case VK_UGEQ: translate_cmpop(ts, CC_AE, res, ops[0], ops[1]); break;
 
 	case VK_LOAD: {
 		Inst *load = add_load(ts, res, ops[0]);

@@ -251,7 +251,7 @@ print_operand(FILE *f, Value *operand)
 }
 
 size_t
-number_values(Function *function, size_t start_index)
+index_values(Function *function, size_t start_index)
 {
 	size_t index = start_index;
 	size_t param_cnt = type_function_param_cnt(function->base.type);

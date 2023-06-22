@@ -154,7 +154,7 @@ main(int argc, char **argv)
 		if (!function_is_fully_defined(functions[i])) {
 			continue;
 		}
-		number_values(functions[i], R__MAX);
+		index_values(functions[i], R__MAX);
 		print_function(stderr, functions[i]);
 		merge_blocks(arena, functions[i]);
 		print_function(stderr, functions[i]);
@@ -296,7 +296,7 @@ end:
 			free(block->preds_);
 		}
 		free(function->blocks);
-		free(function->post_order);
+		FREE_ARRAY(function->post_order, function->block_cap);
 		mfunction_free(function->mfunction);
 	}
 	garena_free(&labels);

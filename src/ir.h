@@ -230,7 +230,7 @@ void print_function(FILE *f, Function *function);
 
 void validate_function(Function *function);
 
-size_t number_values(Function *function, size_t start_index);
+size_t index_values(Function *function, size_t start_index);
 
 
 
