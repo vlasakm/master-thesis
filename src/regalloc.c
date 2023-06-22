@@ -461,6 +461,7 @@ get_fresh_vreg_for_spill(RegAllocState *ras)
 		GROW_ARRAY(ras->to_spill, ras->vreg_capacity * 4);
 	}
 	assert(vreg != 4 * ras->vreg_capacity);
+	ras->to_spill[vreg] = 0;
 	return vreg;
 }
 
