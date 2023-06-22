@@ -42,6 +42,7 @@ struct RegAllocState {
 	// Spill cost related
 	u16 *def_cost;
 	u16 *use_cost;
+	u16 *move_cost;
 	BitSet unspillable; // true/false for each vreg
 
 	// Degrees of nodes.
@@ -119,6 +120,7 @@ reg_alloc_state_reset(RegAllocState *ras)
 		GROW_ARRAY(ras->alias, ras->vreg_capacity);
 		GROW_ARRAY(ras->def_cost, ras->vreg_capacity);
 		GROW_ARRAY(ras->use_cost, ras->vreg_capacity);
+		GROW_ARRAY(ras->move_cost, ras->vreg_capacity);
 		bs_grow(&ras->unspillable, ras->vreg_capacity);
 		GROW_ARRAY(ras->degree, ras->vreg_capacity);
 		bs_grow(&ras->matrix, ras->vreg_capacity * ras->vreg_capacity);
@@ -148,6 +150,7 @@ reg_alloc_state_reset(RegAllocState *ras)
 	}
 	ZERO_ARRAY(ras->def_cost, ras->mfunction->vreg_cnt);
 	ZERO_ARRAY(ras->use_cost, ras->mfunction->vreg_cnt);
+	ZERO_ARRAY(ras->move_cost, ras->mfunction->vreg_cnt);
 	bs_reset(&ras->unspillable, ras->mfunction->vreg_cnt);
 	ZERO_ARRAY(ras->degree, ras->mfunction->vreg_cnt);
 	bs_reset(&ras->matrix, ras->N);
@@ -188,6 +191,7 @@ reg_alloc_state_free(RegAllocState *ras)
 	FREE_ARRAY(ras->alias, ras->vreg_capacity);
 	FREE_ARRAY(ras->def_cost, ras->vreg_capacity);
 	FREE_ARRAY(ras->use_cost, ras->vreg_capacity);
+	FREE_ARRAY(ras->move_cost, ras->vreg_capacity);
 	bs_free(&ras->unspillable, ras->vreg_capacity);
 	FREE_ARRAY(ras->degree, ras->vreg_capacity);
 	bs_free(&ras->matrix, ras->vreg_capacity);
@@ -749,6 +753,11 @@ calculate_spill_cost(RegAllocState *ras)
 			for_each_def(inst, mark_defs_with_uninterrupted_uses_unspillable, ras);
 			for_each_use(inst, detect_interrupting_deaths, ras);
 			for_each_use(inst, add_live, ras);
+			if (is_move(inst)) {
+				u16 cost = cost_in_depth(block->depth);
+				ras->move_cost[inst->ops[0]] += cost;
+				ras->move_cost[inst->ops[1]] += cost;
+			}
 		}
 	}
 }
@@ -914,13 +923,13 @@ double
 spill_metric(RegAllocState *ras, Oper u)
 {
 	if (bs_test(&ras->unspillable, u)) {
-		return 0.0;
+		return 1 / 0.0;
 	}
-	double cost = (double) ras->degree[u] / (ras->def_cost[u] + ras->use_cost[u]);
+	Oper cost = 2 * ras->def_cost[u] + 2 * ras->use_cost[u] - ras->move_cost[u];
 	fprintf(stderr, "Spill cost for ");
 	print_reg(stderr, u);
-	fprintf(stderr, " degree: %"PRIu32", defs: %zu, uses: %zu, unspillable: %d, cost: %f\n", ras->degree[u], (size_t) ras->def_cost[u], (size_t) ras->use_cost[u], (int) bs_test(&ras->unspillable, u), cost);
-	return cost;
+	fprintf(stderr, " degree: %"PRIu32", defs: %zu, uses: %zu, moves: %zu, unspillable: %d, cost: %f\n", ras->degree[u], (size_t) ras->def_cost[u], (size_t) ras->use_cost[u], (size_t) ras->move_cost[u], (int) bs_test(&ras->unspillable, u), (double) cost / ras->degree[u]);
+	return (double) cost / ras->degree[u];
 }
 
 void
@@ -1043,17 +1052,17 @@ choose_and_spill_one(RegAllocState *ras)
 	fprintf(stderr, "Potential spill\n");
 
 	Oper candidate = OPER_MAX;
-	double max = 0.0;
+	double max = 1 / 0.0;
 	WorkList *spill_wl = &ras->spill_wl;
 	FOR_EACH_WL_INDEX(spill_wl, j) {
 		Oper u = spill_wl->dense[j];
 		double curr = spill_metric(ras, u);
 		// Prefer for spill either more beneficial candidates (with
-		// bigger metric) or "earlier" vregs ("smaller index"). This
+		// smaller metric) or "earlier" vregs ("smaller index"). This
 		// comes in handy for spilling callee saved registers, where we
 		// want to spill `rbx` first, since encoding it is (sometimes)
 		// shorter.
-		if (curr > max || (curr == max && u < candidate)) {
+		if (curr < max || (curr == max && u < candidate)) {
 			max = curr;
 			candidate = u;
 		}
@@ -1063,7 +1072,7 @@ choose_and_spill_one(RegAllocState *ras)
 	print_reg(stderr, candidate);
 	fprintf(stderr, "\n");
 	assert(candidate != OPER_MAX);
-	assert(max > 0.0);
+	assert(max < 1 / 0.0);
 
 	wl_remove(&ras->spill_wl, candidate);
 	wl_add(&ras->simplify_wl, candidate);
