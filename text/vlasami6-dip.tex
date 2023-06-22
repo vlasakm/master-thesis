@@ -153,86 +153,213 @@ V XX dne XX.\,XX.\,TODO
 
 \chap Introduction
 
-TODO:
+%TODO:
+%
+%\begitems \style n
+%
+%* x86-64 architektura
+%
+%* Compiler IRs, Control flow graph
+%
+%* Popis spillingu a spill costů
+%
+%* Register classes
+%
+%* Obrázky datových struktur
+%
+%* Obrázek graph coloring
+%
+%* Pseudokódy do register allocation?
+%
+%* Tiling instruction selection
+%
+%* Instruction scheduling
+%
+%* Instruction selection a register allocation přes redukci na jiný problém
+%
+%* Assembly přes NASM
+%
+%* Jenom Linux
+%
+%* Run time
+%
+%* x86 vs tiny 86
+%
+%* Benchmarky
+%
+%* Úvod
+%
+%* Závěr
+%
+%* Konzistentní odsazení za bloky s kódem
+%
+%* Přesunout vysvlětlení reprezentace registrů zvlášť a vysvětlit virtualní vs
+%fyzické registry
+%
+%* Lowering / překlad z middle endu do back endu chce rozšířit. Vysvětlit všechny
+%různé konstrukce jako calling conventions, argumenty, alloca instrukce apod.
+%Taky chary a struktury.
+%
+%* Rematerialization in regalloc
+%
+%* System V AMD64 ABI
+%
+%* Liveness and interference definitions
+%
+%* Muchnich, depth, 8
+%
+%\enditems
 
-\begitems \style n
-
-* x86-64 architektura
-
-* Compiler IRs, Control flow graph
-
-* Popis spillingu a spill costů
-
-* Register classes
-
-* Obrázky datových struktur
-
-* Obrázek graph coloring
-
-* Pseudokódy do register allocation?
-
-* Tiling instruction selection
-
-* Instruction scheduling
-
-* Instruction selection a register allocation přes redukci na jiný problém
-
-* Assembly přes NASM
-
-* Jenom Linux
-
-* Run time
-
-* x86 vs tiny 86
-
-* Benchmarky
-
-* Úvod
-
-* Závěr
-
-* Konzistentní odsazení za bloky s kódem
-
-* Přesunout vysvlětlení reprezentace registrů zvlášť a vysvětlit virtualní vs
-fyzické registry
-
-* Lowering / překlad z middle endu do back endu chce rozšířit. Vysvětlit všechny
-různé konstrukce jako calling conventions, argumenty, alloca instrukce apod.
-Taky chary a struktury.
-
-* Rematerialization in regalloc
-
-* System V AMD64 ABI
-
-* Liveness and interference definitions
-
-* Muchnich, depth, 8
-
-\enditems
-
-%Computers are useful tools that accept programs and input data and produce
-%output data. Most computers are based on the binary numeral system---they use zeros
-%and ones. Because of this, data and programs also had to be expressed as ones
+%Computers are useful tools that accept programs and input data and produce other
+%data as output. Most computers are based on the binary numeral system---they use
+%zeros and ones. Because of this, data and programs are also expressed as ones
 %and zeros. While representing for example numbers is relatively easy, expressing
 %other data, like text is more challenging. Even more so, if the computers
 %interact with humans who need to be able to enter data and programs and read
 %back results.
-%
-%Constructing computers with hardwired programs, which essentially can serve only
-%a specialized purpose was never feasibly. Compilers are designed to be able to
-%read programs as well as the data. This way, they can not just solve different
-%variations of the same problem, but different problems altogether.
-%
-%ISA
-%
-%Backend vs frontend.
-%
-%General instructions sets allow the same algorithm to be implemented in many
-%ways using many different instructions and their modes. Because we want to use
-%the power of our machines to the maximum, another goal of compilers is to
-%translate the programs as well as possible.
 
+Computers with hard-wired programs can serve only a specialized purpose and are
+not practical. For this reason computers accept input data as well as the {\em
+programs}---the computers are {\em programmable}. The programs are {\em
+interpreted}, have data available as input and produce other data. Because most
+computers today are based on the binary numeral system (using only ones and
+zeros), data as well as programs have to be encoded in {\em binary}.
 
+Encoding machine instructions into binary by hand is tedious and error prone.
+Soon assembly language came up as an abstraction---human readable textual
+notation of the instructions. Assembly can be directly mapped to binary encoding
+of the instructions by a program called {\em assembler}.
+
+However, still every computer or rather its CPU ({\em central processing unit})
+can have different capabilities and support different instructions. Assembly
+doesn't abstract that---assembly language is {\em machine specific}. High
+diversity was mainly true in the early days where every computer could be
+very different. But since then the industry settled, and while CPUs can be still
+very different {\em internally}, they all support one of the prominent {\em
+instruction set architectures}. The instruction set defines the interface of the
+processor---what instructions it supports and how they are encoded, and the CPU
+is an implementation of the interface.
+
+A more powerful abstraction for writing programs came with the advent of {\em
+programming languages}, which allow expressing programs at high level, without
+being tied to any machine or its capabilities. Programs written in programming
+languages are readable by humans, but executable by machines. Often programming
+languages are translated ({\em compiled}) to machine instructions in order to
+run on the target machine directly.
+
+Compilation can be a difficult process, because modern high level languages care to
+provide useful tools to the programmers, while machine instructions often
+support rather elementary operations. Also, as there are many instruction set
+architectures and many programming languages, it may seem that a different
+compiler is needed for every combination.
+
+In practice, most compilers today employ an architecture where the compilation
+is split into two steps:
+
+\begitems \style n
+
+* {\em Front end}. Translates from human readable programming language to a
+programming language and machine independent {\em intermediate representation}
+(IR).
+
+* {\em Back end}. Translates from the intermediate representation to instructions of
+a particular instruction set architecture.
+
+\enditems
+%
+In this design, it suffices to have one front end for each source language
+and one back end for each target architecture. Compilation from any language
+with a front end to any machine with a back end is then possible.
+Additionally, operations that {\em any} compiler would want to do (due to being
+machine and programming language independent) can be performed on the
+intermediate representation in a common third part of a modern compiler:
+
+\begitems \style n \itemnum=2
+* {\em Middle end}. Performs programming language and machine independent
+transformations on the intermediate representation. Often these are {\em
+optimizations} that improve simplify or improve the code.
+\enditems
+
+In the real world, there is still a place for newer or better compilers, that
+produce more efficient or smaller machine code. Not only are new programming
+languages created by the industry or academic research, occasionally even new
+instruction set architectures come up, or the existing architectures are
+extended with newer capabilities. Existing instruction sets are also implemented
+in newer and more modern processors, which may excel at slightly different
+operations and compiler writers often exploit even these little implementation
+details, just to generate better code.
+
+This means that even just from a back end perspective there is a need for new
+compiler engineers. At the Faculty of Information Technology of Czech Technical
+University in Prague, there is a master's compiler course NI-GEN (\"Code
+generation"), where students learn mainly about compiler back ends. The course
+features a programming language {\em TinyC} (a simplified version of the well
+known C programming language) and {\em Tiny86} (a simplified version of the
+widespread x86-64 architecture). Using simplified versions of a well known
+programming language and CPU architecture is great for education, because
+students are able to finish their own compiler in just one semester, but stay
+fairly close to the real world.
+
+TinyC as a simplification of C is a rather low level language, which is
+expressive enough to be practical for humans writing production grade software,
+but it is low level enough that its concepts have relatively straightforward
+translations to machine code.
+
+x86-64 although tracing its history almost 50 years back, can still in these
+days be considered the prevalent architecture. It poses many challenges not
+present in later designs. For example: low number of registers, register aliases
+and in general non-trivial register class hierarchy, complex addressing modes
+which are only partly regular, etc. As the original instruction set got extended
+throughout the years, and some of the problematic areas were improved, but due
+to extensive backwards compatibility, we have to still account for them even
+today.
+
+In this thesis our goal is to design and implement a back end compiling TinyC
+(or rather just the middle end IR used in the NI-GEN course) to x86-64. Such
+back end can be seen to accomplish several things:
+
+\begitems
+* As a first back end to a real architecture it exercises the TinyC language and
+can show how practical it really is.
+* It can show students, what difficulties a compiler faces when compiling to the
+real x86-64 architecture, instead of the simplified Tiny86.
+* As the back end produces programs intended for an existing architecture, the
+produced programs can be inspected, debugged and measured with standard
+tools.
+* We can compare the generated code to the output of existing C compilers.
+\enditems
+
+Naturally, the back end will be usable by other front ends. We aim to 
+
+%In this thesis, we look at compilation from TinyC to {\em x86-64}. As a real
+%architecture with rich history, the x86-64 is much more challenging from a
+%compiler perspective, than the simplified t86. It is the goal of this thesis to
+%look at the challenges the x86-64 architecture imposes. We consider and the state of art in
+%compiler back ends and to design based on that a compiler backend from the TinyC
+%middle end to x86-64 machine instructions.
+
+Most real world programs don't run in isolation. Apart from needing the
+processor to execute their machine code, they have other needs, that are towards
+the {\em runtime system} (which for compiled programs is usually the {\em
+operating system}). Programs want to allocate memory, perform I/O (input/output)
+operations, communicate with each other, run other programs, etc. Support for
+making these requests to the operating system is usually the job of a component
+called {\em runtime}. On the x86-64 the situation is no exception: there are
+instructions that allow the program to make requests to the operating system
+({\em system calls}), but different operating systems allow system calls to be
+used differently and don't support the same features. TinyC for example, doesn't
+support calls into the operating system at all, and a {\em runtime} component
+that allows TinyC to use system resources as well as to just run has to be
+provided and integrated into TinyC.
+
+The following chapters provide a description of the x86-64 architecture and its
+challenges (chapter~\ref[chap:x86]), a look of the state of the art in the
+area of compiler back ends (chapter~\ref[chap:state-of-the-art]), and a
+close look at the design and implementation of an x86-64 backend for TinyC and
+the accompanying runtime (chapter~\ref[chap:design]) and evaluation accompanied
+with comparison to existing C compilers (chapter~\ref[chap:evaluation]).
+
+\label[chap:x86]
 \chap x86-64 architecture
 
 AKA AMD64
@@ -2741,6 +2868,7 @@ architectures, and certain operations are incompatible with SSA. TODO elaborate.
 
 ILP, IBQP
 
+\label[chap:design]
 \chap Design and implementation
 
 This thesis looks into practical issues of taking a modern middle end
@@ -4235,7 +4363,7 @@ end or the beginning of the linked list, simply because there is no real start
 or end of the linked---every node may be presumed to be in the middle.
 
 \label[sec:data-block]
-\seccc Machine block
+\seccc Machine blocks
 
 To allow circular linked lists for instructions to work nicely
 the {\em head} of the linked list (i.e. the pointer to the
@@ -7251,11 +7379,34 @@ bool are_coalesceble(RegAllocState *ras, Oper u, Oper v) {
 %
 %Machine independent representation of machine dependent instructions
 
+\label[chap:evaluation]
 \chap Evaluation
 
 Srovnání s GCC apod.
 
 \chap Conclusion
+
+In this thesis we studied x86-64, one of the most prevalent architectures today,
+and looked at an implementation for a back end translating the TinyC programming
+language into it.
+
+The x86-64 features many constraints that make it harder to compile for. A lot
+of these constraints can be overcome with the right use of live range splitting
+and 
+
+The implemented backend is based on existing substantial research in the area of
+compiler back ends. However, due to many specialities, irregularities or
+limitations of the x86-64 architecture, there are other challenges, which are
+sometimes which are not always catered for by the publications on topics like
+instruction selection or register allocation.
+
+In our implementation we chose to 
+
+Correctness then optimization
+
+
+
+
 
 \bibchap
 \usebib/s (iso690) vlasami6-dip
