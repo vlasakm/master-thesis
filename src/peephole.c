@@ -280,6 +280,19 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 				continue;
 			}
 
+			// lea t26, [rbp-24]
+			// mov [t26], t25
+			// =>
+			// mov [rbp-24], t25
+			if (IK(inst) == IK_MOV && IS(inst) != LEA && (IM(inst) == M_Mr || IM(inst) == M_Mi) && IINDEX(inst) == R_NONE && ISCALE(inst) == 0 && IDISP(inst) == 0 && IK(prev) == IK_MOV && IS(prev) == LEA && IM(prev) == M_CM && IBASE(inst) == IREG(prev) && use_cnt[IREG(prev)] == 1) {
+				def_cnt[IREG(prev)]--;
+				use_cnt[IREG(prev)]--;
+				copy_memory(inst, prev);
+				inst->prev = prev->prev;
+				prev->prev->next = inst;
+				continue;
+			}
+
 			// mov rcx, [global1]
 			// add rax, rcx
 			// =>
