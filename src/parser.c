@@ -562,6 +562,7 @@ as_rvalue(Parser *parser, CValue cvalue)
 		if (child->kind == TY_FUNCTION) {
 			return lvalue;
 		}
+		assert(child->kind != TY_STRUCT);
 
 		return add_unary(parser, VK_LOAD, child, lvalue);
 	} else {
@@ -1160,11 +1161,26 @@ assign(Parser *parser, CValue cleft, int rbp)
 	Token equal = eat(parser, TK_EQUAL);
 	CValue cright = expression_bp(parser, rbp);
 	Value *left = as_lvalue(parser, cleft, "Expected lvalue on left hand side of assignment");
-	Value *right = as_rvalue(parser, cright);
-	if (!types_compatible(pointer_child(left->type), right->type)) {
+	Type *right_type = ctypeof(cright);
+	if (!types_compatible(pointer_child(left->type), right_type)) {
 		parser_error(parser, equal, false, "Assigned value has incorrect type");
 	}
-	add_binary(parser, VK_STORE, &TYPE_VOID, left, right);
+
+	if (type_is_struct(right_type)) {
+		Value *right = as_lvalue(parser, cright, "Expected struct lvalue");
+		StructType *struct_type = type_as_struct(right_type);
+		for (size_t i = 0; i < struct_type->field_cnt; i++) {
+			Type *member_type = struct_type->fields[i].type;
+			Value *member_index = create_const(parser, &TYPE_INT, i);
+			Value *left_field = add_binary(parser, VK_GET_MEMBER_PTR, member_type, left, member_index);
+			Value *right_field = add_binary(parser, VK_GET_MEMBER_PTR, member_type, right, member_index);
+			Value *right_field_value = add_unary(parser, VK_LOAD, member_type, right_field);
+			add_binary(parser, VK_STORE, &TYPE_VOID, left_field, right_field_value);
+		}
+	} else {
+		Value *right = as_rvalue(parser, cright);
+		add_binary(parser, VK_STORE, &TYPE_VOID, left, right);
+	}
 	return lvalue(left);
 }
 

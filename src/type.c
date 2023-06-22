@@ -210,6 +210,13 @@ type_is_struct(Type *type)
 	return type->kind == TY_STRUCT;
 }
 
+StructType *
+type_as_struct(Type *type)
+{
+	assert(type_is_struct(type));
+	return (StructType *) type;
+}
+
 bool
 type_is_complete(Type *type)
 {

@@ -88,6 +88,7 @@ Type *type_struct_forward(Arena *arena);
 Type *type_struct_define(Type *struct_type, Field *fields, size_t field_cnt);
 
 bool type_is_struct(Type *type);
+StructType *type_as_struct(Type *type);
 
 bool type_is_complete(Type *type);
 
