@@ -773,7 +773,7 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 			// add rax, 0 (and flags observed)
 			// =>
 			// test rax, rax
-			if (IK(inst) == IK_BINALU && IM(inst) == M_Ri && (((IS(inst) == G1_ADD || IS(inst) == G1_SUB || IS(inst) == G1_OR || IS(inst) == G1_XOR) && IIMM(inst) == 0) || (IS(inst) == G1_IMUL && IIMM(inst) == 1))) {
+			if (IM(inst) == M_Ri && ((IK(inst) == IK_BINALU && (((IS(inst) == G1_ADD || IS(inst) == G1_SUB || IS(inst) == G1_OR || IS(inst) == G1_XOR) && IIMM(inst) == 0) || (IS(inst) == G1_IMUL && IIMM(inst) == 1))) || (IK(inst) == IK_SHIFT && IIMM(inst) == 0))) {
 				if (IOF(inst)) {
 					use_cnt[IREG(inst)]++;
 					IK(inst) = IK_BINALU;
