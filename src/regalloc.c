@@ -1388,37 +1388,39 @@ assign_registers(RegAllocState *ras)
 }
 
 void
+simplify(RegAllocState *ras)
+{
+	Oper i;
+simplify:
+	while (wl_take_back(&ras->simplify_wl, &i)) {
+		simplify_one(ras, i);
+	}
+	if (wl_take(&ras->active_moves_wl, &i)) {
+		coalesce_move(ras, i);
+		goto simplify;
+	}
+	if (wl_take_back(&ras->freeze_wl, &i)) {
+		freeze_one(ras, i);
+		goto simplify;
+	}
+	if (!wl_empty(&ras->spill_wl)) {
+		choose_and_spill_one(ras);
+		goto simplify;
+	}
+}
+
+void
 reg_alloc_function(RegAllocState *ras, MFunction *mfunction)
 {
 	print_mfunction(stderr, mfunction);
-
 	reg_alloc_state_init_for_function(ras, mfunction);
-
 	for (;;) {
 		reg_alloc_state_reset(ras);
 		liveness_analysis(ras);
 		build_interference_graph(ras);
 		calculate_spill_cost(ras);
 		initialize_worklists(ras);
-
-		Oper i;
-	simplify:
-		while (wl_take_back(&ras->simplify_wl, &i)) {
-			simplify_one(ras, i);
-		}
-		if (wl_take(&ras->active_moves_wl, &i)) {
-			coalesce_move(ras, i);
-			goto simplify;
-		}
-		if (wl_take_back(&ras->freeze_wl, &i)) {
-			freeze_one(ras, i);
-			goto simplify;
-		}
-		if (!wl_empty(&ras->spill_wl)) {
-			choose_and_spill_one(ras);
-			goto simplify;
-		}
-
+		simplify(ras);
 		if (assign_registers(ras)) {
 			break;
 		}
