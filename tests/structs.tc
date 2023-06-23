@@ -25,6 +25,12 @@ int global_offset2() {
     return *p;
 }
 
+void local_offset() {
+    S a;
+    S b;
+    a.a = b.a;
+}
+
 //S identity(S a) {
 //    return a;
 //}
