@@ -153,62 +153,53 @@ V XX dne XX.\,XX.\,TODO
 
 \chap Introduction
 
-%TODO:
-%
-%\begitems \style n
-%
-%* x86-64 architektura
-%
-%* Compiler IRs, Control flow graph
-%
-%* Popis spillingu a spill costů
-%
-%* Register classes
-%
-%* Obrázky datových struktur
-%
-%* Obrázek graph coloring
-%
-%* Pseudokódy do register allocation?
-%
-%* Tiling instruction selection
-%
-%* Instruction scheduling
-%
-%* Instruction selection a register allocation přes redukci na jiný problém
-%
-%* Assembly přes NASM
-%
-%* Jenom Linux
-%
-%* Run time
-%
-%* x86 vs tiny 86
-%
-%* Benchmarky
-%
-%* Úvod
-%
-%* Závěr
-%
-%* Konzistentní odsazení za bloky s kódem
-%
-%* Přesunout vysvlětlení reprezentace registrů zvlášť a vysvětlit virtualní vs
-%fyzické registry
-%
-%* Lowering / překlad z middle endu do back endu chce rozšířit. Vysvětlit všechny
-%různé konstrukce jako calling conventions, argumenty, alloca instrukce apod.
-%Taky chary a struktury.
-%
-%* Rematerialization in regalloc
-%
-%* System V AMD64 ABI
-%
-%* Liveness and interference definitions
-%
-%* Muchnich, depth, 8
-%
-%\enditems
+TODO:
+
+\begitems \style n
+
+* x86-64 architektura
+
+* Compiler IRs, Control flow graph
+
+* Register classes
+
+* Obrázky datových struktur
+
+* Obrázek graph coloring
+
+* Pseudokódy do register allocation?
+
+* Tiling instruction selection
+
+* Instruction scheduling
+
+* Instruction selection a register allocation přes redukci na jiný problém
+
+* Assembly přes NASM
+
+* Jenom Linux
+
+* Run time
+
+* x86 vs tiny 86
+
+* Benchmarky
+
+* Konzistentní odsazení za bloky s kódem
+
+* Přesunout vysvlětlení reprezentace registrů zvlášť a vysvětlit virtualní vs
+fyzické registry
+
+* Lowering / překlad z middle endu do back endu chce rozšířit. Vysvětlit všechny
+různé konstrukce jako calling conventions, argumenty, alloca instrukce apod.
+Taky chary a struktury.
+
+* Rematerialization in regalloc
+
+* System V AMD64 ABI
+
+* Liveness and interference definitions
+\enditems
 
 %Computers are useful tools that accept programs and input data and produce other
 %data as output. Most computers are based on the binary numeral system---they use
@@ -1039,7 +1030,7 @@ Different orders of instructions can have impact on execution speed as well.
 Usually, this problem is not considered as part of instruction selection, and
 separate {\em instruction scheduling} pass is used to reorder instructions to a
 more favorable order. Instruction scheduling is described
-in~\ref[sec:instruction-scheduling].
+in~\ref[sec:scheduling].
 
 \secc Techniques
 
@@ -1093,7 +1084,7 @@ introduce the three approaches.
 
 Peephole optimization is a general optimization technique (see
 section~\ref[sec:peephole]). It is applicable to any compiler stage, but in the
-backend peephole optimization is often associated to final improvements to
+back end peephole optimization is often associated to final improvements to
 machine code after instruction selection, instruction scheduling and register
 allocation. But peephole optimization has been applied even to perform
 instruction selection. To distinguish this, we will call the technique {\em
@@ -1143,7 +1134,12 @@ importantly the backwards pass deletes unobservable effects, which don't need to
 be implemented by the combined instructions. The effects are mainly assignments
 to registers and flags, which they both handle in a unified way. Since an
 assigned (virtual) register or a flag may not ever be read before being assigned
-again, it may be deleted. The deletion may take form of either combining into an
+again, it may be deleted. Liveness or rather death of registers is also
+important for deletions: if a definition gets \"inlined" into all its uses (e.g.
+a small constant on an architecture which has addressing mode allowing small
+immediates), then the definition can be deleted only if it is determined to no
+longer be live after the deletion ({\em becomes dead}).
+The deletion may take form of either combining into an
 instruction which doesn't have the extraneous effect (in phase 3) or replacement
 by a single final instruction (phase 4) which also doesn't need to have the
 extra effect. This is a form of dead code elimination (since for example an
@@ -1197,7 +1193,7 @@ machine description that is preprocessed at compiler-compile time also stuck.
 Being slow at compiler compile time doesn't matter as much as the speed of the
 compiler itself.
 
-Other aspects of the original Davidson and Fraser design didn't catch much. Later
+Other aspects of the original Davidson-Fraser design didn't catch much. Later
 algorithms opted for a {\em fixed set of patterns}, in place of deriving them on
 the fly with symbolic execution. These patterns used to be written by
 hand, but considering the existence of the machine descriptions and symbolic
@@ -1310,7 +1306,7 @@ compression} producing the fewest instructions having the same effect.
 \sec Register allocation
 
 Register allocation is the last of the three big conceptual parts of a usual
-compiler backend. Motivation, importance and possible approaches are introduced.
+compiler back end. Motivation, importance and possible approaches are introduced.
 
 The x86-64 architecture (see \cite[x86]) is what we mainly care about in
 this thesis. Since it is familiar, we will be using it as examples in the
@@ -1682,7 +1678,10 @@ add t4, t2
 mov [rbp+s3], t4
 \endtt
 
-The code generator hoped that by assigning `t1` and `t3` the same register, the
+For the copy instruction, instead of using a temporary, we can just copy to the
+spill location immediately (see section~\ref[sec:regalloc-spill-copy]). But with
+the copy instruction, the
+code generator hoped that by assigning `t1` and `t3` the same register, the
 move instruction could be eliminated. Since for some reason `t3` was spilled,
 that is now out of the question, but there is still a suboptimality---`t1` is
 copied to memory and then immediately loaded back again into `t4`, because it
@@ -1764,6 +1763,48 @@ even harder, because recklessly doing one or the other will make the code
 certainly worse, while doing neither may be just as bad. This makes great register
 allocation even harder.
 
+\label[sec:regalloc-spill-copy]
+\seccc Spilling in copy instructions
+
+In the previous section we found the need to spill a virtual register used in a
+copy instruction (often called {\em move}), like this one:
+
+\begtt
+mov t1, t2
+\endtt
+
+If `t2` is to be spilled, we nominally need to load it before each use. Here
+this would look like this:
+
+\begtt
+mov t3, [rbp+s2]
+mov t1, t3
+\endtt
+
+Here the temporary is not needed at all---we can just load to the right register
+directly:
+
+\begtt
+mov t1, [rbp+s2]
+\endtt
+
+Similarly if `t1` was spilled and a store was needed, we can omit the copy:
+
+\begtt
+mov [rbp+s1], t2
+\endtt
+
+However, if both are spilled we need both a load and store, though the copy
+instruction can be deleted and a common temporary has to be used:
+
+\begtt
+mov t3, [rbp+s2]
+mov [rbp+s1], t3
+\endtt
+
+And if we are able to assign `t1` and `t2` to a common memory location, then no
+instruction is necessary at all.
+
 \seccc Interaction with instruction selection
 
 As we have seen, the process of spilling needs to insert new instructions which
@@ -1790,7 +1831,7 @@ code transformed to include the spill code.
 The first option can make the register allocator depend on the target
 architecture---it now needs to know about the current target, its instructions,
 their meanings and how to insert them. On one hand, register allocation is
-already in the "backend", where we expect to handle things on the level of the
+already in the "back end", where we expect to handle things on the level of the
 target, and generally hope to take advantage of that by, for example, doing
 optimizations specific to the particular target. On the other hand, as mentioned
 previously, machine independent representations of (machine dependent)
@@ -1803,7 +1844,7 @@ virtual registers to physical registers, or a list of virtual registers to be sp
 Though it still has to be decided on how to insert the instructions. Some
 instruction selection mechanisms which ultimately depend on the middle end IR,
 are not suitable for inserting and optimizing spill code, since we are already
-in the low level backend IR. Tree or DAG based instruction selection
+in the low level back end IR. Tree or DAG based instruction selection
 mechanisms may also not be directly applicable---we may no longer be using
 trees or DAGs for representing the machine code, especially after instruction
 scheduling, which sets the order of instructions in stone. On the other hand
@@ -2026,7 +2067,7 @@ Splits can be especially beneficial around loops, since spills of any values
 used inside loops are costly. Even a lot of shuffling of registers and memory
 can be beneficial if a loop is executed many times. Moving expensive operations
 out of the loops has been the task of code motion in the middle-end and
-instruction scheduling in the backend. Since register allocation generally
+instruction scheduling in the back end. Since register allocation generally
 follows them, we should do our best to not hinder it.
 
 If the splits turn out to be unnecessary, they can be coalesced away. Though
@@ -2271,7 +2312,38 @@ flexible.
 \label[sec:regalloc-classes]
 \seccc Register classes
 
-TODO
+On real world architectures almost always not all registers are equal. For
+example on the x86-64 we have general purpose registers as well as vector
+registers (and also the floating point registers, which are not real
+registers per se and because they are largely obsolete we will not consider them
+further). Additionally, many actual {\em hardware registers} (like `rax`) have
+parts which are accessible with different {\em names} (`eax`, `al`, `ah`).
+
+We call the set of registers which are interchangeable in some context {\em a
+register class} and the fact that a multiple names may access the same register
+{\em register aliasing}.
+
+Most architectures like the x86-64 have apart from general purpose register
+class an entirely independent floating pointer (or vector) register class.
+Dealing with independent register classes is relatively
+straightforward---register allocation can be done mostly separately. Though
+general purpose registers have a special status---they are used for address
+calculations and {\em spills} address memory. In practice however, spill
+locations are usually on the stack and CPUs are able to access relatively to the
+stack pointer (or base pointer), so spills don't influence general purpose
+register allocation.
+
+A problem occurs when occurs when register classes {\em overlap} and are not
+independent. Aliasing is one thing that makes register classes overlap---for
+example, on the x86-64 64-bit register (`rax`, etc.) overlap with 8-bit
+registers (`al`, etc.). This brings many problems, since allocation of `rax` for
+example \"blocks" both `al` and `ah`, while allocation of `ah` blocks `rax`, but
+not `al`. Register class hierarchies, where the classes all not all independent,
+require special handling.
+
+The paper by Smith~\cite[Smith2004] is perhaps still the definitive treatment of
+register classes in register allocation literature. We used similar terminology
+as them in this section and further consider their approach in the next section.
 
 \label[sec:regalloc-techniques]
 \secc Techniques
@@ -2743,6 +2815,32 @@ undoes the coalescing. Though in practice, while Briggs' optimistic coloring
 improvement was simple addition and a sure improvement, optimistic coalescing
 and especially an efficient implementation is not simple.
 
+Smith~\cite[Smith2004] provides an extension to graph coloring allocators based
+on Chaitin's heuristic. They generalize it to support complex {\em register class
+hierarchies}. They approach is general enough to handle all sensible (and thus
+actually existing) register class hierarchies, include x86-64's. Chaitin's
+heuristic compares the {\em degree} of node to the number of available registers
+($k$)---if the degree is smaller the node can be simplified. With register
+classes the number of available registers is different per class (which is
+determined based on the uses of the virtual register) and degree no longer
+reflects the number of registers occupied by the neighbouring registers.
+The core of their idea is pretty simple instead of comparing the degree to the
+number of available registers, compare the maximum number of {\em registers
+denied by the neighbours} to the number of {\em registers available in the
+register class}. Like Chaitin's heuristic this is a simple comparison just
+analogously extended to register classes and reflects the fact that we can
+simplify (remove from graph) a register only if we can be absolutely sure that
+there will be a color left for it in the assignment stage. However, the maximum
+number of registers denied by the neighbours depends on the actual
+coloring---e.g. assignment of `rsi` denies only `sil`, while `rax` denies
+both `al` and `ah`. Investigating all colorings for each simplification is not
+feasible, however~\cite[Smith2004] describe a safe approximation, which is as
+easy to maintain as the current degree of the node, while being close to the
+actually possible maximum to not be overly pessimistic. The changes to the
+new version of \"degree" are based on the classes of the neighbours and the
+decrements can be derived statically from the properties of the register class
+hierarchy.
+
 Nice thing about Chaitin's scheme (and Briggs' improvement) is that even the
 introduced spill code with new virtual registers gets the same general treatment
 as other virtual registers - they are allocated by the next iteration of graph
@@ -2881,7 +2979,7 @@ In the NI-GEN course at FIT CTU, where TinyC originated, students write
 compilers from TinyC to {\em Tiny 86}.
 
 After careful consideration we set the following goals for the implementation of
-a TinyC backend for x86-64 and the runtime:
+a TinyC back end for x86-64 and the runtime:
 
 \begitems
 
@@ -2894,7 +2992,7 @@ possible.
 * Advanced global optimizing techniques should be used.
 
 * Simplicity of the compiler structure and of the code shall be one of the main
-goals, because the backend will serve as a demonstration of compiling TinyC to a
+goals, because the back end will serve as a demonstration of compiling TinyC to a
 real machine architecture.
 
 * The source code should be readable by students of the NI-GEN course, who are
@@ -2928,17 +3026,17 @@ humans}---the assembly should be approachable by students.
 * Since real programs rarely live in vacuum, the produced code should be able to
 interface with the operating system and foreign code.
 
-* The backend targets real machine code, comparisons with other compilers will
+* The back end targets real machine code, comparisons with other compilers will
 be possible and the relative performance of our solution should be evaluated.
 
 \enditems
 
-Next subsections focus on the design and implementation of a TinyC backend for
+Next subsections focus on the design and implementation of a TinyC back end for
 x86-64. Many of the algorithms used in the state of the art compilers have been
 introduced in chapter~\ref[chap:state-of-the-art]. This
 chapter focuses mainly on evaluating the algorithms and their practicality and
 possibility of use in our back end and highlights the chosen architecture of our
-backend (section~\ref[sec:imp-architecture]). We also present data structures
+back end (section~\ref[sec:imp-architecture]). We also present data structures
 used for our middle end and back end representations separately
 (section~\ref[sec:data]) and only then delve into how we actually designed and
 implemented the individual components of our architecture.
@@ -2998,8 +3096,8 @@ particular~\ref[sec:data-backend] and~\ref[sec:imp-lowering]).
 \label[sec:imp-backend]
 \secc Back end
 
-Main interest of this thesis is a backend. As introduced in
-section~\ref[sec:backend] the main goal of a compiler backend is to translate
+Main interest of this thesis is a back end. As introduced in
+section~\ref[sec:backend] the main goal of a compiler back end is to translate
 from a (preferably machine independent) intermediate representation into machine
 instructions that can be executed by the processor.
 
@@ -3047,7 +3145,7 @@ instructions. This is a big problem for ensuring correctness.
 
 The popularity of SSA for middle end optimizations and recent developments in the
 field of register allocation on SSA form make it very appealing even for a
-backend. However, methods for instruction selection on SSA are currently based
+back end. However, methods for instruction selection on SSA are currently based
 on reduction to other problems. Similar reductions are possible for other
 components of a back end. Though for educational purposes, we want to focus on
 dealing with instruction selection and register allocation directly, and not
@@ -3784,7 +3882,65 @@ end which are introduced in the following subsections:
 
 \enditems
 
+\label[sec:data-register]
 \seccc Registers
+
+Before introducing actual data structures, we note how we represent {\em
+registers}. There are two kinds of registers: {\em virtual registers} and {\em
+physical registers}. Not all compilers need to represent physical registers, but
+we need to, since we use the same representation throughout the back end, and
+use physical registers to express {\em machine constraints} (see
+section~\ref[sec:regalloc-constraints]) even before register allocation maps
+virtual registers to physical registers.
+
+Since we want to use the representation for instructions both {\em
+before} and {\em after} register allocation, and also need to express machine
+constraints we have to be able to express physical register as well as virtual
+registers simultaneously.
+
+Representing registers with integers, instead of some kind of rich object, has
+many advantages:
+
+\begitems
+* They are small and easy to understand.
+* Data can be associated for each register with an array indexed by the
+registers. This is compact, easy from memory management stand point of view, and
+provides great cache locality from the point of view of associated data.
+Additionally, many different kinds of data may be associated with the registers
+at different times.
+* Physical and virtual registers can be assigned different ranges of integers
+and thus be distinguishable just by the numbers themselves.
+* Associating physical registers with low numbers can allow them to be used as
+bit positions in bit sets packed into a 64-bit integer or similar, allowing
+register sets or masks to be efficiently and concisely represented.
+\enditems
+
+For these reasons we chose to represent integers with an integer type. Apart
+from physical registers and virtual registers we have found need to represent
+\"no register". A special integer value is suitable for this. In the end we
+decided on the following:
+
+\begitems \style n
+* Special register value `R_NONE` is assigned the integer 0.
+
+* Physical registers are named symbolically through an enum as `R_XXX` and are
+assigned the indices 1 through the number of physical registers.
+
+* Virtual registers are all integers larger than the last physical register.
+\enditems
+
+We considered representing virtual registers by the highest bit (or similarly
+with negative numbers), but this doesn't allow all registers to be used as
+indices. We found representing the special register value with zero is sometimes
+convenient and sometimes not---zero makes zero initialization automatically
+assign \"no registers" and is convenient in checks, but it shifts all physical
+registers by one, which makes the assignment not consistent with machine
+encoding.
+
+%On the x86-64, there are 16 general purpose registers, 16 vector registers and 4
+%extra possible byte registers (`bh` etc.). We In our implementation we currently
+%choose to not use the 4 high byte registers---just like the low byte registers
+%or the 16-bit registers they are ineffie
 
 \label[sec:data-instruction]
 \seccc Machine instructions
@@ -3885,13 +4041,8 @@ typedef struct {
 } Instruction;
 \endtt
 
-Registers and immediates are represented directly with integer types.
-Since we want to use the representation for instructions both {\em before} and
-{\em after} register allocation, the integers representing registers will change
-meaning---before register allocation they could either mean physical or virtual
-registers and after register allocation only references to physical registers
-would be allowed. Physical registers are used even before register allocation to
-express {\em machine constraints} (see section~\ref[sec:regalloc-constraints]).
+Both registers (see section~\ref[sec:data-register] for more details) and
+immediates are represented directly with integer types.
 
 Array of operands is represented with a flexible array member, which means that
 number of allocated operands may be customized for each instruction. On
@@ -4072,7 +4223,7 @@ particular opcode (`subkind`), just the fact that it is an indirect jump
 \begitems
 * binary ALU operations (`add`, `sub`, `xor`, `and`, `or`, `test`, `cmp`, `imul`),
 * unary ALU operations (`not`, `neg`),
-* shifts (`shl`, `sar`),
+* shifts (`shl`, `sar`, ...),
 * conditional moves (`cmovz`, `cmovl`, \dots),
 * conditional jumps (`jz`, `jl`, \dots),
 * set on condition (`setz`, `setl`, \dots),
@@ -4348,9 +4499,14 @@ separately from the displacement operand---in a distinct operand slot. So there
 is still a displacement involved, but only relative to the label. Since labels
 are only interesting in RIP-relative addressing, which doesn't use neither base,
 nor index register or scale, their slots can actually be reused---label is
-stored inside scale's slot and special register value (`R_NONE`) in base's slot
+stored inside scale's slot and special register value in base's slot
 is used to signalize RIP-relative addressing. Displacement is stored in the same
-way in both addressing modes.
+way in both addressing modes. We currently use `R_NONE` as the special value for
+RIP-relative addressing. This is convenient, because it is already a special
+case in a lot of places in code. Slight problem is that this makes memory
+locations without the base unencodable in our representation, but in practice we
+haven't yet found much need to have memory locations without the base other than
+the RIP-relative addressing.
 
 Instructions also contain pointers to the previous and next one. Like `Value` in
 the middle-end, they are linked together in an {\em intrusive linked list}.
@@ -5469,7 +5625,7 @@ can be done like this:
 \begtt
 if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_CM
 		&& try_combine_memory(mfunction, inst)) {
-	// nothing to do
+	// all work done by `try_combine_memory`
 }
 \endtt
 
@@ -5977,6 +6133,140 @@ As using `lea` is generally not worse in any significant way (and certainly not
 so on recent microarchitectures~\cite[IntelOptimization]), we believe it is
 okay to leave the situation as is.
 
+\seccc Optimization order
+
+Because we try to match and apply peephole optimization patterns one by one, we
+want to pay attention to their {\em order}, because in some cases optimizations
+may prevent other ones.
+
+As an example, take calculation of struct field's address. It is formed by
+adding the offset to the field to the address of the struct itself. TinyC code
+like this:
+
+\begtt
+struct S {
+    int a;
+    int b;
+};
+S a;
+int global_offset() {
+    return a.b;
+}
+\endtt
+%
+which will be expanded to something like this:
+
+\begtt
+lea t25, [a]
+mov t26, 8
+mov t17, t25
+add t17, t26
+mov t18, [t17]
+mov rax, t18
+\endtt
+%
+While it could be simplified to a single instruction:
+
+\begtt
+mov rax, [a+8]
+\endtt
+
+Our optimizer is able to do this transformation through a series of steps, most
+of which we have already shown. But at some point we get to:
+
+\begtt
+lea t17, [a]
+add t17, 8
+mov t18, [t17]
+\endtt
+%
+The addition of constant can be folded into the displacement of the memory
+specification:
+
+\begtt
+lea t17, [a+8]
+mov t18, [t17]
+\endtt
+%
+Note that here we have RIP-relative addressing (see
+section~\ref[sec:data-instruction] for more information about labels). There are
+two nice things about this particular transformation: it reduces the number of
+definitions, and if the `lea` instruction is the last remaining definition of
+`t17`, we can mark it as the {\em only} definition of `t17`. Importantly, this
+makes the `[a+8]` address calculation foldable later due to use-def based
+peephole patterns (see section~\ref[sec:imp-peephole-use-def]). In this specific
+example, use-def based optimization is not necessary, because the load
+instruction is next to the address calculation.
+
+But, if we modify the example slightly:
+
+\begtt
+void local_offset() {
+    S a;
+    S b;
+    [...]
+    a.a = b.a;
+}
+\endtt
+%
+we can get into a similar situation with regards to the offset calculation,
+where from this:
+
+\begtt
+lea t29, [rbp-16]
+mov t30, 0
+mov t19, t29
+add t19, t30
+lea t31, [rbp-32]
+mov t32, 0
+mov t20, t31
+add t20, t32
+mov t21, [t20]
+mov [t19], t21
+\endtt
+%
+it is not a problem to get to this (if we peepholed each address calculation
+separately):
+
+\begtt
+lea t19, [rbp-16]
+add t19, 0
+lea t20, [rbp-32]
+add t20, 0
+mov t21, [t20]
+mov [t19], t21
+\endtt
+%
+Here, if like explained above we fold the `add` to the displacement of the `lea`
+and mark `t19` and `t20` as the only definitions, we can fold them into the
+loads and stores below:
+
+\begtt
+mov t21, [rbp-32]
+mov [rbp-16], t21
+\endtt
+%
+However, there is a simpler pattern that can make us fail to do that. The `add`
+instruction has no observable flags and adds zero, so it may simply get deleted.
+This is however even more local, and doesn't notice that the `lea` before it has
+now become the last definition, leaving the `lea` instructions
+unfoldable:\fnote{Actually the load instruction can get folded, because it is
+next to the address calculation, but the store address will certainly not be
+folded.}
+
+\begtt
+lea t19, [rbp-16]
+lea t20, [rbp-32]
+mov t21, [t20]
+mov [t19], t21
+\endtt
+
+We might make the use-def optimizations more robust by using full use-def and def-use
+chains (see section~\ref[sec:SSA], where they are mentioned) or in this case,
+simply guarantee that the pattern matching two instructions is tried before the
+single pattern instruction. Intuitively longer or in general {\em more specific}
+patterns should always be preferred and as mentioned, local patterns should be
+preferred to use-def ones (section~\ref[sec:imp-peephole-use-def]).
 
 \sec Register allocation
 
@@ -5999,8 +6289,7 @@ live}.
 interference graph.
 
 * {\em Calculate spill costs}. We calculate how costly would spill of each
-virtual register be as well as mark some registers unspillable (see
-section~\ref[sec:use-of-spilled]).
+virtual register be as well as mark some registers unspillable.
 
 * {\em Perform iteration of iterated register coalescing graph coloring}. This
 is the initialization and main loop of the~\cite[George1996] algorithm. It runs
@@ -6240,7 +6529,7 @@ instruction to instruction, we need to add the interference edges:
 
 \begtt
 void interference_step(RegAllocState *ras, WorkList *live_set, Inst *inst) {
-	if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_Cr) {
+	if (is_move(inst)) {
 		for_each_use(inst, remove_from_set, live_set);
 		add_move(ras, inst);
 	}
@@ -6290,6 +6579,7 @@ Last, but not least, we also call `add_move` function for every copy
 instruction, we will come back to it when discussing the iterated register
 coalescing algorithm in section~\ref[TODO].
 
+\label[sec:imp-calling-conventions]
 \seccc Calling conventions
 
 In sections~\ref[sec:regalloc-constraints] and~\ref[sec:regalloc-graph-coloring] we
@@ -6545,9 +6835,6 @@ in callee saved registers got automatically saved in stack slots. Other than for
 the other callee saved registers, coalescing wasn't applicable much---the registers were
 mostly restricted by the calling convention or interfered with each other due to
 being live at the same time.
-
-\label[sec:imp-spill-cost]
-\secc Calculate spill costs
 
 \label[sec:imp-regalloc-simplify]
 \secc Iterated register coalescing
@@ -7272,7 +7559,8 @@ special case:
 
 \begitems
 
-* We shouldn't ever coalesce two physical registers.
+* We shouldn't ever coalesce two physical registers or spill a physical
+register.
 
 * When combining physical and virtual register, they should be combined into the
 physical register, because it has special meaning, for calling conventions etc.
@@ -7304,7 +7592,9 @@ one register is reserved for special purposes.
 Other issues require more handling and care. For example, to always combine
 physical and virtual register into the physical register, we always combine into
 the register that compares smaller (physical registers are represented by
-smaller integers than virtual registers).
+smaller integers than virtual registers). Also when initializing the work lists,
+we don't put physical registers to the spill work list, which means they will
+never even be considered for spilling.
 
 Another issue is the coalescing heuristic. Briggs' conservative coalescing
 heuristic requires iteration over adjacent nodes. Because we don't store
@@ -7330,7 +7620,261 @@ bool are_coalesceble(RegAllocState *ras, Oper u, Oper v) {
 }
 \endtt
 
-\secc Spill choice
+\secc Spilling
+
+When we need to select one out of multiple virtual registers as a potential
+spill (which might become actual spill later), then we want to spill the
+register, which is the {\em best} candidate for spilling. In our implementation
+the function `choose_and_spill_one` chooses the best candidate, and marks it as
+potential spill. In this section we discuss how the spill decision is made.
+
+%First we note, that an inverse formulation of spill candidate choice is
+%possible, where we choose the {\em least bad} spill candidate. This can perhaps
+%be a little more intuitive, because spilling is negative after all, but we stay
+%with the formulation in the previous paragraph.
+
+When choosing a spill we want to balance two effects of spilling a node:
+
+\begitems \style n
+* {\em Negative effect}. When a node is spilled, we have to introduce a load for
+each its use and a store for each of its definitions. Statically, each load and
+store is equivalent, since they are just instructions, but dynamically, at
+runtime, the loads and stores may execute different number of times. In
+particular, memory operations inside of loops are likely to get executed more
+times compared to loads and stores in prologue and epilogue (such as those of
+the callee saved registers, see section~\ref[sec:imp-calling-conventions]).
+To minimalize the negative effect, we want to spill nodes with the {\em lowest}
+number of dynamic uses and definitions.
+
+* {\em Positive effect}. In a graph coloring register allocator, we model a
+spill of a node through its removal from the graph (see
+section~\ref[sec:regalloc-graph-coloring] for the justification). But the
+important aspect from the point of the simplification is, that this reduces the
+degree of all of its neighbours by one, leading to further simplifications. To
+exploit the positive effect, we want to spill nodes with the {\em highest}
+degree.
+\enditems
+
+We will call the negative effect {\em spill cost}, because it reflects the
+actual cost of the spill imposed on the program and we want to minimize it. We
+call {\em spill metric} the final metric in which we balance the {\em spill
+cost} (negative effect) and {\em degree} (positive effect).
+
+In a graph coloring register allocator, the interference graph doesn't capture
+control flow at all, it is control flow insensitive. By considering control flow
+in spill choice we gain at least some control flow sensitivity.
+
+\label[sec:imp-spill-cost]
+\seccc Calculating spill cost
+
+We have to calculate the cost of the inserted loads and stores statically, as we
+don't know how the code will behave dynamically at run time. However, we can be
+sure that instructions in the same basic block have the same cost, since they
+are always executed all or none. Additionally, instructions in loops should be
+more costly.
+
+\cite[Briggs1994] weights instruction by $10^d$, where $d$ is the {\em loop
+nesting depth} of the block which contains the instruction. This means that
+costs of instructions outside of loops are 1, inside a loop 10 and inside a
+doubly nested loop 100 etc. This method essentially assumes that each loop is
+executed 10 times.
+
+With weights of instructions, we need to calculate the actual costs. For each
+use and definition of a register we should accumulate the sum of costs of all
+loads and stores that would be needed. In case of copy instructions, we don't
+need to keep the copy instruction after either load or store is inserted (see
+section~\ref[sec:regalloc-spill-copy]), so spills in copy instructions are
+somewhat cheaper---while a memory operation is added, a copy instruction will be
+deleted.
+
+For debugging purposes we accumulate costs of stores, loads and moves
+separately:
+
+\begtt \adef?#1>{\def\tmp{#1}$\langle\hbox{\it\catcodetable0\scantextokens\ea{\tmp}\/}\rangle$}
+?for each instruction `inst` in machine block `mblock`> {
+	u16 cost = cost_in_depth(block->depth);
+	?for each definition `def` in `inst`>
+		ras->def_cost[def] += cost;
+	?for each use `use` in `inst`>
+		ras->use_cost[use] += cost;
+	if (is_move(inst)) {
+		ras->move_cost[inst->ops[0]] += cost;
+		ras->move_cost[inst->ops[1]] += cost;
+	}
+
+}
+\endtt
+
+Also, since we store the depth $d$, not $10^d$, it is more convenient for use to
+actually use $8^d$~\cite[Muchnich1997], which can be calculated more efficiently
+using shifts:
+
+\begtt
+u32 cost_in_depth(u32 depth) {
+	return 1 << (3 * depth);
+}
+\endtt
+
+\seccc Unspillable nodes
+
+In section~\ref[sec:regalloc-use-of-spilled] we identified that some virtual registers
+are never worth spilling. Often these are virtual registers introduced by spill
+code. But also other registers which have a very close definition and use where
+spilling doesn't decrease register pressure. As they can have lower spill costs
+than other registers (because of low number of uses and definitions) we want to
+mark these nodes unspillable, to make sure we don't spill them.
+
+Unspillable nodes have been identified already by Chaitin~\cite[Chaitin1982].
+However, in our implementation we use formulation based on
+Briggs'~\cite[Briggs1992], which translates well to an actual implementation:
+
+\definition If some virtual register $v$ becomes dead in between a use and associated
+definition of register $u$, then we call $u$'s live range {\em interrupted}.
+
+\definition If none of the live ranges of virtual register $u$ are interrupted,
+we call the virtual register {\em uninterrupted}.
+
+We want to detect uninterrupted virtual registers and mark them unspillable.
+As the interruptions are based on liveness, we want to detect the property in
+a backwards pass over basic blocks. Apart from live-set the algorithm also
+maintains set of registers which are {\em currently uninterrupted} and the set
+of registers which have {\em ever been interrupted}, then for each instruction:
+
+\begitems
+* If we reach a definition of a register, its live range ends and it is removed
+from the live-set. If additionally it is in the uninterrupted set, and not set
+as ever interrupted, then it is marked unspillable.
+* Before the uses in the current instruction are added to the live-set, we check
+whether they are already in the set. If they are not live, this means that we
+have found a {\em death} of register---an interruption. We should mark all
+registers in the uninterrupted set as interrupted at least once, and reset the
+set.
+* Only now we add all uses to the live-set and the currently-uninterrupted-set.
+\enditems
+
+This solves local liveness. For registers live across basic block boundaries, we
+currently don't try to mark them uninterrupted, because expensive data-flow
+analysis would have to be performed. Instead, we are conservative and mark all
+registers initially in live-out as interrupted. This can mean that we may
+accidentally spill them, even though it wouldn't help, but in practice in the
+implementation we try to keep basic blocks maximal (i.e. if one block has one
+successor and the successor has only one predecessor we merge them), and the
+interesting unspillable situations occur with physically adjacent instructions,
+which make local analysis sufficient enough.
+
+%\begtt \adef?#1*{\def\tmp{#1}$\langle\hbox{\it\catcodetable0\scantextokens\ea{\tmp}\/}\rangle$}
+%WorkList *live_set = &ras->live_set;
+%?for each machine block `mblock`*
+%	Block *block = mblock->block;
+%	get_live_out(ras, block, live_set);
+%	// Mark live out registers as interrupted.
+%	?for each element `u` in work list `ras->uninterrupted`* {
+%		wl_add(&ras->ever_interrupted, u);
+%	}
+%
+%	?for each instruction `inst` in block `mblock` in reverse order*
+%		// Mark defs with uninterrupted uses unspillable
+%		?for each definition `def` in instruction `inst`* {
+%			if (wl_remove(&ras->uninterrupted, def)
+%					&& !wl_has(&ras->ever_interrupted, def)) {
+%				wl_add(&ras->unspillable, def);
+%			}
+%			// Liveness step
+%			wl_remove(&ras->live_set, def);
+%		}
+%		// Detect interrupting deaths
+%		?for each use `use` in instruction `inst`* {
+%			if (!wl_has(&ras->live_set, use)) {
+%				?for each element `u` in work list `ras->uninterrupted`*
+%					wl_add(&ras->ever_interrupted, u);
+%				wl_reset(uninterrupted);
+%			}
+%		}
+%		?for each use `use` in instruction `inst`* {
+%			// New uses are uninterrupted
+%			wl_add(&ras->live_set, use);
+%			// Liveness step
+%			wl_add(&ras->uninterrupted, use);
+%		}
+%\endtt
+
+\seccc Spill metric
+
+{\em Spill costs} are mostly static from the perspective of the simplification
+process---they are determined by the uses and definitions, which are not
+changed, except for the possible coalescing, which should combine the costs
+of the two nodes.\fnote{Currently in the function `combine` we add the spill costs
+together, although this is imprecise, since we do not account for the move
+instructions that can be deleted due to the coalescing. More precise
+tracking of especially the move costs could also help with choice of freeze
+candidates, but would make the simplify loop more complex by including
+additional bookkeeping depending on both the instructions and their nesting
+depth in the control flow graph.} But the {\em degrees} of nodes are more
+dynamic, and are changed with every simplification.
+
+Because of this, we combine the static costs with the degrees only when a spill
+candidate has to be selected. The actual calculation of the {\em spill metric}
+is thus following:
+
+\begtt
+double spill_metric(RegAllocState *ras, Oper u) {
+	if (wl_has(&ras->unspillable, u)) {
+		return 1 / 0.0;
+	}
+	Oper cost = 2 * ras->def_cost[u] + 2 * ras->use_cost[u] - ras->move_cost[u];
+	return (double) cost / ras->degree[u];
+}
+\endtt
+
+We weight the possible future stores and loads two times as much as the copy
+instructions, because they are more expensive. The metric is the quotient of the
+cost and the degree and in `choose_and_spill_one` we spill the virtual register
+with the lowest metric:
+
+\begtt \adef?#1*{\def\tmp{#1}$\langle\hbox{\it\catcodetable0\scantextokens\ea{\tmp}\/}\rangle$}
+Oper candidate;
+double max = 1 / 0.0;
+?for each element `u` in work list `ras->spill_wl`* {
+	double curr = spill_metric(ras, u);
+	if (curr < max || (curr == max && u < candidate)) {
+		max = curr;
+		candidate = u;
+	}
+}
+assert(max < 1 / 0.0);
+\endtt
+
+The inverse of the spill metric, where we would divide by the cost, instead of
+by the degree, is not as practical---depending on our approach to
+definitions and uses the cost could actually even get negative or zero (not in
+our implementation though, where defs and uses incorporate the moves, and the
+moves just reduce the cost). Unfortunately, the minimum formulation makes it
+slightly harder to pick the candidate with lowest metric, as the metric of the
+first node in the work list cannot be used as a reference point, because it may
+actually be {\em unspillable}. For this reason we use the `inf` double value
+created by division by zero.
+
+In an extreme case, {\em all} nodes in the work list may be marked unspillable,
+we assert that this does not happen and that we have at least one spillable
+candidate that we can actually spill.
+
+Spilling an unspillable candidate is wrong, since it will just be replaced with
+a fresh temporary that also is unspillable and we might easily get into an
+infinite loop of unproductive spills. The fact that spill of unspillable won't
+be attempted should be guaranteed statically. In practice, the assertion
+can find issues where the back end programmer mistakenly makes too few registers
+available (i.e. we can't expect the register allocation to succeed with 1
+available register, when most operations require two operands, assuming we don't
+change the instructions while spilling, see
+section~\ref[sec:ragalloc-use-of-spilled]), or makes the registers unavailable
+with a mistake in an implementation of calling conventions (see
+section~\ref[sec:imp-calling-conventions]).
+
+As a special case, if two virtual registers have the same metric, we choose the
+one which is a smaller number. This is mostly so we can primarily spill the
+register used to hold the `rbx` callee saved register as opposed to for example
+`r12` (another callee saved register), because use of `rbx` can sometimes save a
+REX prefix byte (see section~\ref[sec:x86-rex]).
 
 
 
@@ -7476,10 +8020,6 @@ would no longer be required.
 
 As of now, the back end is implemented as a standalone program. Turning it into a
 library could make it more universally usable.
-
-
-
-
 
 \bibchap
 \usebib/s (iso690) vlasami6-dip
