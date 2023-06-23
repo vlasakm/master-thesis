@@ -1188,6 +1188,11 @@ combine(RegAllocState *ras, Oper u, Oper v)
 		garena_push_value(&ras->move_list[u], Oper, other_moves[i]);
 	}
 
+	// Add costs of `v` to `u`.
+	ras->def_cost[u] += ras->def_cost[v];
+	ras->use_cost[u] += ras->use_cost[v];
+	ras->move_cost[u] += ras->move_cost[v];
+
 	// Add edges of `v` to `u`.
 	GArena *gadj_list = &ras->adj_list[v];
 	Oper *adj_list = garena_array(gadj_list, Oper);
