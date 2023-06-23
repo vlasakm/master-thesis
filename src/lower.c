@@ -41,6 +41,7 @@ add_load(TranslationState *ts, Oper dest, Oper addr)
 	Inst *inst = add_inst(ts, IK_MOV, MOV, M_CM);
 	IREG(inst) = dest;
 	IBASE(inst) = addr;
+	IINDEX(inst) = R_NONE;
 	return inst;
 }
 
@@ -50,6 +51,7 @@ add_store(TranslationState *ts, Oper addr, Oper value)
 	Inst *inst = add_inst(ts, IK_MOV, MOV, M_Mr);
 	IREG(inst) = value;
 	IBASE(inst) = addr;
+	IINDEX(inst) = R_NONE;
 	return inst;
 }
 
@@ -59,6 +61,7 @@ add_lea(TranslationState *ts, Oper dest, Oper base, Oper disp)
 	Inst *inst = add_inst(ts, IK_MOV, LEA, M_CM);
 	IREG(inst) = dest;
 	IBASE(inst) = base;
+	IINDEX(inst) = R_NONE;
 	IDISP(inst) = disp;
 }
 
@@ -68,6 +71,7 @@ add_lea_label(TranslationState *ts, Oper dest, Oper label)
 	Inst *inst = add_inst(ts, IK_MOV, LEA, M_CM);
 	IREG(inst) = dest;
 	IBASE(inst) = R_NONE;
+	IINDEX(inst) = R_NONE;
 	ILABEL(inst) = label;
 }
 

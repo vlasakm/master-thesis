@@ -1,45 +1,43 @@
 #include "x86-64.h"
 
 static const char *reg_repr[] = {
-	"NONE",
-	"rax",
-	"rbx",
-	"rcx",
-	"rdx",
-	"rsi",
-	"rdi",
-	"r8",
-	"r9",
-	"r10",
-	"r11",
-	"r12",
-	"r13",
-	"r14",
-	"r15",
+	[R_RAX] = "rax",
+	[R_RBX] = "rbx",
+	[R_RCX] = "rcx",
+	[R_RDX] = "rdx",
+	[R_RSI] = "rsi",
+	[R_RDI] = "rdi",
+	[R_8]   = "r8",
+	[R_9]   = "r9",
+	[R_10]  = "r10",
+	[R_11]  = "r11",
+	[R_12]  = "r12",
+	[R_13]  = "r13",
+	[R_14]  = "r14",
+	[R_15]  = "r15",
 
-	"rsp",
-	"rbp",
+	[R_RSP] = "rsp",
+	[R_RBP] = "rbp",
 };
 
 static const char *reg_repr8[] = {
-	"NONE",
-	"al",
-	"bl",
-	"cl",
-	"dl",
-	"sil",
-	"dil",
-	"r8b",
-	"r9b",
-	"r10b",
-	"r11b",
-	"r12b",
-	"r13b",
-	"r14b",
-	"r15b",
+	[R_RAX] = "al",
+	[R_RBX] = "bl",
+	[R_RCX] = "cl",
+	[R_RDX] = "dl",
+	[R_RSI] = "sil",
+	[R_RDI] = "dil",
+	[R_8]   = "r8b",
+	[R_9]   = "r9b",
+	[R_10]  = "r10b",
+	[R_11]  = "r11b",
+	[R_12]  = "r12b",
+	[R_13]  = "r13b",
+	[R_14]  = "r14b",
+	[R_15]  = "r15b",
 
-	"spl",
-	"bpl",
+	[R_RSP] = "spl",
+	[R_RBP] = "bpl",
 };
 
 static const char *cc_repr[] = {
@@ -301,6 +299,7 @@ create_load_with_disp(Arena *arena, Oper dest, Oper base, Oper disp)
 	Inst *inst = create_inst(arena, IK_MOV, MOV, M_CM);
 	IREG(inst) = dest;
 	IBASE(inst) = base;
+	IINDEX(inst) = R_NONE;
 	IDISP(inst) = disp;
 	return inst;
 }
@@ -310,6 +309,7 @@ create_store_with_disp(Arena *arena, Oper base, Oper disp, Oper value)
 {
 	Inst *inst = create_inst(arena, IK_MOV, MOV, M_Mr);
 	IBASE(inst) = base;
+	IINDEX(inst) = R_NONE;
 	IDISP(inst) = disp;
 	IREG(inst) = value;
 	return inst;
@@ -398,7 +398,9 @@ copy_flags(Inst *dest, Inst *src)
 void
 print_reg(FILE *f, Oper reg)
 {
-	if (reg < R__MAX) {
+	if (reg == R_NONE) {
+		fprintf(f, "NONE");
+	} else if (reg < R__MAX) {
 		fprintf(f, "%s", reg_repr[reg]);
 	} else {
 		fprintf(f, "t%"PRIi32, reg);
@@ -433,7 +435,7 @@ print_mem(FILE *f, MFunction *mfunction, Inst *inst)
 		print_label(f, mfunction, inst);
 	} else {
 		print_reg(f, IBASE(inst));
-		if (IINDEX(inst)) {
+		if (IINDEX(inst) != R_NONE) {
 			fprintf(f, "+");
 			if (ISCALE(inst) != 0) {
 				fprintf(f, "%d*", 1 << ISCALE(inst));
@@ -441,7 +443,7 @@ print_mem(FILE *f, MFunction *mfunction, Inst *inst)
 			print_reg(f, IINDEX(inst));
 		}
 	}
-	if (IDISP(inst)) {
+	if (IDISP(inst) != 0) {
 		fprintf(f, "%+"PRIi32, IDISP(inst));
 	}
 	fprintf(f, "]");
