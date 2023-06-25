@@ -1273,17 +1273,207 @@ TODO: examples
 
 \seccc Covering
 
-Základní idea
+A different paradigm for approaching instruction selection is {\em covering}.
+With intermediate representations like trees, DAGs, e.g. with value-based SSA on
+a control flow graph (see section~\ref[sec:SSA-value]) the operations and their
+operands form graphs---in particular {\em data-flow graphs}, because the graphs
+capture the flow of values from their definitions to their uses.
 
-Asi rychlé představení pár algoritmů tilingu (DP, LR, BURS)
+Even instructions can be represented as graph based patterns. For example an
+`add` instruction which accepts two registers and produces a result in a
+register, can be represented as a node (the result of the addition) with two
+children nodes (the operands). Other pattern can represent a similar
+instruction, but with a different addressing mode, e.g. an `add` of a register
+and an immediate or `add` of register to memory location.
 
-Potřebuje DAG nebo tree.
+{\em Covering instruction selection} covers the data-flow graph of the middle
+end IR with the instruction patterns. As each instruction pattern is associated
+with an instruction (or instruction sequence), the covering gives the final set
+of instructions, but not necessarily their full ordering---any order resulting
+from a bottom-up walk is a possible final instruction sequence.
 
-Nevýhody - instrukce s více výstupy.
+The nodes in the instruction patterns are typed by the types of operands of the
+x86-64 architecture. This captures has gradually nodes in the original graph are
+covered by instruction patterns and the produced values themselves may be used
+as operands of other instructions. For the x86-64 architecture for example, at
+least the following fundamental types are required:
+
+\begitems
+* Registers.
+* Memory locations
+* Small immediates (32-bits)
+* Integer constants (64-bits)
+\enditems
+
+Small immediates can be used anywhere where full integer constants are allowed,
+so this can be captured by a pattern which \"retypes" the node TODO figure.
+There is no actual instruction associated with such pattern. Leaves in patterns
+are special and may need special separate types to be represented. For example,
+access to stack allocated variables requires access to the base pointer which
+is not produced by anything. Additionally a \"retyping" no-op pattern which
+accepts a base pointer and produces a register will then allow the frame
+pointer to be usable like registers produced by other patterns like loads of
+constants, arguments or results of arithmetic operations.
+
+The formulation on {\em graphs} is very general and allows both the IR which is
+pattern matched and the patterns to be general graphs. In practice, simpler
+forms sometimes suffice and we stick to the three categories described
+in~\cite[Blindell2016]
+
+\begitems \style n
+
+* {\em Trees}. Trees are natural when the IR is an AST or a low level version
+of it---i.e. only with simple RISC-like close-to-machine operations, which are
+more amenable to matching. Many instruction patterns also form trees---most
+arithmetic operations produce on result from multiple operands.
+
+* {\em DAGs}. While trees are nice and simple, they are often too limiting in an
+optimizing compiler. For example, when common subexpressions are eliminated, a
+single node can be used by multiple operations, but this means that the node no
+longer has a single parent, but can have multiple. Directed acyclic graphs
+(DAGs) are able to represent this exactly.
+
+DAGs are sometimes also necessary for exact modelling of instructions, which
+don't correspond to trees. Notable example are {\em multi-output} instructions
+which produce from some number of inputs multiple results. An example is the
+x86-64 instruction `idiv` which produces two results---the quotient and the
+remainder. We may even consider settings of {\em flags} to constitute additional
+outputs of instruction---in that case on the x86-64 most arithmetic instructions
+would be multi-output. TODO figure
+
+* {\em General graphs}. Both trees and DAGs are unable to capture control flow,
+which in non-trivial programs contains loops and hence {\em cycles} in the
+control flow graphs. Most advanced instruction selection for a whole procedure
+(across basic blocks) thus requires instruction selection to be performed on
+general graphs with suitable patterns that are able to cover such graphs.
+
+\enditems
+
+Importantly for multi-target compilers, even though the patterns themselves are
+machine specific, their form is machine independent. A single algorithm can work
+for any architecture provided a suitable set of patterns and instructions that
+correspond to them.
+
+labeled nodes
+
+bottom up vs top down
+
+
+Wide variety of algorithms have been used to perform the covering. They range in
+what graphs they are able to handle, quality, run time and complexity. In the
+following subsections we introduce some of the existing approaches.
+
+\seccc LR parsing
+
+The algorithm of Glanville and Graham~\cite[Glanville1978] uses LR parsing for
+instruction selection.
+
+LR parsing~\cite[Knuth1965] is a technique that is usually used for
+transforming streams of tokens into parse trees or ASTs. However, it can be seen
+as a general technique that allows matching of tree patterns. The productions in
+a context free grammar can be seen as the patterns, where non-terminal symbols
+are the roots of patterns and correspond to the types of nodes. Terminal symbols
+are then the trivial constants like the base pointer or concrete integer
+literals.
+
+The advantage of LR parsing is that it is well studied, the parsers
+can be generated from context free grammars based on the instruction patterns.
+The expensive preprocessing is done at compiler-compile time an thus the
+generated parsers are fast. Additional predicates (e.g. checks of small
+constants) and actions can be added to the LR parsing through the use of {\em
+attributed grammars}~\cite[Knuth1968].
+
+A fundamental problem LR parsing in the area of instruction selection is, that
+it expects a linear sequence of terminals, thus the tree structure has to be
+linearized and the matching happens over that linearization. Additionally, the
+patterns for instruction selection are usually highly ambiguous---many
+instructions can produce the same effects. A method for resolving the numerous
+of reduce-reduce and shift-reduce conflicts is needed. Often shifts are
+preferred for reductions, because they are likely to result in bigger matches.
+Some kind of cost model is useful for resolving reduce-reduce conflicts.
+
+Other problematic areas include ensuring of correctness (where we want to
+guarantee that for any possible stack we can perform a reduction) and the size
+of the generated parser, which reportedly can get impractical~\cite[Aho2006].
+
+\seccc Top-down matching
+
+LR parsing, like other algorithms which we will consider next, works bottom-up.
+I.e. matching starts from the leaves and gradually covers nodes with patterns
+until it reaches the root. An approach working top-down is possible, and natural
+for recursive formulation like matching on trees.
+
+Cattel~\cite[Cattel1978] mentions an algorithm which he calls \"maximum munch",
+which top-to-bottom does the following for each node:
+
+\begitems
+* Try matching all patterns with the current node as root. Select the first
+matching.
+* Apply the algorithm recursively for each child induced by the pattern.
+* Emit code associated with the selected pattern.
+\enditems
+
+This is a greedy algorithm. The algorithm prioritizes patterns through their
+ordering. {\em Large} patterns are tried first, but attention is also paid to
+their cost. Larger patterns are usually better, because as they implement more
+of the tree with fewer instructions. Though doing these decisions top down
+misses a lot of low level context found only at the bottom.
+
+The biggest advantage of maximal munch is its simplicity. But the limitation to
+trees, and the worse quality due to greediness make it not as practical.
+
+\seccc Bottom-up rewriting
+
+R parsing, a classic bottom-up approach, is not that fit for actual application
+for trees or DAGs, while a naive top-down approach seems very unoptimal, due to
+lack of any backtracking. However, better approaches for bottom-up instruction
+selection.
+
+A group of algorithms is based on {\em dynamic programming}. One such algorithm
+is~\cite[Aho1989], which operates in three passes:
+
+\begitems \style n
+* In a top-down fashion for all nodes the applicable patterns are identified.
+(The top-down pattern matching is interestingly done with an extension of the
+Aho-Corasick string matching algorithm~\cite[Aho1975].)
+* Bottom-up, the costs for each applicable pattern at each node are computed.
+All possible types of the node must be considered, since in the bottom-up
+approach we have not yet determined the type. Thanks to dynamic programming, the
+costs of children (as all applicable types) are available when costs of parents
+(for all applicable types) are computed. For each type only the cheapest pattern
+and its cost is saved.
+* Top-down, the cheapest type is selected for each node. Based on the rule
+associated with type, the types of children are determined, which allow its
+cheapest type to be selected.
+\enditems
+
+Only the cheapest patterns for each type are interesting, because while any mode
+can ultimately be chosen for a node in the third pass, we will only need the
+cheapest pattern of a certain type. But the type itself is not known until the
+third pass. The conflicts that hindered the LR parsing approach are gone---the
+results either identify the cheapest tiling uniquely through the type of the
+root node, or it can be chosen arbitrarily if multiple types have the cheapest
+cost.
+
+A tool called `twig` is described as part of~\cite[Aho1989]. It takes a textual
+grammar of the tree patterns and generates a C program that does the instruction
+selection.
+
+The concept of BURS (Bottom-Up Rewrite Systems) was introduced as means of
+tree covering for instruction selection by~\cite[Graham1988]. With BURS it is
+possible to move the dynamic programming to compiler-compile time. The technique
+is based purely on rewrites at the bottom of the trees and something like the
+first pass of~\cite[Aho1989] is not needed.
+
+A tool called `iburg`~\cite[Fraser1992] is based on the BURS theory and is both
+simpler and produces more efficient code generators.
+
 
 \seccc Reduction
 
 \secc Practical considerations
+
+Nevýhody - instrukce s více výstupy.
 
 Using register transfers for representing instructions has an interesting
 parallel in the processor itself. Modern x86-64 implementations like the ones
@@ -8115,3 +8305,4 @@ ALU
 CFG
 IRC
 IR
+AST
