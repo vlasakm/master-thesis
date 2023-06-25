@@ -425,6 +425,9 @@ translate_cmpop(TranslationState *ts, CondCode cc, Oper res, Oper arg1, Oper arg
 size_t
 add_label(GArena *labels, Value *value)
 {
+	// Add a value to the array of labels, but only if it is not already
+	// there. I.e. we perform deduplication, since a lot of labels are
+	// reused.
 	Value **existing = garena_array(labels, Value *);
 	size_t index = garena_cnt(labels, Value *);
 	for (size_t i = index; i--;) {
@@ -501,15 +504,6 @@ translate_value(TranslationState *ts, Value *v)
 		alloca->stack_offset = mfunction_reserve_stack_space(ts->function, size, alignment);
 		break;
 	}
-	case VK_CONSTANT:
-	case VK_BLOCK:
-	case VK_FUNCTION:
-	case VK_GLOBAL:
-	case VK_STRING:
-	case VK_ARGUMENT:
-		UNREACHABLE();
-		break;
-
 	case VK_ADD:  translate_binop(ts, G1_ADD, res, ops[0], ops[1]); break;
 	case VK_SUB:  translate_binop(ts, G1_SUB, res, ops[0], ops[1]); break;
 	case VK_MUL:  translate_binop(ts, G1_IMUL, res, ops[0], ops[1]); break;
@@ -584,11 +578,18 @@ translate_value(TranslationState *ts, Value *v)
 		translate_return(ts, return_value);
 		break;
 	}
-	case VK_PHI: {
+	case VK_CONSTANT:
+	case VK_BLOCK:
+	case VK_FUNCTION:
+	case VK_GLOBAL:
+	case VK_STRING:
+	case VK_ARGUMENT:
+		UNREACHABLE();
+		break;
+	case VK_PHI:
 		// SSA should have been deconstructed _before_ translation.
 		UNREACHABLE();
 		break;
-	}
 	}
 }
 
