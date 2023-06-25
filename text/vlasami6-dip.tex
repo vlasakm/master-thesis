@@ -92,6 +92,8 @@
    \_bprintb [doi]        {\_predoi DOI \_ulink[http://dx.doi.org/##1]{##1}.\ }{}%
    \_bprintb [url]        {\_preurl\_url{##1}. }{}%
 }
+
+\_sdef{_print:masterthesis}{\_def\_thesistype{\_Mtext{bib.masthesis}}\_cs{_print:thesis}}
 }
 
 \def\optparams{\adef<##1>{\hbox{$\langle$\it##1\/$\rangle$}}}
@@ -161,19 +163,13 @@ TODO:
 
 * Compiler IRs, Control flow graph
 
-* Register classes
+* Register classes (byte registers)
 
 * Obrázky datových struktur
 
 * Obrázek graph coloring
 
 * Pseudokódy do register allocation?
-
-* Tiling instruction selection
-
-* Instruction scheduling
-
-* Instruction selection a register allocation přes redukci na jiný problém
 
 * Assembly přes NASM
 
@@ -352,22 +348,530 @@ with comparison to existing C compilers (chapter~\ref[chap:evaluation]).
 \label[chap:x86]
 \chap x86-64 architecture
 
-AKA AMD64
+The x86-64 architecture, originally introduced by AMD under the name AMD64, and
+sometimes also called x64, is still one of the most prevalent architectures
+today. It is used in a most desktops, servers, but has also seen some use in
+mobile low power devices.
 
-dlouhá historie
+This widespread use of the architecture alone make it a worthwhile target for
+studying. From a compiler writer's perspective, it is interesting because of its
+CISC {\em Complex Instruction Set Computing} design, which is not
+straightforward to compile into either efficiently or at all.
 
-původně 16 bit,
+For this reason the x86-64 has been used as an inspiration for Tiny x86 (also
+called Tiny86) designed by Strejc~\cite[Strejc2021], which is used for teaching
+purposes in the NI-GEN course at the Faculty of Information Technology CTU in Prague.
 
-TODO mnemonics vs opcodes
+This chapter introduces the x86-64 architecture, its characteristics,
+constraints and to compares it to the simplified Tiny86. Knowledge of some
+other instruction architecture or at least basic understanding of a processor is
+expected, but familiarity with x86-64 is not.
+
+\sec History
+
+Although AMD introduced the x86-64 in the year 1999, the architecture has a much
+richer history. Interestingly enough, throughout the history, the instruction
+sets remained almost fully compatible. For this reason it is important to keep
+the history in mind when thinking about the x86-64, and we introduce it here
+briefly.
+
+The x86-64 is mostly still fully capable of behaving like its eldest ancestor,
+the Intel 8086, a 16-bit microprocessor introduced by Intel in 1978. This
+original design (loosely based on earlier Intel 8-bit processors) is where most
+of the instruction set originates.
+
+The line of Intel 16-bit processors based on 8086 included 80186 and 80286,
+which added some new capabilities (like virtual memory) and instructions. A big
+step was the 32-bit 80386 (also called i386), which extended most of the
+original 8086 design to 32-bits in a relatively straightforward way.
+
+After several iteration on i386, AMD introduced a 64-bit extension of the
+design, the x86-64 (also called AMD64), which also featured all the 32-bit
+additions by Intel, still staying fully backwards compatible. The extension to
+64-bits was done in a different way then the extension to 32 bits and brings
+additional interesting limitations.
+
+\sec Characteristic
+
+Due to the history of x86-64, it must be seen as a 16-bit processor operating in
+a 32-bit mode by default and additionally supporting 64-bit operations. In this
+section we introduce some of the main characteristics of the original 8086 and
+later see how they are reflected in the x86-64.
+
+\secc Basics
+
+Like most CPU architectures these days, x86-64 is {\em register} based. This
+means that interface of the CPU consists of a fixed number of registers and
+instructions that allow operations on these registers. We can describe
+instructions on the x86-64 in textual assembly syntax, which lists the {\em
+mnemonic} and the {\em operands} of the instruction:
+
+\begtt \optparams
+<mnemonic> <op1>, <op2>, <...>
+\endtt
+
+Most instructions then read some of the operands (usually registers) and write
+into other operands (also usually registers). The instructions usually represent
+simple arithmetic operations, but also more complex instructions are available.
+A concrete example of an instruction is addition of two registers `ax` and `bx`:
+
+\begtt
+add ax, bx
+\endtt
+
+This instructions reads the contents of the `ax` and `bx` registers, adds them
+together and writes the result to the `ax` register. Most instruction 8086
+arithmetic instructions work this way---they have two operands, both are used as
+sources and the first as the destination for the result. We call this {\em
+two address code}, as opposed to three address code that would also have a
+non-source destination.
+
+Most operations manipulate registers and memory locations. For example, there is
+an instruction to copy (\"move") a value from one register to another:
+
+\begtt \optparams
+mov <reg>, <reg>
+\endtt
+
+But similar instructions that instead use memory locations do slightly different
+things:
+
+\begtt \optparams
+mov <mem>, <reg>
+mov <reg>, <mem>
+\endtt
+%
+In the first instruction, we copy a value from register to memory, and with the
+second instruction we copy a value from memory to a register. We can call these
+{\em store} and {\em load} instructions. Even though they use the same mnemonic
+(`mov`), they do different operations and they are encoded in a different way.
+We can view them as different {\em instructions}. Internally, what distinguishes
+them is an opcode---some encoding of the instruction as a number, which uniquely
+identifies all instructions and the kinds of operands. Together, we will call
+the kinds of operands allowed by an instruction an {\em addressing mode}. Due to
+details that will become clear soon, 8086 instructions mostly allow two kinds of
+operands:
+
+\begitems
+* a register, `<reg>`
+* a register or memory location `<reg/mem>`
+\enditems
+
+For this reason register copy, load and store instructions correspond to just
+two {\em opcodes}, which cover all three combinations:
+
+\begtt \optparams
+mov <reg/mem>, <reg>
+mov <reg>, <reg/mem>
+\endtt
+%
+Two different opcodes can actually encode a register to register copy
+operation and we can choose arbitrarily. With this nomenclature in mind, we can
+for example say that the following:
+
+\begtt
+mov ax, [bx]
+\endtt
+%
+can be called a load instruction, but is actually no more than an instruction
+with opcode (137 or 10001001 in binary), which uniquely encodes both the
+semantics (copy from second operand to first) and the addressing mode, which has
+two operands, first `<reg>`, the other `<reg/mem>`.
+
+The distinction of opcode and mnemonic is important, because in a compiler we
+mostly care about the semantics and addressing mode of the operation (i.e. the
+opcode and the actual operands), not how it is written textually in assembly,
+which is just a representation that is meant to be convenient for humans. The
+difference can be more subtle for some mnemonics like `imul` which have a few
+very different forms.
+
+\secc Registers
+
+There are actually 8 registers on the 8086. They have names and some are
+sometimes used in special ways. But mostly, we can call the registers {\em general
+purpose}, since usual operations all work with them and allow either register to
+be used.
+
+The registers are illustrated in figure~\ref[TODO]. The full registers (like
+`ax`) are 16-bit, but separate access to either the upper 8-bits or lower 8-bits
+is allowed through the `ah` (\"`ax` high") and `al` (\"`ax` low") registers.
+Because of this `ah` and `al` are not real registers, they are just different
+names for parts of the existing registers.
+
+Not all registers allow access to the 8-bit parts. The registers that are only
+accessible as 16-bit are `sp` ({\em stack pointer}), `bp` ({\em base pointer}),
+also known as frame pointer), `di` (destination index) and `si` (source index).
+As can be seen from their names, they are often used for special purposes and
+hold potentially large integers or addresses, which need the full 16 bits. On
+the other hand, the other four registers are known as the {\em accumulator}
+registers---they are just general purpose registers intended for most arithmetic
+and called in the alphabetical order `ax`, `bx`, `cx`, `dx`. The registers are
+all still general purpose. The categories just signify how they are {\em
+usually} used.
+
+Though `bp` and `sp` are usually reserved for special purposes---the {\em call}
+stack. The `sp` instruction points to the system stack, which is also used as
+the call stack, and `bp` points to the {\em base} of the current functions stack
+frame. As function calls are nested, return addresses and base pointers of the
+previous functions are pushed to the stack and popped back on returns.
+
+It is no coincidence that there are 8 16-bit registers and 8 8-bit registers.
+Most things on the 8086 come in 8s. This stems from the actual encoding of the
+instructions, where a register is encoded with 3 bits. In a context where 16-bit
+register is expected, these 3 bits as a number identify one of the eight 16-bit
+registers, and in 8-bit contexts the 3 bits mean one of the halves of the
+four accumulator registers.
+
+Most instructions have two variants: 8-bit and 16-bit which work with the
+respective registers, or imply {\em byte} (8-bit) or respectively {\em word}
+(16-bit) memory locations in memory.
+
+For example an 8-bit variant of a load instruction has opcode 136 (16-bit
+variant has 137) and can look like this:
+
+\begtt
+mov al, byte [bx]
+\endtt
+
+There are two important things to note: only the first destination became 8-bit,
+the memory location is still identified by 16-bit pointer. Also, in the textual
+assembly, we can also specify the memory location's operand size with either
+`byte` or `word`. The keyword is mostly optional if the operand size can be
+deducted otherwise (like here from the 8-bit `al` register).
+
+\secc Memory locations
+
+We have already seen that there are addressing modes which allow memory
+locations to be encoded. These memory locations allow values to be stored to
+memory and loaded back, but a lot of other instructions allow their operands to
+be memory locations. We usually write memory locations in between brackets (`[`,
+`]`) to distinguish them from ordinary uses of registers.
+
+In general, memory locations are either directly specified with an integer
+literal ({\em an immediate}) or computed from values of registers and
+immediates. On the x86-64 (not on earlier iterations of the instruction set),
+there are two main addressing modes:
+
+\begitems \style n
+* {\em SIB mode}, where SIB stands for {\em scale}, {\em index} and {\em base}.
+The memory locations are in the following form:
+
+\begtt \optparams
+[<base> + <scale> * <index> + <displacement>]
+\endtt
+
+Base and index are registers, scale is either 1, 2, 4 or 8 and displacement is
+an immediate value (on 8086 either 8-bit or 16-bit). All of the individual parts
+are optional. This allows all of the following:
+
+\begtt
+[100]
+[ax]
+[ax + 100]
+[ax + bx]
+[ax + 2 * bx]
+[ax + 8 * bx]
+[ax + 8 * bx + 100]
+[8 * bx]
+[1 * bx + 100]
+\endtt
+
+* {\em RIP-relative mode}. This encoding addresses relatively to the current
+{\em instruction pointer} (on 8086 called `ip`). Beware that on x86-64 the
+instruction pointer points to the beginning of the {\em next} instruction, not
+to the current one. Addressing relative to the instruction pointer is new
+addition of x86-64. The instruction pointer is not necessarily a real register,
+but this addressing mode acts as if it was. We can imagine the mode as if the
+following was allowed:
+
+\begtt \optparams
+[ip + <displacement>]
+\endtt
+%
+A displacement (relative offset) is added to the instruction pointer. This is
+useful for {\em position independent code}, often used for libraries---as long
+as the whole library is in a continuous piece of memory and uses RIP-relative
+addressing, it can actually be located anywhere in memory.
+
+Due to the relative addressing nature, assemblers usually use a different syntax
+for RIP-relative addressing, e.g. for NASM:
+
+\begtt
+[rel <label>]
+\endtt
+
+Assembler will transform this to the offset to `<label>`, relative to the next
+instruction.
+\enditems
+
+\secc Arithmetic
+
+As with registers, even arithmetic operations on the x86-64 come in eights.
+There are:
+
+\begitems
+ * 8 binary operations (we will sometimes call them {\em group 1}),
+ * 8 shift operations ({\em group 2})
+ * 8 unary operations ({\em group 3})
+\enditems
+
+Operations in these groups have the same encoding (the real reason for the
+grouping) and often also very similar nature of working. In no category are all
+the 8 operations useful for translating usual programs, but here are some
+notable examples of instructions in these categories:
+
+\begitems
+* Binary operations: `add`, `sub`, `and`, `or`, `xor`.
+* Shifts: `shl` (shift left), `shr` (shift logical right), `sar` (shift
+arithmetical right)
+* Unary operations: `not` (bitwise complement), `neg` (two's complement
+negation), `mul` (unsigned long multiplication), `imul` (signed long multiplication),
+`div` (unsigned long division).
+\enditems
+
+Binary arithmetic is nice and simple and allows a memory location as either of
+the two operands, e.g. the `add` operation has the following modes:
+
+\begtt \optparams
+add <reg/mem16>, <reg16>
+add <reg16>, <reg/mem16>
+add <reg/mem8>, <reg8>
+add <reg8>, <reg/mem8>
+\endtt
+
+Additionally, an immediate value can be used as the second operand:
+
+\begtt \optparams
+add <reg/mem8>, <imm8>
+add <reg/mem16>, <imm16>
+add <reg/mem16>, <imm8>
+\endtt
+
+In concrete examples:
+
+\begtt
+add ax, bx
+add [ax], cx
+add [ax+20], cx
+add dx, [ax+2*bx+20]
+add dx, 1
+add [ax], -5
+\endtt
+
+There are two immediate sizes available for 16 bit operations---one can save 8
+bits for the immediate if the immediate is small. In these cases when the
+immediate is smaller then the operand size, it is {\em sign extended} to the
+operand size. x86-64 uses two's complement representation for negative numbers.
+
+No special operations are provided for signed or unsigned `add` and other
+operations. This is because the produced result is the same for both signed and
+unsigned operations---they differ only in how the bits are interpreted (i.e.
+unsigned or two's complement) and how an invalid result is detected (either with
+the carry out bit, or with the overflow bit). Carry and overflow are made
+available through the special flags register, which has a bit for each of the
+flags (apart from carry and overflow notably also the zero flag, parity flag or
+sign flag). Every arithmetic operation sets the flags register based on the
+flags of the result of the arithmetic operation.
+
+Unary operation like bitwise complement (also one's complement negation) have
+the following modes (note that they use the source also as destination):
+
+\begtt \optparams
+neg <reg/mem16>
+neg <reg/mem8>
+\endtt
+
+One operand is necessarily not enough for long multiplication and division which
+are also encoded like unary operations. They are also not really binary
+operations---they are {\em long} multiplication and division, i.e. one of the
+operands is twice as large (i.e. 32-bit on 8086), which needs {\em two
+registers}. These two registers are implicitly understood to be `ax` and `dx`.
+With multiplication, `ax` is multiplied by the single operand and the result put
+into `ax` (low 16-bits of the result) and `dx` (high 16-bits of the result).
+With division 32-bit value whose upper 16-bits are in `dx` and lower 16-bits in
+`ax` is divided by the single operand and the quotient is put into `ax` and the
+remainder into `dx`.
+
+Shifts are similarly restricted. They are encoded as unary operations and there
+are only these modes as demonstrated on `shl`:
+
+\begtt \optparams
+shl <reg/mem16>, imm8
+shl <reg/mem8>, imm8
+shl <reg/mem16>, 1
+shl <reg/mem8>, 1
+shl <reg/mem16>, cl
+shl <reg/mem8>, cl
+\endtt
+%
+I.e. either the opcode specifies the shift by one implicitly, or there is an
+immediate value. Shifts by variable amount have to store the shift amount in the
+`cl` register (lower 8-bits of `cx`). 8-bit shift amount is enough even on
+64-bit machines where the maximum shift amount is 63---the processor actually
+masks this and limits the maximum shift amount.
+
+\secc Condition codes
+
+As mentioned, arithmetic operations set flags. These flags can be used for
+conditional execution. The flags register can be interpreted in one of the 16
+ways, e.g.:
+
+\begitems
+* {\em Zero} (`z`). Is true if the zero flag is 1.
+* {\em Not zero} (`nz`). Is true if the zero flag is 0.
+* {\em Equal} (`e`). Is true if the zero flag is 1.
+* {\em Less than} (`l`). Is true if sign flags is not equal to overflow flag.
+* {\em Below} (`l`). Is true if carry flag is 1.
+* \dots
+\enditems
+
+While there are 16 predetermined ways to interpret either one or two flags, they
+can have {\em semantic meaning}, even if they are the same. For example, to
+detect that the value is zero, the zero flag can be checked to be 1, through the
+`z` condition code. But the same condition code checking zero flag to be 1 can
+be used for equality checks---values are compared by subtraction and if the
+result is zero, then the values are equal. But in that case we usually call the
+condition code `e` (\"equal"). Multiple {\em semantic mnemonics} compile to just
+16 condition codes.
+
+Another thing of note is that there are two ways of doing a \"smaller"
+check---{\em less than} or {\em below}. The first is intended for unsigned
+numbers (and uses the carry flag) and the second is for signed numbers (and
+checks the carry flag {\em and} the overflow flag). These are one of the
+operations where signedness matters.
+
+The following instructions have condition codes as part of their opcodes (
+`cc` stands for the condition code):
+
+\begitems
+* `jcc <destination>`---jumps to destination if the condition is true. E.g.
+\begtt
+jz label
+jnz ax
+jl [ax]
+\endtt
+* `cmovcc <reg16>, <mem/reg16>`---copies source to register destination, but only if the condition is true.
+E.g.
+\begtt
+cmove ax, bx
+cmovl ax, [bx]
+\endtt
+* `setcc <reg/mem8>`---sets lower 8 bits to 00000001 if the condition is true,
+and zero otherwise.
+\begtt
+setl al
+sete ah
+setz [ax]
+\endtt
+\enditems
+
+The condition code (4 bits) is part of the opcode for these instructions.
+
+The `jcc` jump instruction is the alternative to the unconditional `jmp`
+instruction. The `call` instruction has the same addressing modes as `jmp`:
+
+\begtt \optparams
+jmp <imm16>
+jmp <imm8>
+jmp <reg/mem16>
+\endtt
+%
+All three instructions allow instructions allow relative jumps based on
+immediates, but only `jmp` and `call` allow absolute jumps to address in
+register or in memory.
+
+\secc Encoding
+
+All of the opcodes, addressing modes, sizes of operands, are deeply connected
+with the actual encoding of the instructions. On the x86, most instructions
+follow this scheme:
+
+\begitems \style n
+%\let\em=\relax
+* {\em Prefix bytes}. Optional, one byte per prefix. Some instructions allow
+behaviour to be changed by a prefix, e.g. the `lock` prefix byte makes some
+arithmetic instructions atomic.
+* {\em Opcode byte}. Specifies the opcode, i.e. both the operation and the
+   addressing mode.
+* {\em ModRM byte}. Encodes two operands, `<reg>` and `<reg/mem>`.
+* {\em SIB byte}. Encodes the memory location (see section~\ref[sec:x86-memory]).
+* {\em Immediate value bytes}. Any offsets, displacements or other immediates.
+\enditems
+
+The ModRM byte is the most important thing when considering addressing modes. It
+is present for most instructions (though for example, instructions without any
+operands don't need it). It encodes up to two operands, one is register and the
+other is either register or memory location. The name of the byte stems from its
+three components:
+
+\begitems
+* {\em Mode}. 2 bits.
+* {\em Register}. 3 bits.
+* {\em Memory or register}. 3 bits.
+\enditems
+
+The four modes are able to encode the following two operands:
+
+\begtt \optparams
+<reg>, [<reg>]
+<reg>, [<reg>+<disp8>]
+<reg>, [<reg>+<disp16>]
+<reg>, <reg>
+\endtt
+
+One operand is always a register, the other can be either a register or a memory
+location given by register and an optional big or small displacement. This is a
+form of more compact encoding for the common case where the memory location is
+given just by a register. It fits one special case of the SIB memory. The others
+have to be encoded with a separate SIB byte, which has the following components:
+
+\begitems
+* {\em Scale}. 2 bits. The actual scale is $2^{\hbox{\typoscale[700/700]scale}}$.
+* {\em Index}. 3 bits.
+* {\em Base}. 3 bits.
+\enditems
+
+The encoding is fairly straightforward. Though as presented has a few problems:
+none of the ModRM modes uses the values from SIB, absence of index or base
+cannot be encoded in 3 bits if the registers are also 3 bits. This is {\em
+special cases} come in. They are unfortunately too confusing to list here, but
+they can be found in~\cite[IntelDeveloper]. Simply put, usually one of the
+possible values of a field is reserved for special meaning (e.g. one register in
+the `M` part of ModRM means that SIB should be present and consulted). There are
+necessarily a few unencodable memory locations, but there is usually an
+alternative way of specifying the same (e.g. with a displacement of 0). The only
+exception is using the stack pointer, `sp`, as an index register, which is not
+encodable. Fortunately, using `sp` as index register would rarely make sense,
+and it can still be used as base.
+
+In the end, the operand encoding is fairly regular. Encoding is more complex
+because of the special cases, but all useful operand specifications are allowed,
+so the complexity is limited to the encoder/decoder, and not the compiler, which
+sees the operations as fairly orthogonal.
+
+It is important to note that the ModRM byte always encodes the two operands in
+the same way. The meaning and order of the operands is determined from the
+opcode. For example, most binary operations allow `<reg/mem>` as either the
+source or the destination. The direction is usually specified in one bit across
+all binary operation opcodes, we can call it the {\em direction bit}.
+
+Similarly, the operand size is also determined by the opcode and is one of the
+bits of the opcode. Zero in the {\em operand size bit} means 8-bit operation,
+one means 16-bit operation.
+
+\sec 32-bit extension
+
+\sec 64-bit extension
+
+\secc Floating point
+
+We briefly introduce the history, because the 
+
+
+extension to a family of earlier 32-bit architectures, commonly called x86. The
+x86 itself
 
 \sec Characteristics
-
-CISC
-
-Two-address code
-
-kódování založené na osmičkách (3 bity) => 8 registrů, 8 binárních operací, 8
-unárních operací, 8 shiftů, apod.
 
 podporuje 8, 16, 32 a 64-bit operace, z pohledu efektivity (partial register
 stalls) a jazyka C se vyplatí používat jen 32 a 64 bitové operace (zbytek movzx,
@@ -377,10 +881,6 @@ omezení často vychází z kódování instrukcí (shifty a dělení jsou kódo
 a nemají v kódování místo na víc než jeden argument)
 
 \secc Addressing modes
-
-ModRM bajt, SIB adresování + RIP relativní adresování
-
-Max. jeden paměťový operand
 
 Dvouadresový kód - kódování stále stejné, jen směr otáčí jeden bit v opcodu
 
@@ -1354,11 +1854,6 @@ machine specific, their form is machine independent. A single algorithm can work
 for any architecture provided a suitable set of patterns and instructions that
 correspond to them.
 
-labeled nodes
-
-bottom up vs top down
-
-
 Wide variety of algorithms have been used to perform the covering. They range in
 what graphs they are able to handle, quality, run time and complexity. In the
 following subsections we introduce some of the existing approaches.
@@ -1465,15 +1960,57 @@ possible to move the dynamic programming to compiler-compile time. The technique
 is based purely on rewrites at the bottom of the trees and something like the
 first pass of~\cite[Aho1989] is not needed.
 
-A tool called `iburg`~\cite[Fraser1992] is based on the BURS theory and is both
-simpler and produces more efficient code generators.
+A tool called `burg`~\cite[Fraser1992a] is based on the BURS theory and does the
+dynamic programming at compiler-compile time. This unfortunately means some
+restrictions on the grammars, and a similar tool `iburg`~\cite[Fraser1992b]
+remains more flexible by doing the dynamic programming in compile time.
 
+\seccc DAG covering by tree covering
+
+The algorithms introduced in previous subsections were all limited to trees,
+i.e. only tree programs and tree patterns were allowed. In general, extending
+the tree approaches to {\em DAG programs} is possible by transforming the DAGs
+into trees. Two fundamental methods are described by~\cite[Blindell2016] and
+both work by identifying the {\em trees with multiple parents} (i.e. the common
+subexpressions), then it is possible to either:
+
+\begitems \style n
+* {\em Split the edge}. The tree is removed from the graph and replaced by a
+special leaf. All individual trees are then covered separately and the results
+merged.
+* {\em Duplicate the node}. The common tree is duplicated for every use.
+\enditems
+
+Both of these approaches are problematic: splitting makes small trees, which
+can miss covering with bigger patterns (of supposedly better instruction) and
+duplication repeats computations.
+
+A notable application of duplication is Ertl's~\cite[Ertl1999], which is able
+to reduce the need for duplication for a class of DAGs. While edge splitting has
+been successfully used by Koes and Goldstein~\cite[Koes2008].
+
+Unfortunately these straightforward extensions of tree covering don't easily
+support DAG {\em patterns}, which are required for multi-output instructions
+like `idiv`.
 
 \seccc Reduction
 
-\secc Practical considerations
+Trees can be covered in linear time with dynamic programming. Covering of DAGs
+and (as well as general graphs) is NP-complete~\cite[Koes2008]. Several
+approaches then instead of solving instruction selection directly, choose to
+reduce it to another NP-complete problem, use an existing efficient solver, and
+then transform the solution to the selected instructions.
 
-Nevýhody - instrukce s více výstupy.
+As solvers of some NP-complete problems have gotten much bigger attention, this
+approach can be very efficient in practice. For example, techniques based on
+integer programming~\cite[Wilson1994] and partitioned boolean quadratic
+problem~\cite[Eckstein2003] exist.
+
+The advantage is, that by embracing the NP-completeness a lot of flexibility can
+be gained, and the techniques can work across basic blocks, selecting
+instructions for whole functions.
+
+\secc Practical considerations
 
 Using register transfers for representing instructions has an interesting
 parallel in the processor itself. Modern x86-64 implementations like the ones
@@ -1489,8 +2026,141 @@ compression} producing the fewest instructions having the same effect.
 \label[sec:scheduling]
 \sec Instruction scheduling
 
+Instruction selection selects the machine instructions implementing the desired
+behavior. However, these instructions are not necessarily ordered well to suite
+the concrete machine. It is the job of instruction scheduling to decide on the
+final order of the instructions.
+
+The dependencies among instructions as selected by the instruction selection
+impose a {\em partial order} on the instructions. These dependencies include
+data-flow on registers (i.e. operands have to be evaluated before the operations
+itself), but also memory operations. Loads and stores to memory can be very
+limiting to the ordering, alias analysis may be able to tell which stores and
+loads are safe to reorder, but writes to memory are always possible, which can
+make any reordering hard.
+
+Instruction scheduling then produces a {\em linear order} of the instructions,
+where the dependencies are honored, but the instructions themselves are now able
+to make better use of machine resources.
+
+\secc Motivation
+
+In a processor, that processes and executes exactly one instruction per cycle,
+there is not much needed to find better orders of instructions---when all
+operations take the same time, any ordering will produce the same sum.
+
+In pipelined processors this becomes more interesting, because although the
+processor still executes one instruction per cycle, {\em multiple instructions}
+are processed at the same time in the pipeline. Each cycle a new instruction
+enters the pipeline and one finishes its execution. Hence there are as many
+instruction in the pipeline as there are pipeline stages and progress is made on
+each instruction in each stage of the pipeline. This is comparable to to an
+assembly line in a car factory. In a usual pipelined processor we can imagine
+the following stages:
+
+\begitems \style n
+* {\em Instruction fetch}. The instruction is loaded from memory.
+* {\em Instruction decode and operand fetch}. The processor figures out the
+nature of the instruction and loads the operands.
+* {\em Execute}. The instruction is executed.
+* {\em Write-back}. The results of the instruction are written back to registers
+or memory.
+\enditems
+
+In this scheme, the processor must be careful of the dependencies, since if the
+results are written in stage 4, but operands loaded in stage 2, then a
+dependency in consecutive instructions makes them unable to be executed in this
+pipeline. E.g. in:
+
+\begtt
+add rax, rbx
+add rax, rcx
+\endtt
+
+The first instruction writes `rax` in its stage 4, but the second instruction
+reads `rax` in the first instruction's stage 3 when the results are not yet
+available. The processor has to detect this, and often has to {\em stall} the
+execution until the results become available Actually, here the result
+written back at stage 4 is already available at stage 3 and may be {\em
+forwarded} to the stage 2 at the same cycle, but in a real pipelined processor
+there is a higher number of stages, which makes dependencies of adjacent
+instructions much more problematic.
+
+For pipelined processors, it is beneficial to {\em interleave} unrelated
+computations---while one waits for the results, the other can be executed
+freely. If, like above, we don't have anything to interleave with, we can't
+improve the code. But, in long basic blocks opportunities for interleaving may
+occur.
+
+\secc List scheduling
+
+Cooper and Torczon~\cite[Cooper2004] describe a technique for scheduling
+instructions in a basic block, that is the base of many other, more advanced
+techniques. The approach works in four stages:
+
+\begitems
+* {\em Rename}.	Registers are renamed to prevent false dependencies.
+* {\em Build dependency graph}. In a backwards fashion the operations in the
+block are examined, and edges from definitions to uses are added.
+* {\em Assign priorities}. The assigned priorities are used to guide the
+scheduler.
+* {\em Schedule operations}. A {\em ready list} containing the instructions
+that can execute in the current cycle is maintained and the scheduling continues
+until it becomes empty. Instructions are removed from this list, until it
+becomes empty, at which point based on the cycle count and prepared operands,
+new instructions can become ready.
+\enditems
+
 \label[sec:scheduling-practical]
 \secc Practical considerations
+
+Even though in the previous subsections we motivated and presented a suitable
+approach for scheduling, these days the assumptions we made about pipelined
+processors are mostly obsolete.
+
+No longer, are processors just pipelined. Modern x86-64 processors are much more
+advanced and feature~\cite[IntelOptimization,IntelDeveloper]:
+
+\begitems
+* {\em Register renaming}. Instead of using only the physical registers, there are
+many more {\em architectural} registers and for each result a new fresh
+architectural register is allocated. This removes false dependencies.
+* Out of order execution. The processor doesn't process instructions one by one.
+Although it decodes them in a sequential fashion, they get processed separately
+and independently, and only {\em retired} in their nominal order in a reorder
+buffer. This is supported by:
+\begitems
+* Multiple {\em execution units}. Instead of being able to execute only one operation
+at a time, multiple operations can be executed in different execution units,
+though each supports only certain kinds of operations. Thus many operations can
+be executed in parallel.
+* Issuing of multiple instruction in a single cycle. Multiple execution units
+are kept saturated, because many operations can start their execution at once.
+\enditems
+* {\em Branch prediction} and {\em speculative execution}. The processor is able
+to continue executing code after a branch even before evaluating the condition.
+If the assumption turns out incorrect, it is able to backtrack.
+\enditems
+
+Ultimately, this means that the processor redoes all the instruction scheduling
+by itself {\em dynamically} at run time. This is very powerful, because with
+the addition of branch prediction and speculative execution, it works across
+basic blocks and adjusts to the actual execution.
+
+This makes {\em static} instruction scheduling in a compiler a lot less
+important optimization. It is still useful, but becomes interesting with at
+least some of the following:
+
+\begitems
+* expensive operations (like division, which can only execute in a small number
+of execution units and have high latency),
+* precise processor specific information (about execution units, reorder buffer
+size, instruction latencies and throughput, etc.),
+* long or computation heavy basic blocks (i.e. the static scheduling has
+something to work with),
+* predictable branches (i.e. the compiler statically knows which blocks are
+likely to execute after each other).
+\enditems
 
 \label[sec:regalloc]
 \sec Register allocation
@@ -1510,15 +2180,6 @@ specific. Target independent representation of target specific instructions
 allows us to share also register allocation logic for all targets.
 
 \secc Motivation
-
-Most CPU architectures these days are register based. That means that interface
-of the CPU consists of a fixed number of registers and instructions that allow
-operations on these registers. For example registers may be eight 32-bit storage slots
-and instructions may allow performing arithmetic on these registers or allow
-loading/storing contents of register from/into memory. Memory is still an
-important part of these architectures---computations can't possibly fit all into
-a fixed number of registers of fixed size, it is the memory that allows us to
-store large amounts of data.
 
 During previous phases of the compiler we used a powerful abstraction, we
 pretended that there is an infinite amount of registers. This is very important
@@ -2595,7 +3256,7 @@ spills or splits before loops to make more registers available in loops.
 \seccc Local top-down and bottom-up
 
 Two of the most basic algorithms for register allocation are described by Cooper
-and Torczon~\cite[Engineering]. They operate only on single basic blocks, but
+and Torczon~\cite[Cooper2004]. They operate only on single basic blocks, but
 form a good baseline to improve upon. Also, surprisingly, their ideas of how to
 handle spilling have their equivalents in more powerful algorithms.
 
@@ -3151,9 +3812,29 @@ instructions are chosen to implement the behavior of the SSA-based intermediate
 representation. $\phi$ instructions are not real instructions real
 architectures, and certain operations are incompatible with SSA. TODO elaborate.
 
-\seccc Reduction (to another NP-complete problem and using a solver)
+\seccc Reduction
 
-ILP, IBQP
+Like with instruction selection, since register allocation is a very hard
+problem, it is possible to leverage efficient methods for solving other problems
+through a {\em reduction}.
+
+The methods using reduction fully transform the register allocation problem to
+an instance of another problem, often use an external generic solver and then
+translate the result back into a register allocation. This is a bit different
+than using the graph coloring register allocators, which use the ideas of graph
+coloring, but can still be seen as solving the register allocation problem
+directly---the coloring itself is only part of a scheme that consists of also
+spilling and coalescing.
+
+A notable example is reduction to integer linear programming by Appel and
+George~\cite[Appel2001]. The characteristics of their approach are separation of
+spilling, which is done upfront in the first stage, and extreme live range
+splitting, where they split at every program point and then do register
+assignment and coalescing in the second stage.
+
+Scholz and Eckstein~\cite[Scholz2002] reduce register allocation to partitioned
+boolean quadratic problem and solve it using a heuristic running in near linear
+time.
 
 \label[chap:design]
 \chap Design and implementation
@@ -5048,7 +5729,7 @@ neg t3
 Instructions which have special register constraints are realized through copies
 to or from the required registers (see section~\ref[sec:regalloc-constraints]),
 thus effectively we perform {\em live range splitting} (explained more
-thoroughly in section~\ref[sec:regalloc-splitting]). For example shifts which
+thoroughly in section~\ref[sec:regalloc-splitting]). For example shifts
 require the shift amount to be in register `cl`, i.e. the following:
 
 \begtt
@@ -5080,34 +5761,23 @@ idiv v2
 mov t3, rax
 \endtt
 
-
 In a RISC-like fashion, we base our operations on registers and don't
-investigate whether we can use a more suitable addressing mode. One addressing
-mode allows immediate values to be added to registers, i.e. for example we could
-translate:
+investigate whether we can use a more suitable addressing mode. One problem is,
+that in the middle end IR, we allow integer constants to be used directly in
+operations, i.e. this:
 
 \begtt
 v7: int = add v6, 1
 \endtt
-
-to:
-
-\begtt
-mov t7, v6
-add t7, 1
-\endtt
-
-TODO: tady to moc nenavazuje, upravit
-
-However, here we encounter a problem which we have so far neglected: how are
-{\em constants} assigned virtual registers? Operations are embedded in the
-concrete places in control flow graph and represent the {\em value} resulting
-from an operation, which is only valid in the function (and to be concrete
-speaking only in operations {\em strictly dominated} by the operation).
-
-Integer constants are represented with the `Constant` struct (see
-section~\ref[sec:data-structures-middle-end]). There are two practical problems
-with assigning them virtual registers:
+%
+Here `v7` is an `Operation` whose first argument is another operation with index
+6, and a `Constant` (see section~\ref[sec:data-structures-middle-end]).
+Operations are embedded in concrete places in control flow graph and represent
+the {\em value} resulting from an operation, which is only valid in the function
+(and to be concrete speaking only in operations {\em strictly dominated} by the
+operation). But constants are not anchored anywhere in the control flow graph
+(at least in our implementation). There are two practical problems with
+assigning them virtual registers:
 
 \begitems
 * Our virtual register assignments are not global across all functions
@@ -5225,11 +5895,9 @@ add t9, t10
 \endtt
 
 The code generation is mainly driven by a function called `translate_value`,
-which is responsible for translating the {\em operations}. Before any operation
-is translated, the {\em operands} are translated with
-`translate_operand`---mainly translation of operands involves materialization of
-constants. Parts of the functions are illustrated below with some of the utility
-functions.
+which is called in turn for each value in a basic block. The function is
+responsible for translating the values anchored in the control flow graph, i.e.
+mostly the {\em operations}.
 
 \begtt
 void translate_value(TranslationState *ts, Value *v) {
@@ -5242,14 +5910,134 @@ void translate_value(TranslationState *ts, Value *v) {
 	Oper res = v->index;
 
 	switch (v->kind) {
-		[...]
+	case VK_IDENTITY: add_copy(ts, res, ops[0]); break;
+	case VK_ADD:      translate_binop(ts, G1_ADD, res, ops[0], ops[1]); break;
+	case VK_SUB:      translate_binop(ts, G1_SUB, res, ops[0], ops[1]); break;
+	case VK_SHL:      translate_shift(ts, G2_SHL, res, ops[0], ops[1]); break;
+	case VK_SAR:      translate_shift(ts, G2_SAR, res, ops[0], ops[1]); break;
+	case VK_NEQ:      translate_cmpop(ts, CC_NE,  res, ops[0], ops[1]); break;
+	case VK_SLT:      translate_cmpop(ts, CC_L,   res, ops[0], ops[1]); break;
+	[...]
+	case VK_JUMP: add_jmp(ts, ops[0]); break;
+	[...]
+	}
 	}
 }
 \endtt
 
+Before any operation is translated, the {\em operands} are translated with the
+function
+`translate_operand`---mainly translation of operands involves materialization of
+constants. Then for each operation we translate it into a sequence of
+instructions using the operands in registers and writing the result into a
+register. Our naming convention names simple instruction constructors as
+`add_<instruction>` and helper functions that add multiple instructions
+`translate_<kind>`.
+
+For example, the copy instruction has the following
+constructor, which initializes all operands as well as the kind, subkind and
+mode:
+
 \begtt
-TODO
+void add_copy(TranslationState *ts, Oper dest, Oper src) {
+	Inst *inst = add_inst(ts, IK_MOV, MOV, M_Cr);
+	IREG1(inst) = dest;
+	IREG2(inst) = src;
+}
 \endtt
+
+And translation of binary operations is as follows:
+
+\begtt
+static void translate_binop(TranslationState *ts,
+		X86Group1 op, Oper res, Oper arg1, Oper arg2)
+{
+	add_copy(ts, res, arg1);
+	add_binop(ts, op, res, arg2);
+}
+\endtt
+
+There are not that many different kinds of operations from the perspective of
+the x86-64, so a few helpers suffice to cover most operations.
+
+\secc Operands
+
+The translation of operands with the `translate_operand` function is reproduced
+below in full for clarity:
+
+\begtt
+Oper translate_operand(TranslationState *ts, Value *operand) {
+	Oper res;
+	switch (operand->kind) {
+	case VK_BLOCK:
+		res = operand->index;
+		break;
+	case VK_FUNCTION:
+	case VK_GLOBAL:
+	case VK_STRING: {
+		size_t label_index = add_label(ts->labels, operand);
+		res = ts->index++;
+		add_lea_label(ts, res, label_index);
+		break;
+	}
+	case VK_CONSTANT: {
+		Constant *k = (void*) operand;
+		res = ts->index++;
+		add_mov_imm(ts, res, k->k);
+		break;
+	}
+	case VK_ALLOCA: {
+		Alloca *alloca = (Alloca *) operand;
+		res = ts->index++;
+		add_lea(ts, res, R_RBP, alloca->stack_offset);
+		break;
+	}
+	default:
+		res = operand->index;
+		break;
+	}
+	return res;
+}
+\endtt
+
+Most kinds of values (i.e. all operations) don't need anything special---our
+invariant already puts them into registers. But constants like integer constants
+or addresses of functions, globals or strings need to be materialized. As they
+are not assigned one static register, we allocate a fresh virtual register with
+a simple increment of a counter. The following are the instructions that get
+introduced with translation of operands:
+
+\begtt
+lea t2, [f] ; function
+lea t2, [G] ; global
+lea t2, [$str3] ; string
+mov t2, 34 ; constant
+lea t2, [rbp-32] ; alloca
+\endtt
+% $
+
+Basic blocks are represented with values in our implementation, but they are not
+{\em first class} values. We don't allow the address of a basic block to be
+taken.\fnote{Some implementations of the C programming language, like GCC, allow
+taking the address of a label:
+\url{https://gcc.gnu.org/onlinedocs/gcc/Labels-as-Values.html}. With sufficient
+support in the front end, our implementation could easily support this by
+translating basic blocks similarly as functions. After all, in assembly they are
+just labels, and the only difference is in calling conventions.}
+
+\secc Labels
+
+\secc Stack slots
+
+\secc Prologue
+
+\secc Epilogue
+
+\secc Narrow types
+
+\secc Signedness
+
+\secc Structs
 
 \sec Peephole optimization
 
