@@ -689,7 +689,10 @@ literal(Parser *parser)
 		return rvalue(create_const(parser, &TYPE_INT, value));
 	}
 	default:
-		  UNREACHABLE();
+		if (parser->had_error) {
+			return rvalue(&NOP);
+		}
+		UNREACHABLE();
 	}
 }
 
