@@ -586,7 +586,7 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 				}
 				switch (IM(prev)) {
 				case M_Ri: IM(prev) = M_Mi; break;
-				case M_Rr: IM(prev) = M_Mr; break;
+				case M_Rr: IM(prev) = M_Mr; IREG(prev) = IREG2(prev); break;
 				case M_R:  IM(prev) = M_M;  break;
 				case M_CM: IM(prev) = M_Mi; break;
 				default: UNREACHABLE();
