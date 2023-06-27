@@ -140,9 +140,11 @@ any and all persons who wish to use the Work. Such persons are entitled to use
 the Work in any manner that does not diminish the value of the Work and for any
 purpose (including use for profit). This authorisation is unlimited in time,
 territory and quantity.
-
-V XX dne XX.\,XX.\,TODO
-\signature
+\vskip1cm
+\hfill In Prague on June 28, 2023
+\vskip2mm
+\hfill Michal Vlasák
+\null
 }
 
 {\nopagenumbers
@@ -158,8 +160,6 @@ V XX dne XX.\,XX.\,TODO
 TODO:
 
 \begitems \style n
-
-* x86-64 architektura
 
 * Compiler IRs, Control flow graph
 
@@ -194,7 +194,15 @@ Taky chary a struktury.
 
 * System V AMD64 ABI
 
+* ELF
+
+* Testing
+
 * Liveness and interference definitions
+
+* Instruction scheduling -> non-pessimization e.g. setcc + movzx
+
+* Optimalizace flagu u setcc a branchi
 \enditems
 
 %Computers are useful tools that accept programs and input data and produce other
@@ -367,6 +375,18 @@ constraints and to compares it to the simplified Tiny86. Knowledge of some
 other instruction architecture or at least basic understanding of a processor is
 expected, but familiarity with x86-64 is not.
 
+This chapter takes the liberty of approaching some of explaining some of the
+properties or advancements non-linearly and often tells little lies. From the
+perspective of x86-64, where all of gradual additions to the instructions sets
+are already available, it doesn't matter much, but note that some of the things
+presented aren't really true for the actual, original 8086 16-bit processors.
+The Intel software developer's manual~\cite[IntelDeveloper] should be taken as
+the definitive resource, though I can wholeheartedly also recommend Volume 3 of
+AMD's Programmer's Manual~\cite[AMDVol3] (which is focused on the general
+purpose instructions and their encodings and I found sometimes more focused and
+little bit more approachable), and the unofficial X86 Opcode and Instruction
+reference\urlnote{http://ref.x86asm.net/coder64.html}.
+
 \sec History
 
 Although AMD introduced the x86-64 in the year 1999, the architecture has a much
@@ -398,6 +418,7 @@ a 32-bit mode by default and additionally supporting 64-bit operations. In this
 section we introduce some of the main characteristics of the original 8086 and
 later see how they are reflected in the x86-64.
 
+\label[sec:x86-basics]
 \secc Basics
 
 Like most CPU architectures these days, x86-64 is {\em register} based. This
@@ -539,6 +560,7 @@ assembly, we can also specify the memory location's operand size with either
 `byte` or `word`. The keyword is mostly optional if the operand size can be
 deducted otherwise (like here from the 8-bit `al` register).
 
+\label[sec:x86-memory]
 \secc Memory locations
 
 We have already seen that there are addressing modes which allow memory
@@ -710,6 +732,7 @@ immediate value. Shifts by variable amount have to store the shift amount in the
 64-bit machines where the maximum shift amount is 63---the processor actually
 masks this and limits the maximum shift amount.
 
+\label[sec:x86-cc]
 \secc Condition codes
 
 As mentioned, arithmetic operations set flags. These flags can be used for
@@ -844,11 +867,6 @@ exception is using the stack pointer, `sp`, as an index register, which is not
 encodable. Fortunately, using `sp` as index register would rarely make sense,
 and it can still be used as base.
 
-In the end, the operand encoding is fairly regular. Encoding is more complex
-because of the special cases, but all useful operand specifications are allowed,
-so the complexity is limited to the encoder/decoder, and not the compiler, which
-sees the operations as fairly orthogonal.
-
 It is important to note that the ModRM byte always encodes the two operands in
 the same way. The meaning and order of the operands is determined from the
 opcode. For example, most binary operations allow `<reg/mem>` as either the
@@ -859,40 +877,324 @@ Similarly, the operand size is also determined by the opcode and is one of the
 bits of the opcode. Zero in the {\em operand size bit} means 8-bit operation,
 one means 16-bit operation.
 
+For operation which encode only one operand (like shifts, `neg` or `idiv`), only
+the {\em M} operand is used. Because of this, the three bits for the {\em R}
+operand were free and could instead be used for extension of the opcode. It is
+no coincidence that there are 8 shifts and 8 unary operations, because the exact
+kind of the operation is encoded in these three bits. For example, opcode 192
+(`0xC0`) corresponds to shifts in the following addressing mode:
+
+\begtt \optparams
+<shift> <reg/mem8>, <imm8>
+\endtt
+
+The exact kind of shift (`shl`, etc.) is encoded as if it was the `<reg>`
+parameter unused by this addressing mode.
+
+\secc Other instructions
+
+`lea`
+`cmp`
+`test`
+`push`
+`pop`
+`inc`
+`dec`
+`cqo`
+`test`
+`imul3`
+`imul`
+`movzx`
+`movsx`
+
 \sec 32-bit extension
 
+In the previous sections we introduced features of 8086 and later additions
+(x86, x86-64), {\em as if} they were supported by the original 16-bit processor.
+Often they are not, but by consistently introducing everything like it would be
+on the 16-bit processor, we can look at how the 32-bit extension was done by
+Intel.
+
+The extension was done in a very straightforward way: the processor supported
+a new 32-bit mode, but also a 16-bit mode for backwards compatibility. In the
+new 32-bit mode, everything 16-bit is now 32-bit, including operand sizes,
+immediate sizes, displacements, etc. This meant that in 32-bit the two supported
+operand sizes are 8-bit and 32-bit and these are distinguished by the opcode.
+Encoded in exactly the same way as on the 16-bit processors, but with larger
+immediates.
+
+The processor was already capable of doing both 16-bit operations and
+32-bit operations, but they were multiplexed in the same opcodes. To allow
+16-bit mode to use 32-bit operations and vice versa, the {\em operand-size
+prefix} (`0x66`) was introduced. 8-bit operations have separate opcodes, so
+these are available in both modes.
+
+Similar prefix was introduced for addresses---the {\em address-size} prefix,
+which is able to make memory locations based on 16-bit calculations on 32-bit
+systems and vice versa. Though this is less useful in practice.
+
+All of the registers got extended to 32-bits. The full 32-bits became available
+with the `e` (\"extended") prefix of the register name, e.g. `eax` or `esp`. The
+upper 16-bits of the registers are no longer addressable individually and can
+change only as part of the 32-bit operations.
+
+\label[sec:x86-64]
 \sec 64-bit extension
 
-\secc Floating point
+When AMD extended x86 to 64-bits they brought also many other extensions.
+Notably this included 8 additional registers (with no descriptive names, just
+numbered from 8 to 15) and the registers are 64-bit (the full 64-bits are
+accessible with prefix `r` instead of `e`, e.g. `rax` or `rsp`). The encoding
+had only 3 bits available to encode a register, so a new mode or operand size
+prefix was not enough, especially since backwards compatibility was still
+desired.
 
-We briefly introduce the history, because the 
+Their solution is the REX (\"register extension") prefix. It is a byte, where
+the 4 most significant bits are constant (0100, i.e. 4) and the 4 individual
+least significant bits are used as follows:
 
+\begitems
+* REX.R extends the {\em R} field of ModRM to 4 bits.
+* REX.X extends the index of SIB to 4 bits.
+* REX.B extends the base of SIB to 4 bits.
+* REX.W specifies operand size to be 64-bit.
+\enditems
 
-extension to a family of earlier 32-bit architectures, commonly called x86. The
-x86 itself
+The REX byte actually fulfills multiple purposes---it makes 8 additional
+registers encodable for any instruction, because all use the ModRM (and SIB
+bytes) to specify the operands. Additionally it makes available the 64-bit
+operand size and is like the operand-size prefix.
 
-\sec Characteristics
+The reason why 64-bit operand size has to be requested explicitly is, that the
+default operand size on x86-64 is still 32-bits. Either 8-bit or 32-bit opcodes
+are available by default. REX byte has to be applied before the 32-bit opcodes
+to achieve 64-bit operand size.
 
-podporuje 8, 16, 32 a 64-bit operace, z pohledu efektivity (partial register
-stalls) a jazyka C se vyplatí používat jen 32 a 64 bitové operace (zbytek movzx,
-movsx nebo čtení z užších podregistrů)
+As operand size, also the immediate size stayed at 32 bits. Only a few
+instructions were allowed full 64-bit immediates. The most notable one is:
 
-omezení často vychází z kódování instrukcí (shifty a dělení jsou kódovány jako unární operace
-a nemají v kódování místo na víc než jeden argument)
+\begtt \optparams
+mov <reg64>, <imm64>
+\endtt
+%
+which allows 64-bit immediates to be loaded into a register without bit
+twiddling. 64-bit immediates were disallowed likely because they both too
+large, which negatively impacts the code size, but also unnecessary since most
+useful immediates are \"small" positive and negative numbers, which can still be
+achieved through the implicit sign extension of the 32-bit or even 8-bit
+immediate.
 
-\secc Addressing modes
+Another important change is, that operations with the 64-bit operand size
+automatically zero out the upper 32-bits of the 64-bit registers. This is
+different from 16-bit operations, which don't change the upper 16 bits of the
+lower 32-bits. This means that 32-bit operations don't care about the upper
+32-bits of the 64 bit registers, which is actually very important for modern
+super scalar processors. Because with the default 32-bit operand size, if the
+32-bit operations only changed parts of the registers, the operations would {\em
+depend} on the unchanged upper 32-bits. These kinds of {\em partial
+dependencies} are detrimental for performance, because they are mostly false
+dependencies, but still have to be obeyed by the processor.
 
-Dvouadresový kód - kódování stále stejné, jen směr otáčí jeden bit v opcodu
+For this reason, on 64-bit systems the 32-bit operations are very efficient,
+since they are narrower than 64-bits, but still don't have problem with partial
+dependencies as operations on 8-bit or 16-bit portions of the registers do.
+
+If a 32-bit operation doesn't need to use any of the 8 new registers, it can
+also spare the REX prefix. On the other hand, 64-bit operations already require
+the REX prefix, so there is no penalty in using all of the available registers.
+
+When {\em any} REX prefix is used, then the 8-bit registers change
+behavior---instead of addressing lowest and second lowest 8-bits of the first 4
+registers, they will address lowest 8-bits of all registers. This makes x86-64 a
+bit more regular then its predecessors, because no longer is there a distinction
+between accumulator and other registers, if in some cases we are willing to use
+an otherwise unneeded REX prefix byte.
 
 \sec Calling conventions
 
-System V AMD64 ABI. 
+As functions are called, there has to be an agreement in how resources are
+shared between the calling function ({\em caller}) and the called function ({\em
+callee}). An ABI specifies this as well as the details on how arguments are
+passed, what layout does the stack have, how the functions are named and how big
+are essential types.
 
-Registry pro argumenty, návratové hodnoty, caller saved, callee saved
+For the x86-64 architecture, there are two prevalent ABIs:
 
-\sec Comparison with t86
+\begitems
+* System V AMD64 ABI~\cite[SysVABI]. Used on most operating systems.
 
-Srovnání s t86
+* Microsoft x64 calling convention~\cite[MicrosoftX64]. Used on Microsoft Windows.
+\enditems
+
+The calling conventions share the definition of some C types like `char` (1 byte),
+`short` (2 bytes) and `int` (4 bytes), but disagree for example on `long` (8 vs
+4 bytes).
+
+Both calling conventions use registers for passing arguments and return values,
+but disagree on the registers themselves. Callee saved and caller saved
+registers also differ (these are explained in more detail in
+section~\ref[sec:regalloc-constraints]). Even alignment of stack is handled
+differently.
+
+From a perspective of a compiler, the system ABI is not important to internal
+functions. But a function which is either called by external code, or which
+calls external code must respect the system ABI. The ABI provides standard
+interface, and with that even code from multiple compilers can be linked or even
+dynamically linked together and run without problems.
+
+Languages like C usually abide the system ABI's calling conventions for {\em
+all} functions. In any case, functions from the C standard library usually are
+based on the C ABI, so at least calls to the standard functions have to respect
+it.
+
+\label[sec:x86-os]
+\sec Operating system interface
+
+Other operating systems allow the raw form of calling into operating system to
+take place.
+
+On the x86-64 programs ultimately use the `syscall` instruction to
+transfer the control to the operating system. The instruction itself saves the
+instruction pointer (the return address) to `rcx` and `rflags` to `r11`.
+Anything else is up to the operating system and thus subject to a calling
+convention of its choosing. If this system call calling convention is
+documented for applications, then applications can use it and call into the OS
+directly.
+
+Linux is one of the few operating systems that documents the system call
+convention. It is very similar to the calling convention specified by the System
+V ABI (it is in fact specified in the same document~\cite[SysVABI]). Only an
+extra integer is passed to signify the system call number (because the `syscall`
+instruction unlike a normal call doesn't specify \"what to call").
+
+On other operating systems like OpenBSD and Solaris (using the System V ABI for
+ordinary calls), or Microsoft Windows, the system calls and the system call
+calling convention are not specified and no guarantees are made about their
+stability from version to version. On these operating systems usually the system
+C library abstracts requests to the operating system.
+
+We can distinguish between the {\em standard part} of the system C library and the OS
+specific {\em system part}. By making the operating system interface the system
+C functions, the operating system is free to only abide to the normal C calling
+convention and doesn't even have to realize the system calls with a
+`syscall`.
+
+\sec Comparison with Tiny86
+
+Tiny86~\cite[Strejc2021] is a 64-bit architecture inspired by x86-64. It copies
+many of the design decisions of x86-64, which is great for both familiarity (as
+FIT students encounter x86-64 in other courses) and as a target, because x86-64
+is still very popular this day.
+
+\secc Registers
+
+One of the main differences is the available registers. On x86-64 there are 16
+{\em general purpose} registers, of which two are usually used for special purposes
+(`rbp`, `rsp`) and some {\em special purpose} registers like `rflags` or `rip`,
+which are only accessible through \"special". Tiny86 separates all these 4
+special registers and on top allows configurable number of 64-bit general purpose and
+64-bit floating point (i.e. double precision) registers. No access to narrower
+parts of the registers is allowed.
+
+\secc Operations
+
+Tiny86 supports pretty much the same set of arithmetic operations the x86-64
+does. Notably two separate instructions are available for computing the
+remainder (confusingly called `mod`) and quotient and there is no long
+multiplication (i.e. multiplication of two 64-bit numbers only gives 64-bit
+result). This makes it much easier to use the instructions, as it doesn't
+involve any implicit operands.
+
+Operations that are distinct for unsigned and signed variants are also
+distinguished on Tiny86, just like on x86-64. Unfortunately, logical right shift
+(unsigned version of the right shift) is not present, while the arithmetic right
+shift (the signed version) is. This makes it harder for unsigned operations to
+be lowered.
+
+Special purpose instructions are available for debugging, as well as reading (from
+standard input) and writing (to standard output) numbers. These are implemented
+by the Tiny86 VM with calls to C++ standard library.
+
+\secc Addressing modes
+
+The following addressing modes are supported by Tiny86:
+
+\begitems
+
+* For binary operations:
+
+\begtt \optparams
+<binop> <reg> <reg>
+<binop> <reg> <imm>
+<binop> <reg> <reg> + <imm>
+<binop> <reg> [<reg>]
+<binop> <reg> [<imm>]
+<binop> <reg> [<reg> + <imm>]
+\endtt
+
+* For unary operations:
+
+\begtt \optparams
+<unop> <reg>
+\endtt
+
+* For move and lea instructions:
+
+\begtt \optparams
+mov <reg>, <reg>
+mov <reg>, <mem>
+mov <reg>, <imm>
+mov <reg>, <reg> + <imm>
+mov <mem>, <reg>
+mov <mem>, <imm>
+
+lea <reg>, <mem>
+\endtt
+%
+where `<mem>` is the following, where all components are optional:
+
+\begtt \optparams
+[<reg> + <reg> * <imm> + <imm>]
+\endtt
+
+\enditems
+
+The interesting thing is, that the addressing modes for `mov` and `lea`
+instructions are a superset of the SIB mode on x86-64---like all immediates on
+Tiny86, even those specifying memory locations are 64-bit. This makes it much
+more flexible for access to array elements then x86-64, which allows the scale
+to be only a small power of two.
+
+Unfortunately, unlike x86-64, Tin86 chooses to allow different memory accesses
+in binary operations and to not allow memory access for unary operations. These
+make the instruction set rather irregular, especially since the destination is
+always limited to a register.
+
+The unsigned limitations and support for only 64-bit operations is not a
+problem, since the TinyC language supports exactly those.
+
+\sec Conclusion
+
+The addressing modes on x86-64 are fairly regular, even if it may not seem so.
+The actual encoding is more complex because of the special cases, but all useful
+operand specifications are allowed, so the complexity is limited to the
+encoder/decoder, and not the compiler, which sees the operations as fairly
+orthogonal.
+
+Tiny86 is much more regular in some regards, but less so in others. The main
+advantage of x86-64 is the memory location specifications, which are the same
+for all instructions. This is not true on Tiny86 and can even make compilation
+with some techniques harder.
+
+The x86-64 architecture is regarded as a CISC architecture, but in practice we
+see it more as an architecture aiming for compact instruction encoding. Some
+other CISC designs, like the VAX, make very different decisions and have fully
+orthogonal addressing modes, where the kind of each operand is encoded
+separately and not as part of the opcode.
+
+x86-64 on the other hand, is only regular in its irregularities. This actually
+makes it a very interesting compilation target, as it has the complex CISC
+features, but irregularities, which stress compiler capabilities.
 
 \label[chap:state-of-the-art]
 \chap State of the art
@@ -1532,7 +1834,7 @@ separate {\em instruction scheduling} pass is used to reorder instructions to a
 more favorable order. Instruction scheduling is described
 in~\ref[sec:scheduling].
 
-\secc Techniques
+\secc Outline
 
 The first two instruction selections presented above, can be done relatively simply
 programmatically. Each IR instruction is in turn {\em expanded} into one or more
@@ -1580,7 +1882,7 @@ multiple destinations, like `idiv` on x86-64). In the following subsections we
 introduce the three approaches.
 
 \label[sec:selection-peephole]
-\seccc Peephole optimization
+\secc Peephole optimization
 
 Peephole optimization is a general optimization technique (see
 section~\ref[sec:peephole]). It is applicable to any compiler stage, but in the
@@ -1771,7 +2073,7 @@ TODO: examples
 %production grade often use global techniques, but the peephole optimizer has
 %only a too local view. This 
 
-\seccc Covering
+\secc Covering
 
 A different paradigm for approaching instruction selection is {\em covering}.
 With intermediate representations like trees, DAGs, e.g. with value-based SSA on
@@ -1993,7 +2295,7 @@ Unfortunately these straightforward extensions of tree covering don't easily
 support DAG {\em patterns}, which are required for multi-output instructions
 like `idiv`.
 
-\seccc Reduction
+\secc Reduction
 
 Trees can be covered in linear time with dynamic programming. Covering of DAGs
 and (as well as general graphs) is NP-complete~\cite[Koes2008]. Several
@@ -2168,7 +2470,7 @@ likely to execute after each other).
 Register allocation is the last of the three big conceptual parts of a usual
 compiler back end. Motivation, importance and possible approaches are introduced.
 
-The x86-64 architecture (see \cite[x86]) is what we mainly care about in
+The x86-64 architecture is what we mainly care about in
 this thesis. Since it is familiar, we will be using it as examples in the
 following sections. It is also a good candidate because it brings some
 challenges not found on other architectures, but shows the general problems just
@@ -3352,7 +3654,7 @@ function might, and hence we need to preserve values in them, and using the
 
 When a physical register is needed and none is available, one has to be spilled.
 Good choice is to spill the virtual register whose next use is the furthest
-away~\cite[Engineering]. This is akin to Bélády's MIN algorithm for page
+away~\cite[Cooper2004]. This is akin to Bélády's MIN algorithm for page
 replacement~\cite[Belady1966]. The benefit of the approach is, that if we need
 to spill, the register we free up will be available for other purposes for the
 longest time, hence it will hopefully prevent other spills.
@@ -4924,7 +5226,7 @@ is acceptable.
 The number of operands can be usually derived from the opcode. But this
 implies, that two and three operand multiplications have to be distinguished by
 the {\em opcode}, even though they use the same {\em mnemonic} in assembly. See
-section~\ref[x86-instructions] for more details.
+section~\ref[sec:x86-basics] for more details.
 
 One problem with the representation is, that it allows invalid forms of
 instructions to be easily represented. For example more than one memory operand
@@ -5104,7 +5406,7 @@ particular opcode (`subkind`), just the fact that it is an indirect jump
 
 Conveniently conditional jumps, conditional moves, and conditional set
 instructions are all based on the same 16 {\em condition codes} (see
-section~\ref[x86-cc]), so `subkind` can be a condition code for all three of
+section~\ref[sec:x86-cc]), so `subkind` can be a condition code for all three of
 these.
 
 The `mode` field is what gives the meaning to the individual slots of `ops`
@@ -5328,8 +5630,9 @@ S global_struct;
 [...]
 \endtt
 
-As explained in section~\ref[x86-rip], we want to (or even need to) use
-RIP-relative addressing for global variables. RIP-relative addressing uses the
+We want to (or even need to) use
+RIP-relative addressing for global variables (see also
+section~\ref[sec:x86-memory]. RIP-relative addressing uses the
 instruction pointer (`rip`) and a 32-bit displacement. However, the
 real displacement to `global_struct.b` or even to `global_struct` is not known
 until after the final executable is {\em linked} together. As a zero-initialized
@@ -5686,7 +5989,7 @@ v5: int = add v3, v4
 We want to emit an `add` instruction adding virtual register 3 and virtual
 register 4 into virtual register 5. However, there is no such instruction on the
 x86-64. We only have available two address code instructions (see
-section~\ref[x86-two-address-code] for more details), where the result is put
+section~\ref[sec:x86-basics] for more details), where the result is put
 into the first source register. We can only `add` virtual register 3 and virtual
 register 4 into virtual register 3\fnote{Notice that we use the letter `t` as in
 \"temporary" for virtual registers to distinguish them from values which are
@@ -5796,7 +6099,7 @@ needed---and each time into a new, {\em fresh}, virtual register. This way, we n
 only keep the constants close to their uses (allowing easier peephole
 optimization), but also keep the fresh virtual registers very short lived. This
 way we alleviate much of the need for {\em rematerialization of constants} in register
-allocation (see section~\ref[regalloc-rematerialization]---due to being short
+allocation (see for example~\cite[Chaitin1981])---due to being short
 lived, they are not great candidates for spilling, and many constants are easily
 folded into other instructions through the use of better addressing modes.
 
@@ -8852,7 +9155,7 @@ As a special case, if two virtual registers have the same metric, we choose the
 one which is a smaller number. This is mostly so we can primarily spill the
 register used to hold the `rbx` callee saved register as opposed to for example
 `r12` (another callee saved register), because use of `rbx` can sometimes save a
-REX prefix byte (see section~\ref[sec:x86-rex]).
+REX prefix byte (see section~\ref[sec:x86-64]).
 
 
 
@@ -8900,13 +9203,267 @@ REX prefix byte (see section~\ref[sec:x86-rex]).
 %
 %Machine independent representation of machine dependent instructions
 
+\sec Runtime
+
+Programs output by our compiler like all programs will need to interact with the
+operating system in two crucial ways:
+
+\begitems
+* The operating system needs to transfer the control to an entry point of the
+program.
+* The program will need to call routines provided by the operating system.
+\enditems
+
+Even successfully exitting the program involves a request to the operating
+system (for example with a call to the `exit` function of standard C). As
+mentioned in~\ref[sec:x86-os], on most platforms the C library is the {\em only}
+way to make requests to the operating system. On others, it is possible to
+perform syscalls directly if they have stable system call interface. Linux is
+known for such stability, but most applications still perform system calls
+through a C library, such as glibc.
+
+Startup is also usually handled by the C library. The program loader in the
+Linux kernel jumps to the entry point address listed in the ELF binary, and
+while it passes some data to the program by writing it to its address space, it
+doesn't call `main` nor prepares its arguments. This startup is also handled by
+the {\em runtime component}, which is linked into the application.
+
+\secc External C library
+
+As we fully implement the System V ABI, programs produced by us are fully able
+to use the existing C libraries. They still have to be linked correctly to the C
+library's runtime. We shall consider the following example:
+
+\begtt
+// prog.c
+int puts(char *s);
+
+int main(int argc, char **argv) {
+	puts(argv[0]);
+	return 0;
+}
+\endtt
+%
+There are several things to note:
+
+\begitems
+* We declare the `puts` function to make our TinyC compiler aware of this external
+function. As it won't see any definition of it, it will presume it to be an
+external function. 
+* We define a `main` function receiving two arguments. First one is 32-bit,
+passed in register `rdi`, second is 64-bit pointer passed in `rsi` and the
+return value is be saved into `rax`.
+* The external function `puts` gets called with the 0th argument (the program
+name).
+\enditems
+%
+Translated to NASM assembly (with unrelated output omitted):
+
+\begtt
+; prog.asm
+	extern puts
+	global main
+main:
+.L0:
+	push rbp
+	mov rbp, rsp
+	mov rdi, [rsi]
+	call puts wrt ..plt
+	xor rax, rax
+	mov rsp, rbp
+	pop rbp
+	ret
+\endtt
+
+\begitems
+* The external puts function is marked as {\em external}, for similar reasons it
+was in TinyC: the function will be provided externally and only resolved when
+(dynamically) linked in.
+
+* The `main` function is marked as {\em exported}. This makes the label into a
+symbol in the resulting object file, and thus it will be findable by other
+linked object files or libraries.
+
+* The call to `puts` is marked with `wrt ..plt` which makes NASM emit the call as
+call through the {\em procedure linkage table}. We do this to get a {\em position
+independent executable}.
+\enditems
+
+This can then be assembled into an ELF object file with `nasm`:
+
+\begtt
+nasm -f elf64 -o prog.o prog.asm
+\endtt
+
+The final executable can be linked together with the system linker `ld`:
+
+\begtt
+ld -pie -m elf_x86_64 -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o prog
+	/usr/lib/Scrt1.o
+	prog.o
+	/usr/lib/libc.so
+\endtt
+%
+Apart from requesting linking into a position independent executable ELF x86-64
+executable, the ELF interpreter (\"dynamic linker") is set to its standard path.
+The following three ELF files are linked together:
+
+\begitems
+* `Scrt1.o`, which contains the `_start` entry point. `_start` is marked as
+entry point by the linker's default linker script. The final address of `_start`
+will be the ELF entry point, where the execution will start.
+* `prog.o`, our object file, which contains `main`.
+* `/usr/lib/libc.so`, the dynamic library ({\em shared object}) version of the C
+standard library, containing `puts` amongst others. Will be only linked at
+runtime by the dynamic linker.
+\enditems
+
+The program can then be run like this:
+
+\begtt
+./prog
+\endtt
+
+In reality, there are usually more object files linked in. Notably they handle
+the runs of constructs and destructors (code which runs before and after main,
+respectively). Since our program didn't need them, we didn't need to link them.
+But the C dynamic library {\em could} need them. We are in dangerous zone of
+compiler and C library specific details. It is usually better to use the C
+compiler's driver to figure out the linker command line. Such driver is the
+`gcc` command for the GCC compiler. With the driver, it is also much easier to
+use {\em static linking} or an alternative library like {\em musl}:
+
+\begtt
+gcc -o prog obj.o
+gcc -static -o prog obj.o
+musl-gcc -o prog obj.o
+musl-gcc -dynamic -o prog obj.o
+\endtt
+%
+The actual linker invocation can be then found by adding the `-v` flag.
+
+\secc Custom runtime
+
+An equivalent program can be created without running the C library. For
+simplicity and presentation purposes, we will substitute the `puts` function
+with a simple write of 6 characters (without a new line), to avoid having to
+figure out the length of the program name etc. We will just illustrate the
+runtime portion which will run the program's `main` function, perform a system
+call and exit the program with `main`'s return value as exit code.
+
+The most important thing is the entry point. We can define this with the name
+`_start` as the linker defaults to it, but we could choose any other name, as
+long as we export the symbol and instruct the linker correctly.
+
+According to the System V ABI~\cite[SysVABI], the entry point finds itself with
+the stack aligned to 16 bytes, with the 8-byte argument count on top of the
+stack (`[rsp]`) and the pointers to arguments start after it (`[rsp+8]`). We can
+prepare these to appropriate registers to be passed to `main`. Then after `main`
+is called, we need to run the `exit` system call, which has the number 60 (to be
+passed in `rax`) and the argument (`rdi`) is the exit code, which `main` returns
+in `rax`. Additionally, the ABI says that `rbp` is unspecified at entry and
+should be zeroed out to mark the outermost stack frame and we abide:
+
+\begtt
+	global _start
+_start:
+	xor rbp, rbp
+	mov rdi, [rsp]
+	lea rsi, [rsp+8]
+	call main
+	mov rdi, rax
+	mov rax, 60
+	syscall
+\endtt
+%
+Since we are guaranteed that the stack is aligned to 16 bytes, we don't have to
+realign it.
+
+To add system call support, we need to translate from the System V {\em C ABI}
+to the System V {\em Linux kernel ABI} and to perform the system call with the
+`syscall` instruction, which is not normally accessible to C programs. We do
+this with a syscall {\em function} hand-coded in assembly. The function will
+receive up to 7 arguments, the first one will be the system call number (to be
+put into `rax`) and then the 6 arguments, which the kernel expects in registers.
+As our `syscall` function will be called from C code, the first 6 arguments are
+passed in registers and the 7th on the stack---we are off by one, since we also
+receive the system call number. We also fix the difference in the two calling
+conventions, where the kernel uses `r10` instead of `rcx`:
+
+\begtt
+syscall:
+	mov rax, rdi
+	mov rdi, rsi
+	mov rsi, rdx
+	mov rdx, rcx
+	mov r10, r8
+	mov r8, r9
+	mov r9, [rsp+8]
+	syscall
+	ret
+\endtt
+%
+The simple definition actually packs a few other things that are not immediately
+apparent:
+
+\begtt
+* The function works for any number of arguments. Six is the maximum
+number of arguments any system call has. If a syscall needs less than 6
+arguments, the kernel won't read the other registers that we set. The argument
+registers don't have to be preserved according to the C calling convention,
+so it doesn't matter that we change them. The read from the stack is benign,
+even if it reads an invalid value---if it isn't a valid value, because there are
+less than 6 arguments, the kernel won't look at it.
+* Callee saved registers (`rbp`, `rbx`, and `r12` through `r15`) are preserved,
+since neither our function nor the kernel changes them. (The kernel changes only
+`rcx` and `r11` and only due to them being used implicitly by the `syscall`
+instruction, see section~\ref[sec:x86-os]).
+* The return value from the kernel (`rax`) is passed back in the C return
+register (`rax`).
+\endtt
+
+Essentially we have a variable argument function without using `va_list`. But
+the caller can still pass us arguments using the C ABI and as long as there are
+no more than 7 we understand them (and there shouldn't actually be more than 7).
+In TinyC we can make the function available with the following declaration:
+
+\begtt
+int syscall(int syscall_nr, ...);
+\endtt
+
+To actually write something to standard output, we can for brevity at least
+output the first 6 characters (`./prog`) of the program name:
+
+\begtt
+int main(int argc, char **argv) {
+	syscall(1, 0, argv[0], 6);
+	return 0;
+}
+\endtt
+%
+Here `1` corresponds the `write` system call and 0 to the file descriptor of
+standard output. A wrapper for the `write` system call, can be created like
+this:
+
+\begtt
+int write(int fd, void *buf, int count) {
+    return syscall(1, fd, buf, count);
+}
+\endtt
+
+With wrappers for all usual system calls, we can hide the ugly implementation
+details from the users. With the use of the wrappers, entire C library could be
+implemented.
+
 \label[chap:evaluation]
 \chap Evaluation
 
 Srovnání s GCC apod.
 
-\chap Conclusion
+Potřebné Rozšíření TinyC - vararg, unsigned, narrow types, external functions
 
+\chap Conclusion
+H
 In this thesis we studied x86-64, one of the most prevalent architectures today.
 We designed and implemented a back end for translating TinyC IR into x86-64
 machine code. To achieve this, we investigated existing literature on the topic of
@@ -8972,6 +9529,10 @@ already works mostly with untyped integers.
 This thesis, both the text and the actual implementation, can hopefully serve as
 examples to the students at FIT CTU considering advancing their compilers beyond
 the simplified Tiny86 architecture.
+
+The implementation of the back end, documentation, as well as the source of this
+text is available publicly under an open source
+license.\urlnote{https://github.com/vlasakm/master-thesis}.
 
 \sec Future work
 
@@ -9094,3 +9655,4 @@ CFG
 IRC
 IR
 AST
+OS
