@@ -167,7 +167,7 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 			// mov t20, 0 (and flags not observed)
 			// =>
 			// xor t20, t20 (sets flags, but noone will read them)
-			if (false && IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_CI && get_imm64(inst) == 0 && !IOF(inst)) {
+			if (last_pass && IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_CI && get_imm64(inst) == 0 && !IOF(inst)) {
 				// the second occurence doesn't count as use
 				IK(inst) = IK_BINALU;
 				IS(inst) = G1_XOR;
