@@ -12,7 +12,7 @@ get_uses(Function *function)
 				Value *operand = *operand_;
 				// Skip getting uses of things like functions,
 				// constants, etc.
-				if (operand->index == 0) {
+				if (operand->index == 0 || VK(operand) == VK_BLOCK) {
 					continue;
 				}
 				// Add to `operand`'s uses the use in `v`.
@@ -240,7 +240,7 @@ read_variable(ValueNumberingState *vns, Block *block, Value *variable)
 		value = add_phi_operands(vns, phi, block, variable);
 	}
 	// If the value can be canonicalized, canonicalize it.
-	if (VINDEX(value) > 0 && vns->canonical[VINDEX(value)]) {
+	if (VINDEX(value) > 0 && VK(value) != VK_BLOCK && vns->canonical[VINDEX(value)]) {
 		value = vns->canonical[VINDEX(value)];
 	}
 	// Memoize.
@@ -320,7 +320,7 @@ do_value_numbering(Arena *arena, Function *function)
 			}
 			FOR_EACH_OPERAND(v, operand) {
 				Value *canonical = vns->canonical[VINDEX(*operand)];
-				if (canonical) {
+				if (VK(*operand) != VK_BLOCK && canonical) {
 					Value *old_operand = *operand;
 					*operand = canonical;
 					remove_use(function, old_operand, v, true);

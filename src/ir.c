@@ -347,7 +347,9 @@ validate_function(Function *function)
 		Block *block = function->post_order[j];
 		assert(block->base.parent == &function->base);
 
+		assert(VK(block) == VK_BLOCK);
 		FOR_EACH_IN_BLOCK(block, v) {
+			assert(VK(v) != VK_BLOCK);
 			assert(v->prev);
 			assert(v->next);
 			assert(v->prev->next == v);
