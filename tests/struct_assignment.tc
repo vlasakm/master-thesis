@@ -1,0 +1,17 @@
+// vim: ft=c et sw=4
+
+int printf(char *, ...);
+
+struct S {
+    int a;
+    int b;
+};
+
+int main() {
+    S a;
+    a.a = 2;
+    a.b = 3;
+    S b = a;
+    printf("%ld %ld\n", b.a, b.b);
+    return 0;
+}
