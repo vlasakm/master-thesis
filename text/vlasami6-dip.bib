@@ -40,6 +40,7 @@
 }
 
 % https://dl.acm.org/doi/abs/10.1145/177492.177575
+
 @article{Briggs1994,
   author = {Briggs, Preston and Cooper, Keith D. and Torczon, Linda},
   title = {Improvements to Graph Coloring Register Allocation},
@@ -57,6 +58,16 @@
   pages = {428–455},
   numpages = {28},
   keywords = {graph coloring, code generation, register allocation}
+}
+
+
+@masterthesis{Briggs1992,
+  author={Briggs, Preston},
+  title={Register allocation via graph coloring},
+  year={1992},
+  school={Rice University},
+  address={Houston, Texas, USA},
+  url={},
 }
 
 @book{Briggs1992,
@@ -107,13 +118,17 @@
 }
 
 
-@inproceedings{Pereira2005,
-  title={Register allocation via coloring of chordal graphs},
-  author={Pereira, Fernando Magno Quintao and Palsberg, Jens},
-  booktitle={Programming Languages and Systems: Third Asian Symposium, APLAS 2005, Tsukuba, Japan, November 2-5, 2005. Proceedings 3},
-  pages={315--329},
-  year={2005},
-  organization={Springer}
+% https://link.springer.com/chapter/10.1007/11575467_21
+@InProceedings{Pereira2005,
+  author="Pereira, Fernando Magno Quintão and Palsberg, Jens",
+  editor="Yi, Kwangkeun",
+  title="Register Allocation Via Coloring of Chordal Graphs",
+  booktitle="Programming Languages and Systems",
+  year="2005",
+  publisher="Springer Berlin Heidelberg",
+  address="Berlin, Heidelberg",
+  pages="315--329",
+  isbn="978-3-540-32247-4"
 }
 
 # https://dl.acm.org/doi/10.1007/11688839_20
@@ -211,13 +226,17 @@
   series = {PLDI '98}
 }
 
-@inproceedings{Mossenbock2002,
-  title={Linear scan register allocation in the context of SSA form and register constraints},
-  author={Mössenböck, Hanspeter and Pfeiffer, Michael},
-  booktitle={Compiler Construction: 11th International Conference, CC 2002 Held as Part of the Joint European Conferences on Theory and Practice of Software, ETAPS 2002 Grenoble, France, April 8--12, 2002 Proceedings},
-  pages={229--246},
-  year={2002},
-  organization={Springer}
+% https://link.springer.com/chapter/10.1007/3-540-45937-5_17
+@InProceedings{Mossenbock2002,
+  author="Mössenböck, Hanspeter and Pfeiffer, Michael",
+  editor="Horspool, R. Nigel",
+  title="Linear Scan Register Allocation in the Context of SSA Form and Register Constraints",
+  booktitle="Compiler Construction",
+  year="2002",
+  publisher="Springer Berlin Heidelberg",
+  address="Berlin, Heidelberg",
+  pages="229--246",
+  isbn="978-3-540-45937-8"
 }
 
 % https://dl.acm.org/doi/abs/10.1145/1772954.1772979
@@ -304,13 +323,17 @@
   keywords = {optimizing compilers, control flow graph, dominator, control dependence, def-use chain}
 }
 
-@inproceedings{Sreedhar1999,
-  title={Translating out of static single assignment form},
-  author={Sreedhar, Vugranam C and Ju, Roy Dz-Ching and Gillies, David M and Santhanam, Vatsa},
-  booktitle={Static Analysis: 6th International Symposium, SAS’99 Venice, Italy, September 22--24, 1999 Proceedings 6},
-  pages={194--210},
-  year={1999},
-  organization={Springer}
+@InProceedings{Sreedhar1999,
+  author="Sreedhar, Vugranam C. and Ju, Roy Dz-Ching and Gillies, David M. and Santhanam, Vatsa",
+  editor="Cortesi, Agostino
+  and Filé, Gilberto",
+  title="Translating Out of Static Single Assignment Form",
+  booktitle="Static Analysis",
+  year="1999",
+  publisher="Springer Berlin Heidelberg",
+  address="Berlin, Heidelberg",
+  pages="194--210",
+  isbn="978-3-540-48294-9"
 }
 
 % https://dl.acm.org/doi/10.1145/357094.357098
@@ -362,7 +385,6 @@
   address = {New York, NY, USA},
   url = {https://doi.org/10.1145/502874.502885},
   doi = {10.1145/502874.502885},
-  abstract = {This paper describes a system that automatically generates peephole optimizations. A general peephole optimizer driven by a machine description produces optimizations at compile-compile time for a fast, pattern-directed, compile-time optimizer. They form part of a compiler that simplifies retargeting by substituting peephole optimization for case analysis.},
   booktitle = {Proceedings of the 1984 SIGPLAN Symposium on Compiler Construction},
   pages = {111–116},
   numpages = {6},
@@ -826,9 +848,62 @@ https://dl.acm.org/doi/10.1145/513829.513854
 % https://gitlab.com/x86-psABIs/x86-64-ABI
 @misc{MicrosoftX64,
   bibmark={Microsoft x64 calling convention},
-  author={Microsoft Corporation},
+  author={Microsoft\ Corporation},
   title={x64 calling convention},
   year={2022},
   citedate={2023-06-12},
   url={https://learn.microsoft.com/en-us/cpp/build/x64-software-conventions?view=msvc-170},
+}
+
+% https://dl.acm.org/doi/10.1145/512927.512931
+@inproceedings{Pratt1973,
+  author = {Pratt, Vaughan R.},
+  title = {Top down Operator Precedence},
+  year = {1973},
+  isbn = {9781450373494},
+  publisher = {Association for Computing Machinery},
+  address = {New York, NY, USA},
+  url = {https://doi.org/10.1145/512927.512931},
+  doi = {10.1145/512927.512931},
+  booktitle = {Proceedings of the 1st Annual ACM SIGACT-SIGPLAN Symposium on Principles of Programming Languages},
+  pages = {41–51},
+  numpages = {11},
+  location = {Boston, Massachusetts},
+  series = {POPL '73}
+}
+
+@inproceedings{Braun2013,
+  author = {Braun, Matthias and Buchwald, Sebastian and Hack, Sebastian and Leißa, Roland and Mallon, Christoph and Zwinkau, Andreas},
+  title = {Simple and Efficient Construction of Static Single Assignment Form},
+  year = {2013},
+  isbn = {9783642370502},
+  publisher = {Springer-Verlag},
+  address = {Berlin, Heidelberg},
+  url = {https://doi.org/10.1007/978-3-642-37051-9_6},
+  doi = {10.1007/978-3-642-37051-9_6},
+  booktitle = {Proceedings of the 22nd International Conference on Compiler Construction},
+  pages = {102–122},
+  numpages = {21},
+  location = {Rome, Italy},
+  series = {CC'13}
+}
+
+% https://dl.acm.org/doi/10.1145/103135.103136
+@article{Wegman1991,
+  author = {Wegman, Mark N. and Zadeck, F. Kenneth},
+  title = {Constant Propagation with Conditional Branches},
+  year = {1991},
+  issue_date = {April 1991},
+  publisher = {Association for Computing Machinery},
+  address = {New York, NY, USA},
+  volume = {13},
+  number = {2},
+  issn = {0164-0925},
+  url = {https://doi.org/10.1145/103135.103136},
+  doi = {10.1145/103135.103136},
+  journal = {ACM Trans. Program. Lang. Syst.},
+  month = {apr},
+  pages = {181–210},
+  numpages = {30},
+  keywords = {interprocedural analysis, constant propagation, procedure integration, code optimization, type determination, abstract interpretation, control flow graph, static single assignment form}
 }

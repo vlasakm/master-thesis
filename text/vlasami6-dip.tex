@@ -165,19 +165,9 @@ TODO:
 
 * Register classes (byte registers)
 
-* Obrázky datových struktur
-
 * Obrázek graph coloring
 
 * Pseudokódy do register allocation?
-
-* Assembly přes NASM
-
-* Jenom Linux
-
-* Run time
-
-* x86 vs tiny 86
 
 * Benchmarky
 
@@ -189,12 +179,6 @@ fyzické registry
 * Lowering / překlad z middle endu do back endu chce rozšířit. Vysvětlit všechny
 různé konstrukce jako calling conventions, argumenty, alloca instrukce apod.
 Taky chary a struktury.
-
-* Rematerialization in regalloc
-
-* System V AMD64 ABI
-
-* ELF
 
 * Testing
 
@@ -513,7 +497,8 @@ sometimes used in special ways. But mostly, we can call the registers {\em gener
 purpose}, since usual operations all work with them and allow either register to
 be used.
 
-The registers are illustrated in figure~\ref[TODO]. The full registers (like
+%The registers are illustrated in figure~\ref[TODO].
+The full registers (like
 `ax`) are 16-bit, but separate access to either the upper 8-bits or lower 8-bits
 is allowed through the `ah` (\"`ax` high") and `al` (\"`ax` low") registers.
 Because of this `ah` and `al` are not real registers, they are just different
@@ -714,6 +699,13 @@ With division 32-bit value whose upper 16-bits are in `dx` and lower 16-bits in
 `ax` is divided by the single operand and the quotient is put into `ax` and the
 remainder into `dx`.
 
+Ordinary multiplication, where the result is limited to the size of the inputs
+is possible with the `imul` instruction. Since it produces 16-bit result from
+two 16-bit operands, it can actually be used for signed and unsigned
+multiplication. This instruction is much more suitable for compiler generated
+code, which often can't make use of the high 16-bits of the 32-bit result
+anyways.
+
 Shifts are similarly restricted. They are encoded as unary operations and there
 are only these modes as demonstrated on `shl`:
 
@@ -891,21 +883,38 @@ kind of the operation is encoded in these three bits. For example, opcode 192
 The exact kind of shift (`shl`, etc.) is encoded as if it was the `<reg>`
 parameter unused by this addressing mode.
 
-\secc Other instructions
+Interesting with regards to encoding is the `lea` ({\em load effective
+address}) instruction:
 
-`lea`
-`cmp`
-`test`
-`push`
-`pop`
-`inc`
-`dec`
-`cqo`
-`test`
-`imul3`
-`imul`
-`movzx`
-`movsx`
+\begtt \optparams
+lea <reg16>, [<mem>]
+\endtt
+
+It is encoded naturally with the ModRM and SIB bytes. But instead of performing
+anything with the value at the memory location, the instruction just computes
+the address and stores it to the register. This is not only useful for
+calculating addresses that can be reused several times (instead of being
+recomputed in every time), but can also be used for ordinary arithmetic: memory
+locations are formed with addition and simple multiplication (shift). Though
+`lea` doesn't set flags, unlike other ordinary arithmetic instructions, so it is
+not a universal replacement for addition.
+
+
+%\secc Other instructions
+%
+%`lea`
+%`cmp`
+%`test`
+%`push`
+%`pop`
+%`inc`
+%`dec`
+%`cqo`
+%`test`
+%`imul3`
+%`imul`
+%`movzx`
+%`movsx`
 
 \sec 32-bit extension
 
@@ -1010,6 +1019,7 @@ bit more regular then its predecessors, because no longer is there a distinction
 between accumulator and other registers, if in some cases we are willing to use
 an otherwise unneeded REX prefix byte.
 
+\label[sec:x86-calling-conv]
 \sec Calling conventions
 
 As functions are called, there has to be an agreement in how resources are
@@ -1466,7 +1476,8 @@ It should be noted that our notation for values doesn't imply anything about the
 order of operations---the only theoretically imposed order is the dependencies
 among the operations themselves. The references of operations to each other
 actually form a {\em direct acyclic graph} (DAG) showing the data
-dependencies---{\em data-flow}. TODO figure
+dependencies---{\em data-flow}.
+%TODO figure
 
 %This representation has been pioneered in practice by LLVM and used for example
 %also by the B3 JIT compiler.
@@ -1968,7 +1979,9 @@ the algorithm tries to match with all instructions one-by-one). This can be used
 to model (relative) costs of instructions with equivalent behavior.
 
 Later improvement of the algorithm by the same authors~\cite[Davidson1984a]
-better formalized the phases of the algorithm (figure~\ref[fig:TODO]). The {\em
+better formalized the phases of the algorithm%
+%(figure~\ref[fig:TODO])
+. The {\em
 expander} produces register transfers, {\em combiner} combines pairs of
 instructions and {\em assigner} translates register transfers back to machine
 instructions (and in their approach also performs register allocation).
@@ -2008,70 +2021,9 @@ which operates only based on these patterns. While the files are still text
 based, they use {\em string interning} based on a hash based data structure to
 avoid comparing strings and to speed up strings comparisons.
 
-TODO: figure data-flow vs control flow
+%TODO: figure data-flow vs control flow
 
-TODO: examples
-
-%Apart from important improvements to the algorithm itself, in
-%\cite[Davidson1984a] they point out important interactions between the middleend
-%and backend that make their approach work well
-
-%Machines have many specifics and special cases that are just too hard to handle
-%at the code generator ({\em expander}) level. On x86-64 these can for example be
-%zeroing out registers with `xor reg, reg` instead of with `mov reg, 0`, or using
-%the `lea` (intended for address computations) to perform ordinary arithmetic.
-%Handling these specifics in when selecting instructions would mean a lot of case
-%analysis. If instead the code generator is as naive as possible and based on a
-%relatively simple.
-
-%Only the expander depends
-%
-%Though
-%the string operations and no preprocessing of the machine descriptions with
-%combination of symbolic combination of effects of instructions meant that the
-%compiler wasn't that fast.
-%
-%However, k
-%
-%Their peephole optimizer traverses the list of instructions and
-%tries to find for each pair a single instruction that has the combined effects. 
-%
-%Many of these problems have been solved by Davidson and
-%Fraser~\cite[Davidson1980, Davidson1982, Davidson1984]. Their peephole optimizer
-%operates on {\em register transfer lists}, which are a machine independent
-%representation of low level operations performed by instructions, many of which
-%are indeed register transfers, but include also arithmetic and manipulations
-%with flags. The register transfers describe {\em effects} of instructions and
-%their peephole optimizer examines each pair (and later triplet) of instructions
-%and replaces them with a single equivalent instruction if it exists. The
-%combined effects of more instructions are simulated symbolically and
-%single instructions having the combined effects are looked up in a {\em machine
-%description}. 
-%
-%
-%
-%With this machine independent representation, they represent machine
-%dependent instructions---the same representation can be used for many
-%architectures. Additionally, their algorithm is driven by a symbolic machine
-%description, so a single algorithm works for all architectures and support for
-%new architectures can be easily added. The peephole patterns and optimizations
-%themselves are not present in these machine descriptions. The peephole optimizer
-%bases the optimizations entirely on 
-%
-%---as the peephole
-%optimizer goes through the code, it simulates pairs (and triples) of
-%instructions and, if applicable, replaces them by more efficient single
-%instruction.
-%
-%Since the 
-
-
-
-%This late peephole optimization doesn't have many opportunities for
-%optimization, since instructions have already been selected, ordered and
-%registers allocated. On top of that, the three big backend phases in a
-%production grade often use global techniques, but the peephole optimizer has
-%only a too local view. This 
+%TODO: examples
 
 \secc Covering
 
@@ -2108,7 +2060,8 @@ least the following fundamental types are required:
 \enditems
 
 Small immediates can be used anywhere where full integer constants are allowed,
-so this can be captured by a pattern which \"retypes" the node TODO figure.
+so this can be captured by a pattern which \"retypes" the node.
+%TODO figure
 There is no actual instruction associated with such pattern. Leaves in patterns
 are special and may need special separate types to be represented. For example,
 access to stack allocated variables requires access to the base pointer which
@@ -2141,7 +2094,8 @@ which produce from some number of inputs multiple results. An example is the
 x86-64 instruction `idiv` which produces two results---the quotient and the
 remainder. We may even consider settings of {\em flags} to constitute additional
 outputs of instruction---in that case on the x86-64 most arithmetic instructions
-would be multi-output. TODO figure
+would be multi-output.
+%TODO figure
 
 * {\em General graphs}. Both trees and DAGs are unable to capture control flow,
 which in non-trivial programs contains loops and hence {\em cycles} in the
@@ -2655,8 +2609,8 @@ top of the stack, which means that code needing to access the values not
 fitting into registers can address their memory locations using relative
 addressing with small offsets, also a feature efficiently supported by all
 common architectures these days. On the other hand accessing static slots of
-memory would pose similar challenges as accessing global variables does (see for
-example section~\ref[TODO] for more details).
+memory would pose similar challenges as accessing global variables does (e.g.
+relocations, position independence, large constants, \dots).
 
 \label[sec:use-of-spilled]
 \seccc Using spilled values
@@ -2877,9 +2831,7 @@ mov [rbp+s3], t4
 
 Now, we keep the values in registers the whole time, and only store the final
 result in memory on assumption that later the value is needed and storing it in
-memory somehow helps the register allocator. While the first example is two
-instructions, it is X bytes, while the second one is 3 instructions and Y bytes
-TODO: compare lengths of instructions.
+memory somehow helps the register allocator.
 
 Another important observation is that, the \"optimal" code we ended up with, is
 very similar to what we started with---there is just a store instruction in the
@@ -3066,7 +3018,7 @@ beneficial for register reuse. If at a program point a virtual register stops
 being live (becomes {\em dead}) the physical register allocated to it becomes
 available. The definition of liveness carefully says \"may be used in future",
 because in general it is undecidable whether a virtual register {\em will} be
-used. TODO: Rice's theorem, halting problem.
+used.
 
 For computing liveness analysis the means of classical data flow analysis may be
 used. For each program point we can compute the liveness property on the control
@@ -3827,7 +3779,9 @@ free color.
 But, it is possible to do better. The fact, that a node has a {\em significant}
 number of neighbours doesn't mean, that it will be uncolorable in the {\em
 assignment} stage. There is a chance that the already colored neighbours will be
-assigned less than $k$ distinct colors (TODO: figure), in that case the popped
+assigned less than $k$ distinct colors%
+%(TODO: figure)
+, in that case the popped
 node could still be colored even though at the time it was pushed it was
 significant. Because of this, in {\em simplify} we may optimistically try to
 remove and push high degree nodes on to the stack, instead of pessimistically
@@ -3944,7 +3898,7 @@ with both `t1` and `t2`, and the two are coalesced into `t12`, then in effect
 `t3` loses a neighbour and it's degree is decreased, and it might just become
 insignificant (\"low degree") and simplifiable (leading to more simplifications,
 which in turn might lead to more coalescings, etc.). While this may seem like a
-perfect positive feedback loop, it is important to recall from TODO ref, that
+perfect positive feedback loop, it is important to recall, that
 coalescing two nodes creates a node of higher (even significant) degree.
 
 Park and Moon note that even iterated coalescing can be too conservative and not
@@ -4083,7 +4037,7 @@ positive and negative impacts on colorability, and different variations
 approached it differently. Pereira's algorithm does all coalescing {\em after}
 assignment because after coalescing an interference graph can become
 non-chordal, though they report that in their experiments their approach
-does better in coalescing than Appel's Iterated register coalescing.
+does better in coalescing than Appel's iterated register coalescing.
 
 While Pereira's algorithm can be used even for non-chordal interference graphs,
 following researched by e.g. Hack~\cite[Hack2006] showed, that programs in
@@ -4111,8 +4065,9 @@ of SSA form, is also it's great disadvantage---it depends on the program on
 being in SSA form, which is not the norm. Usually, compilers do register
 allocation only after instruction selection during which concrete machine
 instructions are chosen to implement the behavior of the SSA-based intermediate
-representation. $\phi$ instructions are not real instructions real
-architectures, and certain operations are incompatible with SSA. TODO elaborate.
+representation. Keeping the $\phi$ instructions in the later stages of the
+compiler means that the algorithms have to respect {\em parallel copy} semantics
+of the $\phi$ instructions.
 
 \seccc Reduction
 
@@ -4225,16 +4180,10 @@ implemented the individual components of our architecture.
 \label[sec:imp-architecture]
 \sec Architecture
 
-TODO The TinyC frontend used in the NI-GEN course
-
-Rozvržení fází, nějaké diagramy, přechody mezi reprezentacemi atd.
-
 The input to our back end is a TinyC middle end IR, and the output is x86-64
 machine code. This gives us our two main interfacing points. Everything in
 between is the goal of this thesis and the architecture should be designed to
 fulfill the goals presented above.
-
-TODO: nasm
 
 Traditionally compilers have been split into three main parts---front end,
 middle end, and back end (see section~\ref[TODO compiler structure]). Our compiler
@@ -4247,12 +4196,11 @@ for producing the best machine code possible, thus they focus on finding
 patterns in the compiled programs as well as the instructions sets, which allow
 choosing the most appropriate instruction sequence.
 
-No instruction scheduling TODO.
-
 \secc Middle end
 
 Our compiler will need to process output of the canonical TinyC front end
-implementation, which is a middle end intermediate representation based on {\em
+implementation\urlnote{https://gitlab.fit.cvut.cz/NI-GEN/ni-gen-23}, which is a
+middle end intermediate representation based on {\em
 control flow graphs} (described in section~\ref[sec:cfg]) and is in {\em
 value-based} SSA form (described in section~\ref[sec:SSA-value]).
 
@@ -4340,7 +4288,7 @@ is based on several observations:
 output.
 
 * Often a peephole optimizer step is run on the machine instructions in the
-final stage of a back end TODO ref and this is done over machine instructions.
+final stage of a back end~\ref[sec:peephole] and this is done over machine instructions.
 
 * Instruction selection by peephole optimization (described in
 section~\ref[sec:selection-peephole]) is a very competitive technique. It can
@@ -4360,7 +4308,8 @@ potential expansion to other targets.
 \enditems
 
 If we use machine instructions for our back end, then full architecture of
-compiler can consist of the following steps, also highlighted in figure TODO:
+compiler can consist of the following steps:
+%TODO: figure
 
 \begitems
 
@@ -4396,8 +4345,9 @@ it only refers to physical registers.
 * {\em Peephole optimization}. Assignment of physical registers may unlock new
 possibilities for optimization. For example, due to coalescing (see
 section~\ref[sec:regalloc-coalescing]) copy instructions may become redundant,
-which can quickly cascade to other improvements, e.g. due to instructions now
-fitting into a peephole window.
+which can lead to other improvements, e.g. due to instructions now
+fitting into a peephole window. Because we use the same representation, the same
+peephole pass can be reused with a little care.
 
 \enditems
 
@@ -4406,7 +4356,11 @@ section~\ref[sec:scheduling-practical], modern implementations of architectures
 (including the x86-64) feature powerful out of order execution. Also, considering the
 ever increasing gap between speed of memory (and caches) and the processor
 itself, the chances of saturating execution units in a processor are only
-becoming smaller.
+becoming smaller. Instead of specifically {\em optimizing} the instruction order
+for scheduling, we instead try to not introduce unnecessary {\em additional
+dependencies}, which is what makes any code scheduling (static or dynamic) more
+complicated, and the code ultimately slower on a superscalar processor. See for
+example section TODO comparison lowering.
 
 More complicated instruction selection mechanisms on specialized IRs have
 problems with ensuring correctness, because they may not be able to find a
@@ -4444,6 +4398,38 @@ they also describe lack of case analysis in the lowering as a great benefit, and
 introduce the concept of an {\em intersection machine}, which implements only
 those operations available for all targets. Our middle end representation can
 thus be seen as an intersection machine.
+
+\seccc Assembly
+
+We have decided on our compiler to output textual assembly instead of machine
+code. While this means an external dependency, it is in our opinion a fair trade
+off, since producing actual machine code (i.e. executable binary files) is
+matter of serializing the machine instructions and adding headers depending on
+the executable format (like ELF, or PE).
+
+The job of the back end is not made much easier by omission of serialization. As
+we show in later sections, the compiler has to know exactly which instructions
+it intends to emit, otherwise it could easily use non-existing addressing modes.
+This distinction is in fact similar to the distinction of a {\em mnemonic} and
+an {\em opcode} (see section~\ref[sec:x86-basics])---while assemblers expect
+the human friendly mnemonics, the compiler already has to figure out the right
+opcode.
+
+The most useful job of the assembler is then the implementation of the
+serialization rules, which are sometimes tricky on x86-64. But more usefully, it
+also handles {\em relocations}, i.e. it adds notes to either the static or
+dynamic linker, which make the application work with external code. Emitting our
+own executables would mean that we could do without relocations altogether, but
+using external code is so interesting in its own right, that we prefer to
+implement it (see also section~\ref[sec:runtime-external]).
+
+Our assembly still has to keep in mind what kind of executable it produces. For
+example, we choose to output {\em positional independent code}, where we refer
+to procedures and global variables with {\em relative addresses}. Position
+independence is (usually) required for libraries, which get be mapped to
+different places in address space, and recently often also for executables (due
+to address space layout randomization). By making our code positional
+independent, we allow it to be linked into any external code.
 
 \seccc Register allocation
 
@@ -4494,7 +4480,7 @@ while being very simple and efficient. Other improvements to Chaitin's algorithm
 mainly focus on improving coalescing and taking advantage of the special
 properties of interference graphs (see section~\ref[sec:regalloc-chordal]).
 
-Ultimately, we decided to implement Iterated register coalescing as formulated
+Ultimately, we decided to implement iterated register coalescing as formulated
 in~\cite[George1996]. It has been regarded as the state of the art for a long
 time---newer algorithms take it as a reference, for example~\cite[Park2004]
 or~\cite[Pereira2005]. While optimistic coalescing seems great, it is not as
@@ -4509,14 +4495,60 @@ other problems encountered by practical register allocators.
 %One disadvantage of graph coloring register allocation is, that it can't do on
 %the fly live range splitting.
 
-Other advantage of Iterated register coalescing is that, like some other formulations,
+Other advantage of iterated register coalescing is that, like some other formulations,
 but unlike for example~\cite[Pereira2005], it has an existing flexible and
 comprehensive method for handling register classes due to~\cite[Smith2004].
 
 \sec Technology
 
-C (známé, žádné závisloti, možnost reprezentovat datové struktury přesně podle
-potřeby)
+Our choice of technologies mainly concerns the programming language for the
+implementation and any other dependencies.
+
+\secc Assembler
+
+For the assembler, we chose NASM\urlnote{https://www.nasm.us/}. It is assembler
+intended for assembly written by humans and as such supports very readable
+syntax, unlike other assemblers like the GNU assembler.
+
+Unfortunately, NASM, like other assemblers, cannot be linked in to our compiler
+as a library, and we will have to either call it externally or leave it up to
+the users to assemble and link the programs.
+
+\secc Programming language
+
+We considered the programming language by several criteria:
+
+\begitems
+* Suitability for compiler development.
+* Familiarity to the students of the NI-GEN course.
+* How easy it is to build and distribute the compiler.
+\enditems
+
+Languages like OCaml or Scala are great for compilers, because they offer
+pattern matching and garbage collection, which both make compiler development
+easier. OCaml, unlike Scala is not taught in any class on the Faculty of
+Information and technology. Scala programs are also in our experience not as
+easy to distribute (due to dependencies on particular versions of either the
+Scala compiler or JDK).
+
+We rejected emerging languages like Zig because they are still not stable enough
+and students are not familiar with them.
+
+We deeply considered C++, because it is the language TinyC front end is written
+in. The language is improving much in each revision of the standard.
+Because of that, there is not a single C++ to target---there is anything ranging
+from C-like C++, to very modern C++20, which is sometimes not even fully
+supported, yet (especially by older versions of compilers present for example on
+stable Linux distributions).
+
+Ultimately, we decided to implement the software in C. C can be run and compiled
+basically anywhere. It doesn't support any data structure or paradigm nicely,
+but this often means that we are able to choose the data structures most
+suitable to our exact problem. Everyone studying a TinyC compiler is also
+expected to be familiar with C.
+
+Additionally, a back end written in C, can still be linked to and directly used
+by other projects involved in the Tinyverse.
 
 \sec Data structures
 
@@ -5519,12 +5551,20 @@ and stores through fresh virtual registers. In case a register that is both
 used and defined, a single virtual register has to be used for both the load and
 store.
 
-The layout of the `ops` used for x86-64 is illustrated by figure TODO. The
+The layout of the `ops` used for x86-64 is illustrated in
+figure~\ref[fig:x86-inst]. The
 representation fits operands for each mode into just 6 operand slots. Not all modes
 use all 6 slots, but they are allocated with them nonetheless, since it makes it
 universally possible to just change mode and some operands to transform one
 instruction into another. It also simplifies memory management, because
 for objects of single size, memory fragmentation is not a problem.
+
+\midinsert
+\centerline {\hskip-14mm\transformbox{\pdfscale{0.96}{0.96}}{\inspic{DIA_1.pdf}}}
+\cskip
+\clabel[fig:x86-inst]{x86-64 instruction representation}
+\caption/f x86-64 instruction representation
+\endinsert
 
 All 6 operand slots are needed for only one instruction: 3 operand `imul` with
 register (1 slot), memory (2 register and 2 immediate slots) and immediate (1
@@ -5730,9 +5770,17 @@ block. Since currently the backend lacks the ability to do big changes to
 control flow, it can reuse the control flow (successors and predecessors) of the
 middle-end representation.
 
-Figure TODO shows examples of a few x86-64 as represented in a linked list of
+Figure~\ref[fig:insts] shows examples of a few x86-64 as represented in a linked list of
 `Inst` structures together with the head of the linked list an `Inst` in
 `MBlock`.
+
+\midinsert
+\centerline {\transformbox{\pdfscale{0.96}{0.96}}{\inspic{DIA_2.pdf}}}
+\cskip
+\clabel[fig:insts]{Example of x86-64 instructions in our representation}
+\caption/f A machine block with a few x86-64 instructions linked in a circular
+linked list
+\endinsert
 
 \label[sec:imp-critical-edge]
 \sec Critical edge splitting
@@ -7551,7 +7599,7 @@ preferred to use-def ones (section~\ref[sec:imp-peephole-use-def]).
 
 \sec Register allocation
 
-Register allocation by graph coloring and in particular the Iterated register
+Register allocation by graph coloring and in particular the iterated register
 coalescing~\cite[George1996] algorithm we implement, does not consist of one
 simple step, but of multiple. Additionally, the algorithm is repeated until
 it succeeds. The basic means of operation of the algorithm are shown in
@@ -7593,7 +7641,7 @@ occurrences of virtual register to their assigned physical registers.
 
 \enditems
 
-The specialty of the Iterated register coalescing algorithm lies mainly in step
+The specialty of the iterated register coalescing algorithm lies mainly in step
 4, but it has also consequences on previous steps, notably on the design of
 data structures (discussed in section~\ref[sec:imp-regalloc-coalescing]).
 
@@ -7856,9 +7904,8 @@ instruction itself shouldn't add the interference. This can be done nicely, by
 removing the used register (i.e. `t20`) from the live-set---then it won't be
 present when interferences of definitions and live-set members are added.
 
-Last, but not least, we also call `add_move` function for every copy
-instruction, we will come back to it when discussing the iterated register
-coalescing algorithm in section~\ref[TODO].
+Last, but not least, we also call `add_move` function to accumulate all copy
+instructions, which is important for the later coalescing stage.
 
 \label[sec:imp-calling-conventions]
 \seccc Calling conventions
@@ -7867,7 +7914,7 @@ In sections~\ref[sec:regalloc-constraints] and~\ref[sec:regalloc-graph-coloring]
 claimed that the combination of live range splitting and interferences added
 through right definitions and uses can be used to model calling conventions
 passing arguments or return values in physical registers (which is done on all commonly used
-x86-64 calling conventions, see section~\ref[TODO]). In
+x86-64 calling conventions, see section~\ref[sec:x86-calling-conv]). In
 section~\ref[sec:imp-lowering-prologue-epilogue] we described how the live range
 splitting of callee saved registers is handled. But so far we haven't explained
 how the interferences are added in our implementation, since the instruction
@@ -8123,7 +8170,7 @@ being live at the same time.
 A lot of other graph coloring register allocation approaches could reuse many
 parts of our implementation. However, the {\em main simplification loop} which
 we describe in
-this section is the main characteristic of the Iterated register coalescing
+this section is the main characteristic of the iterated register coalescing
 (\"IRC") algorithm by George and Appel~\cite[George1996], which we also describe
 in context of other graph coloring register allocators in
 section~\ref[sec:regalloc-graph-coloring]. As we will be working mainly on an
@@ -8249,7 +8296,7 @@ graph. Due to that, the `for_each_adjacent` function skips nodes which are
 present on the stack and we maintain a degree of each node to detect
 simplifications without having to check presence of neighbours on the stack.
 
-The simplifications in the Iterated register coalescing are still based on the
+The simplifications in the iterated register coalescing are still based on the
 same Chaitin heuristic, so the same simplification mechanism applies. But,
 because we want to interleave simplifications with coalescing, we need to obey
 one limitation: we can't coalesce any node pushed onto the stack, because it is
@@ -9203,6 +9250,7 @@ REX prefix byte (see section~\ref[sec:x86-64]).
 %
 %Machine independent representation of machine dependent instructions
 
+\label[sec:runtime]
 \sec Runtime
 
 Programs output by our compiler like all programs will need to interact with the
@@ -9215,7 +9263,7 @@ program.
 \enditems
 
 Even successfully exitting the program involves a request to the operating
-system (for example with a call to the `exit` function of standard C). As
+system (e.g. a call to the `exit` function of standard C). As
 mentioned in~\ref[sec:x86-os], on most platforms the C library is the {\em only}
 way to make requests to the operating system. On others, it is possible to
 perform syscalls directly if they have stable system call interface. Linux is
@@ -9228,6 +9276,17 @@ while it passes some data to the program by writing it to its address space, it
 doesn't call `main` nor prepares its arguments. This startup is also handled by
 the {\em runtime component}, which is linked into the application.
 
+In following subsection, we demonstrate how TinyC programs are able to be linked
+with the system C library, and call its functions and how TinyC programs can
+perform system calls directly.
+
+Our implementation supports both behaviours. Though performing system calls
+directly is a bit bare bones, as no further abstractions are provided at the
+moment. Both of the approaches are mainly intended to showcase how TinyC the
+language needs to get extended, since as of now it doesn't support calls to
+external functions or variable number of arguments.
+
+\label[sec:runtime-external]
 \secc External C library
 
 As we fully implement the System V ABI, programs produced by us are fully able
@@ -9406,7 +9465,7 @@ syscall:
 The simple definition actually packs a few other things that are not immediately
 apparent:
 
-\begtt
+\begitems
 * The function works for any number of arguments. Six is the maximum
 number of arguments any system call has. If a syscall needs less than 6
 arguments, the kernel won't read the other registers that we set. The argument
@@ -9420,7 +9479,7 @@ since neither our function nor the kernel changes them. (The kernel changes only
 instruction, see section~\ref[sec:x86-os]).
 * The return value from the kernel (`rax`) is passed back in the C return
 register (`rax`).
-\endtt
+\enditems
 
 Essentially we have a variable argument function without using `va_list`. But
 the caller can still pass us arguments using the C ABI and as long as there are
@@ -9455,15 +9514,132 @@ With wrappers for all usual system calls, we can hide the ugly implementation
 details from the users. With the use of the wrappers, entire C library could be
 implemented.
 
+\sec Live range splitting
+
+\sec Middle end
+
+As no complete front end nor middle end for TinyC was available when work on
+this thesis was started, we created our own.
+
+The front end is a simple recursive descent Pratt parser (see~\cite[Pratt1973]).
+In a single pass it parsers, type checks and emits middle end IR (constants and
+operations as described in section~\ref[sec:data-structures-middle-end]).
+
+More interesting things happen in the middle end, where we do a few
+optimizations that our back end isn't able to currently do.
+
+\secc Jump threading
+
+We perform a bit of {\em jump threading} optimization, which removes
+some edges needlessly inserted by our simplistic front end. Sometimes in the
+process of redirecting control flow we introduce {\em critical edges}. We
+actually split them later (see section~\ref[sec:imp-critical-edge]), but keeping
+them unsplit at least temporarily allows for simpler control flow on which we do
+the next optimization.
+
+\secc Simple alias analysis
+
+We perform a very weak form of \"alias analysis" on stack slots (what used to be
+TinyC local variables), which lets us often transform them into values
+respecting SSA, and remove the load and store operations that semantically
+happen for all C local variables.
+
+Since values in our implementation translate to virtual registers, this
+essentially means that we replace memory operations by operations on registers.
+Although this increases register pressure, the introduced spills are not worse
+than the previous memory operations.
+
+The simple alias analysis notices that any stack slot, which is only involved in
+operations that either load or store to it, can be treated as a simple variable
+on which we can apply SSA construction. Other uses of the stack slot {\em could}
+mean that the stack slot value (which is a constant, pointer to the stack slot),
+is {\em aliased} and written to by other stores. This is very weak, as it aborts
+in cases where there are in fact no aliases. But in our experience it is
+powerful enough and is able to eliminate many {\em scalar} \"stack allocated
+variables". Our analysis doesn't attempt to optimize {\em aggregates} (structs)
+or {\em arrays}.
+
+When optimizable stack slots are identified, the stores and loads are regarded
+as assignments and reads, which can be used with any SSA construction method. We
+use Braun's method~\cite[Braun2013], which is simple and
+intuitive---$\phi$-function operands are inserted by querying predecessors.
+Handling of cycles and speed are achieved with elegant memoization.
+
 \label[chap:evaluation]
 \chap Evaluation
+
+Our back end does global register allocation and extensive, but mostly local
+peephole optimization. There are no big transformations of control flow or
+analysis, that could achieve {\em optimization}.
+
+Our assumption is, that the code is already fairly optimized when provided as
+input to the back end. Our back end then does its best to generate the best
+sequence of machine instructions implementing the exact same behavior, but with
+x86-64 specific improvements, like use of the more complex and compact addressing
+modes or improved work with flags.
+
+There are optimizations that might be better suitable for a back end. 
+
+\sec Known shortcomings
+
+Things that are known not to produce good code include:
+
+\begitems
+* Division by a (power of two) constant. Divisions by constants, are much better
+realized with multiplication by reciprocal or, in case of powers of two, by
+shifts. Unfortunately, due to register constraints of the `idiv` instruction,
+detecting divisions by constants is not as easy as it may seem.
+
+* Identities on comparisons. Simple identities like `a != 0` are optimizable
+quite well in our back end, and can be also fused into conditional jump
+instructions. But any more complex comparison expressions like `(a != 0) == 1`
+are not easily folded by our peephole optimizer. This is because such operations
+compile into quite a few instructions (as the `setcc` instruction sets only a
+byte, which has partial dependency problems), and reads and writes of flags are
+not as easy to optimize in our current design.
+
+* Extensive use of narrow integers. We support TinyC `char`s purely with sign
+extending loads and trimming stores. This is in line with normal C semantics,
+which promote narrow types to `int` before doing any operations. However,
+sometimes it is possible to operate on memory directly e.g. with an instruction
+like: `add byte [rax], 1`. As we only support narrow types for loads and stores,
+we are not able to do this optimization. It would be possible with more general
+handling of narrow operations, which does not tie them to subkinds.
+\enditems
+
+We hope that the constants propagation, constant folding and
+arithmetic/comparison identities get applied in the middle end, which is also
+much more suited to actually find the constants to optimize with, such as with
+the sparse conditional constant propagation optimization~\cite[Wegman1991].
+
+There are surely many other shortcomings, but these are the ones we encountered
+a few times and know are the limitations of our architecture, and can't be fixed
+by adding a simple two-instruction peephole pattern.
+
+\sec Comparison against GCC
+
+Since our source language is based on C, and we output x86-64 machine code, we
+are able to compare our code with the output of existing C compilers, like
+GCC\urlnote{https://gcc.gnu.org/}.
+
+Comparison with GCC is especially interesting, since it's back end
+representation (RTL, the {\em Register Transfer Language}) is based on the
+Davidson-Fraser (see section~\ref[sec:selection-peephole]), which inspired our
+successive peephole optimization of machine code. Though our implementation
+doesn't use actual low level register transfers and has linear sequences of
+instruction, while GCC's RTL is actually tree based.
+
+Unfortunately, it is not straightforward to compare just the back ends. As both
+compilers (ours and GCC) have very low level and different program
+representations, we can't even generate a code that would be an equivalent
+starting point for both. Our compiler itself has only few middle end optimizations (
 
 Srovnání s GCC apod.
 
 Potřebné Rozšíření TinyC - vararg, unsigned, narrow types, external functions
 
 \chap Conclusion
-H
+
 In this thesis we studied x86-64, one of the most prevalent architectures today.
 We designed and implemented a back end for translating TinyC IR into x86-64
 machine code. To achieve this, we investigated existing literature on the topic of
@@ -9560,99 +9736,46 @@ would no longer be required.
 As of now, the back end is implemented as a standalone program. Turning it into a
 library could make it more universally usable.
 
+We also identified a few extensions to the TinyC language (external calls,
+variable number of arguments) that are needed in order to run non-trivial
+programs on the x86-64 architecture.
+
+With experience with both x86-64 and Tiny86, we see a few areas where Tiny86
+could be made more realistic (system calls) or improved a bit (unsigned
+operations).
+
+Extensions to both TinyC and Tiny86 are not hard to implement, but they have to
+be carefully evaluated before they needlessly complicate things for students.
+
 \bibchap
+{
+% https://tex.stackexchange.com/questions/10924/underfull-hbox-in-bibliography
+% https://tex.stackexchange.com/questions/241343/what-is-the-meaning-of-fussy-sloppy-emergencystretch-tolerance-hbadness
+% \sloppy
+\tolerance 9999%
+\emergencystretch 3em%
+\hfuzz .5pt
+\vfuzz\hfuzz
+\hbadness 10000\relax
 \usebib/s (iso690) vlasami6-dip
+}
+
+\glos {DAG} {directed acyclic graph}
+\glos {JIT} {just-in-time (compiler)}
+\glos {SSA} {static single assignment}
+\glos {RISC} {reduced instruction set computer}
+\glos {CISC} {complex instruction set computer}
+\glos {ALU} {arithmetic logic unit}
+\glos {CFG} {control-flow graph}
+\glos {IRC} {iterated register coalescing~\cite[George1996]}
+\glos {IR} {intermediate representation}
+\glos {AST} {abstract syntax tree}
+\glos {OS} {operating system}
+\glos {GCC} {GNU compiler collection}
+\glos {ELF} {Executable and Linkable Format}
+\glos {PE} {Portable Executable}
+
+\app Acronyms
+\makeglos
 
 \bye
-
-This sequence simulates \"three address code" (see TODO) and the second instruction
-is in fact what we started with to show use of spilled pseudoregisters.
-
-
-As we have discussed in TODO, most instructions on
-the x86-64 use the "two address code", where one of the operands is also the
-destination for the result. Generally, three address code (where operations have
-two operands and one destination that may or may not coincide with one of the
-operands), are nicer from the perspective of the compiler---it is (at least in
-principle, or while we are operating with pseudoregisters) non-destructive.
-
-
-
-
-
-Coalescing vs live range splitting.
-
-
-
-%The important takeaway is, that during register allocation by
-%graph coloring, there are multiple potential causes for the graph becoming
-%uncolorable, in any algorithm:
-%
-%\begitems
-%* The graph needs more than $k$ colors to be colored.
-%* The algorithm is too inexact to find a coloring.
-%\enditems
-
-needs to be noted that
-more exact algorithm are necessarily able to find colorings even for graphs
-which other algorithms would deem uncolorable. Briggs' approach is a 
-
-The
-interference graph has to change to 
-
-\seccc Test
-
-test
-
-
-
-
-CHAITIN RECKLESS COALESCING
-
-BRIGGS CONSERVATIVE COALESCING
-
-GEORGE APPEL ITERATED REGISTER COALESCING
-
-
-
-Since graph coloring can fail not only due to the graphs being uncolorable due
-to interferences of precolored nodes, but also due to the graph having simply
-needing more registers to be colored, we 
-
-Since nodes corresponding to physical registers have a color associated with
-them
-Machine instruction constraints and calling conventions can be modelled bmachine constraints apply to {\em physical}
-registers and by also adding them as nodes the interference graph, we can add
-interferences between physical and virtual registers. This allows us to model
-all usual constraints:
-
-\begitems
-* {\em Instructions allowing only specific input registers.} We 
-\enditems
-
-Graph coloring can fail not only because the graph's chromatic number is too
-high, but also just because the particular graph coloring algorithm at hand is
-{\em unable} to find a coloring.
-
-so such
-graphs (programs) need to be changed and graph coloring needs to be attempted
-again. The changes
-
-
-
-
-
-
-Zkratky:
-
-DAG
-JIT
-SSA
-RISC
-CISC
-ALU
-CFG
-IRC
-IR
-AST
-OS
