@@ -1,0 +1,29 @@
+// // vim: ft=c et sw=4
+void *calloc(int, int);
+void free(void *);
+int printf(char *, ...);
+
+int count_primes(int n) {
+    char *sieve = calloc(n, 8);
+    int count = 0;
+
+    for (int p = 2; p < n; p++) {
+        if (!sieve[p]) {
+            count++;
+            for (int i = p * p; i < n; i = i + p) {
+                sieve[i] = 1;
+            }
+        }
+    }
+
+    free(sieve);
+
+    return count;
+}
+
+int main() {
+    int n = 50000000;
+    int count = count_primes(n);
+    printf("Number of prime numbers up to %ld: %ld\n", n, count);
+    return 0;
+}
