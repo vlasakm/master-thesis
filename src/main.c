@@ -74,7 +74,7 @@ static void
 parser_verror(void *user_data, const u8 *err_pos, const char *msg, va_list ap)
 {
 	ErrorContext *ec = user_data;
-	verror(ec, err_pos, "parse", false, msg, ap);
+	verror(ec, err_pos, "parse", true, msg, ap);
 }
 
 Module *
