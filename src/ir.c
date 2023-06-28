@@ -407,7 +407,6 @@ print_function(FILE *f, Function *function)
 		fprintf(f, "\t");
 		print_index_type_value(f, arg);
 	}
-	//for (size_t i = function->block_cnt; i--;) {
 	for (size_t j = function->block_cnt; j--;) {
 		Block *block = function->post_order[j];
 		Block **preds = block_preds(block);
