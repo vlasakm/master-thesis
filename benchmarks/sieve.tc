@@ -22,7 +22,7 @@ int count_primes(int n) {
 }
 
 int main() {
-    int n = 50000000;
+    int n = 200000000;
     int count = count_primes(n);
     printf("Number of prime numbers up to %ld: %ld\n", n, count);
     return 0;

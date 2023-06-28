@@ -5,25 +5,25 @@ int printf(char *, ...);
 
 int count_primes(int n) {
     int capacity = (n + 63) >> 6;
-    int *isPrime = calloc(capacity, 8);
+    int *not_prime = calloc(capacity, 8);
     int count = 0;
 
     for (int p = 2; p < n; p++) {
-        if (!(isPrime[p >> 6] & (1 << (p & 63)))) {
+        if (!(not_prime[p >> 6] & (1 << (p & 63)))) {
             count++;
             for (int i = p * p; i <= n; i = i + p) {
-                isPrime[i >> 6] = isPrime[i >> 6] | (1 << (i & 63));
+                not_prime[i >> 6] = not_prime[i >> 6] | (1 << (i & 63));
             }
         }
     }
 
-    free(isPrime);
+    free(not_prime);
 
     return count;
 }
 
 int main() {
-    int n = 50000000;
+    int n = 200000000;
     int count = count_primes(n);
     printf("Number of prime numbers up to %ld: %ld\n", n, count);
     return 0;
