@@ -891,8 +891,11 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 	}
 }
 
+// Remove:
+//  - redundant moves (mov rax, rax)
+//  - entry instruction
 void
-remove_redundant_copies(MFunction *mfunction)
+cleanup(MFunction *mfunction)
 {
 	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
 		MBlock *mblock = mfunction->mblocks[b];
@@ -901,6 +904,8 @@ remove_redundant_copies(MFunction *mfunction)
 		}
 		for (Inst *inst = mblock->insts.next; inst != &mblock->insts; inst = inst->next) {
 			if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_Cr && IREG(inst) == IREG2(inst)) {
+				remove_inst(inst);
+			} else if (IK(inst) == IK_ENTRY) {
 				remove_inst(inst);
 			}
 		}

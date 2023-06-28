@@ -256,7 +256,7 @@ module_pipeline(Module *module, Arena *arena, Config *c)
 		if (c->peephole) {
 			peephole(mfunction, arena, true);
 		} else {
-			remove_redundant_copies(mfunction);
+			cleanup(mfunction);
 		}
 	}
 	reg_alloc_state_free(ras);
