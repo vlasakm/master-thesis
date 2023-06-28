@@ -336,8 +336,8 @@ main(int argc, char **argv)
 		}
 	}
 
-	if (!c->output_file) {
-		argument_error(&ec, "Expected output file name");
+	if (!c->input_file) {
+		argument_error(&ec, "Expected input file name");
 	}
 
 	FILE *f_asm = NULL;
