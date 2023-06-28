@@ -100,7 +100,7 @@
 
 \def\optparams{\adef<##1>{\hbox{$\langle$\it##1\/$\rangle$}}}
 \toksapp\everyintt{\optparams}
-\toksapp\everytt{\typosize[9.5/12.4]}
+\toksapp\everytt{\typosize[9.2/12.0]}
 
 \worktype [M/EN]
 
@@ -119,12 +119,18 @@
 }
 
 \keywordsEN {%
-TODO
+compiler, compiler backend, TinyC, x86-64, instruction selection, register
+allocation, C, runtime
 }
 \keywordsCZ {%
-TODO
+překladač, backend překladače, TinyC, x86-64, výběr instrukcí, alokace registrů,
+C, běhové prostředí
 }
 \thanks {% Use main language here
+I wish to thank my supervisor, Ing.\ Petr Máj, for his patience and all the valuable
+advice he has given me.
+
+I also wish to thank my parents for their support.
 }
 
 \declaration {
@@ -163,26 +169,11 @@ TODO:
 
 \begitems \style n
 
-* Compiler IRs, Control flow graph
-
 * Register classes (byte registers)
-
-* Obrázek graph coloring
-
-* Pseudokódy do register allocation?
-
-* Benchmarky
-
-* Konzistentní odsazení za bloky s kódem
-
-* Přesunout vysvlětlení reprezentace registrů zvlášť a vysvětlit virtualní vs
-fyzické registry
 
 * Lowering / překlad z middle endu do back endu chce rozšířit. Vysvětlit všechny
 různé konstrukce jako calling conventions, argumenty, alloca instrukce apod.
 Taky chary a struktury.
-
-* Testing
 
 * Instruction scheduling -> non-pessimization e.g. setcc + movzx
 
@@ -1185,7 +1176,7 @@ instructions much
 more flexible in access to array elements than x86-64, which allows the scale
 to be only a small power of two.
 
-Unfortunately, unlike x86-64, Tin86 chooses to allow different memory accesses
+Unfortunately, unlike x86-64, Tiny86 chooses to allow different memory accesses
 in binary operations and to not allow memory access for unary operations. These
 make the instruction set rather irregular, especially since the destination is
 always limited to a register.
@@ -1219,30 +1210,196 @@ features, but also the irregularities, which test compiler capabilities.
 \label[chap:state-of-the-art]
 \chap State of the art
 
-kapitola o představení teorie za různými částmi překladače a zmínka zavedených
-existujících algoritmů a jejich přístupů
+This chapter's goal is to introduce and evaluate techniques and approaches that
+are already known and described in literature. We mainly focus on parts of the
+compiler that are part of the back end, or very much connected to it.
 
 \label[sec:backend]
 \sec Structure of a compiler backend
 
-Instruction selection + Instruction scheduling + Register allocation
+A compiler is a tool that transforms the source language into the target
+language. Doing so {\em directly} is however hard as both the input and output
+language may be fairly complex and in very different, incompatible ways.
 
-Je potřeba zvážit middle end, jedná se o vstup
+Like with many things, an extra layer of indirection helps, and compilers got
+split into more and more individual components.
 
-Middle end často SSA, je potřeba s tím počítat (SSA dekonstrukce) nebo to rovnou
-využít (register allocation na SSA)
+Most compilers today are split into at least three parts: front end, middle end
+an back end. This separation is very useful not only to solve the $m \cdot n$
+compilers problem, but allows each part to stay more focused.
+
+A compiler back end is no exception. Translating directly from a machine
+independent IR into instruction set (like x86-64) is hard. The classic
+architecture used by countless compilers are the following three phases:
+
+\begitems
+* {\em Instruction selection}. Chooses {\em which} machine instructions to use.
+* {\em Instruction scheduling}. Choose the {\em order} of the instructions.
+* {\em Register allocation}. Allocates and assigns machine registers to
+instructions.
+\enditems
+
+This sequence is applicable to register based machines---the instructions have
+to already be assigned some registers during instruction selection. But it is
+much more convenient to pretend to have infinite amount of registers. This way
+only the late register allocation stage has to be concerned with limited amount
+of {\em physical registers}. The earlier stages may instead use arbitrary amount
+of {\em virtual registers}.
+
+Even splitting into these or more stages doesn't fully help with the
+complexity---most of formulations of all three stages are
+NP-complete~\cite[Cooper2004].
+
+Another important component to consider with regards to the back end is the
+middle end. It is the middle end, which provides input to the back end. Either
+instruction selection works directly on the middle end IR, or has its own IR
+somebody needs to translate to.
+
+The middle end can influence the back end greatly. Especially if SSA form (see
+section~\ref[sec:SSA]) is used in the middle end. The SSA form has to usually be
+deconstructed at some point, and the back end is usually the more suitable as it
+doesn't {\em need} the SSA form (although approaches exist to leverage SSA form
+for example in register allocation, see~\ref[sec:regalloc-chordal]), while
+middle end usually finds it much more useful and doesn't have a reason to
+deconstruct it early.
 
 \secc Phase ordering
 
-Backend fáze na sobě vzájemně závisí
+A problem that will become clear gradually deserves a mention up front. There is
+a problem with the classic three stages in a back end. The order in which they
+are is not ideal. But in fact, no order is ideal, the phases all depend on each
+other:~\cite[Cooper2004].
 
-regalloc vytváří instrukce
+\begitems
+* Usually not all registers are equal, and instructions sometimes have specific
+register constraints. Registers cannot be allocated until it is known what and
+{\em how many} registers are needed.
 
-selection neví co nakonec bude v registrech
+* Different instructions allow very different schedules. But different schedules
+might make different instructions more plausible or interesting (e.g. due to
+differences in execution unit saturation, see section~\ref[sec:scheduling]).
 
-selection neví jaké registry nakonec budou použity
+* Insufficient amount of physical registers may result in need to store values
+in memory. This requires new instructions that should be selected and
+scheduled.
+\enditems
 
-Klasikcé řešení selection -> scheduling -> regalloc je přijatelný kompromis
+The classic order of instruction selection, instruction scheduling and register
+allocation turns out to be the best compromise. Still, register allocation may
+not only create new instructions, but also delete others
+(see section~\ref[sec:regalloc-coalescing]). Not only for this reason there is often a
+fourth, last, component of a back end: the {\em peephole optimizer}.
+
+We will introduce all these four main components as well as SSA and
+SSA-destruction in the following sections
+
+\sec Intermediate representations
+
+The intermediate representation (or more of them if the compiler is spit into
+even more stages) is the cornerstone of the compiler. Transformations on the
+middle end IR work for any source language and for any target language. Due to
+this, the intermediate representation should be made to suite the intended
+transformations.
+
+\secc Abstract syntax tree
+
+Source languages (like TinyC) are sequences of characters. As they get parsed, a
+parse tree is implicitly created. Often though, the more interesting
+representation is the Abstract syntax tree ({\em AST}).
+
+The AST can also be regarded and used as an intermediate representation in the
+compiler. However, it has a couple of disadvantages. Mostly, it reflects the
+{\em syntax}. It is too close to the source language to be suitable as a
+language independent middle end IR.
+
+Still many operations can be done just fine on trees. They are simple to
+process and modify. A language independent tree representation is a perfectly
+valid representation.
+
+\secc Directed acyclic graph
+
+Often trees become too limiting, especially for some optimizations like {\em
+common subexpression elimination} (CSE). If our program is something like:
+
+\begtt
+(a + b) * (a + b)
+\endtt
+%
+then we would like to notice and use the fact that the operands of the
+multiplication are in fact the same. However, if we were to reuse the first
+`(a + b)` node, it would have \"two parents" (the multiplication operation
+twice). This is not possible in trees, but is possible with {\em directed
+acyclic graphs} (DAGs). DAGs are very natural especially for common
+subexpression elimination or value numbering optimizations.
+
+\secc Three address code
+
+Three address code can be seen as a linearization of a DAG~\cite[Aho2006]. For
+example, the above could be rewritten with the common subexpression eliminated as
+follows:
+
+\begtt
+t1 = a + b
+t2 = t1 * t1
+\endtt
+
+The results are given explicit names and form {\em temporaries}. The name
+{\em three address code} stems from the three variables involved in the
+operation---one is the destination, and the other two are sources. Unlike with
+DAGs, the operations are ordered. While DAG captures {\em data-flow} (how
+operands from to operations). On the other hand if we assume the operands in
+three address code to be variables, three address code doesn't really capture
+data-flow, as the variables are assigned and read. But three address code
+captures {\em control flow}. If however, the three address code operands
+represent the values directly, and the names on the left side are merely labels
+naming the values, we have a representation which captures both data-flow and
+control flow (see also~\ref[sec:SSA-value]).
+
+\label[sec:cfg]
+\secc Control flow graph
+
+Three address code operations can be ordered linearly. Then the control flow is
+either continuing from one triplet to the next, unless a special jump operation
+jumps to a different part of the sequence.
+
+Usually a more exact representation of control flow is desired. One where
+explicitly each node has links to its successors and predecessors. This forms a
+{\em control flow graph}, where edges are possible transfers of control flow and
+nodes are triplets. Naturally, cycles in programs manifest as cycles in the
+control flow graph, etc., so here we have a true general graph.
+
+But most triplets (except for jumps and conditional jumps) continue explicitly
+to the next triplet. To prevent expensive representations of all edges, we can
+make most of them implicit by grouping into (maximal) sequences of triplets,
+which are only entered at the first triplet and left with the last triplet. We
+call these {\em basic blocks}. Inside basic blocks, the control flow edges are
+implicit, but among basic blocks, the control flow edges have to be represented
+explicitly.
+
+\label[sec:peephole]
+\sec Peephole optimization
+
+Peephole optimization is a general technique that examines a small part of a
+program (the {\em peephole}), in which instructions are examined and optimized
+according to known (or in other way derived) patterns.
+
+Peephole optimization is applicable to any intermediate representation, but is
+especially effective on data-flow graphs, where it is able to investigate
+{\em logically} adjacent operations, but is also often used on linear representations,
+where it examines {\em physically} adjacent instructions.
+
+Optimizations are possible even with patterns as small as one triplet. E.g. the
+following:
+
+\begtt
+t1 = t2 * 8
+\endtt
+%
+can be optimized to:
+
+\begtt
+t1 = t2 << 3
+\endtt
 
 \label[sec:SSA]
 \sec SSA form
@@ -1577,19 +1734,45 @@ No common processor provides $\phi$-functions on which the SSA form relies. Thus
 replacement of $\phi$-functions with other instructions having same effect is
 needed. This is step is called {\em SSA deconstruction}. Since $\phi$-functions
 are the means of achieving single static assignment, necessarily eliminating
-them means that the program will no longer be in SSA form. Being able to
-multiply assign a variable.
+them means that the program will no longer be in SSA form.
 
-$\phi$-function's semantics say that it evaluates to whichever values is
+$\phi$-function's semantics say that it evaluates to whichever value is
 appropriate to the control flow happening at runtime. In a representation based
 on control flow graphs, this is made explicit by basic blocks.
 We can achieve the effect of a $\phi$-function with multiple assignments through
-a copy instruction in each of the predecessor blocks:
+a copy instruction in each of the predecessor blocks, i.e. from:
 
 \begtt
-TODO
-\endtt
+block0:
+    v0 = 5
+    jmp block2
 
+block1:
+    v1 = 3
+    jmp block2
+
+block2: block0, block1
+    v2 = phi v0, v1
+    jmp block2
+\endtt
+%
+to:
+
+\begtt
+block0:
+    v0 = 5
+    v2 = v0
+    jmp block2
+
+block1:
+    v1 = 3
+    v2 = v1
+    jmp block2
+
+block2: block0, block1
+    jmp block2
+\endtt
+%
 This is the original way of eliminating $\phi$ functions and was introduced
 by~\cite[Cytron1991]. Though seemingly simple, there are multiple subtle
 problems, which have demanded improvements in this area.
@@ -1597,19 +1780,40 @@ problems, which have demanded improvements in this area.
 One of the problems is, that there may be no predecessor, that is suitable for
 the copy. This can be seen on the following program in SSA form:
 
-\begtt
-TODO
-\endtt
+\begtt \optparams
+block0:
+    v1 = 3
+    branch <...>, block2, block4
 
+block2: block0
+    v2 = 4
+    jump block4
+
+block4: block0, block2
+    v3 = phi v1, v2
+    ret v3
+\endtt
+%
 Inserting copies in to predecessor blocks would look like this:
 
-\begtt
-TODO
-\endtt
+\begtt \optparams
+block0:
+    v1 = 3
+    v3 = v1
+    branch <...>, block2, block4
 
-But the problem is that copy inserted into block Z for deconstructing the
-$\phi$-function X in block Y takes effect even in case the execution doesn't
-actually go to block Y, but goes to block W instead. The problem stems from the
+block2: block0
+    v2 = 4
+    v3 = v2
+    jump block4
+
+block4: block0, block2
+    ret v3
+\endtt
+%
+But the problem is that copy inserted into block 0 for deconstructing the
+$\phi$-function `v3` in block 4 takes effect even in case the execution doesn't
+actually go to block 4, but goes to block 2 instead. The problem stems from the
 fact, that control flow can transfer from block with {\em multiple successors} (where
 execution continues in only one of the successors) to a block with {\em multiple
 predecessors} (where $\phi$ functions may be needed to merge multiple reaching
@@ -1617,19 +1821,27 @@ definitions). In a control flow graph where possible transfers of control flow
 across blocks are embodied by edges, this is known as a {\em critical edge}.
 It is possible to split a critical edge by replacing it with an intermediate
 block. The block will have only a single predecessor (the block with multiple
-successors, block Z in our example) and a single successor (the block with
-multiple predecessors, block Y in our example):
+successors, block 0 in our example) and a single successor (the block with
+multiple predecessors, block 4 in our example):
 
-\begtt
-TODO
+\begtt \optparams
+block0:
+    v0 = <...>
+    v1 = 3
+    branch v0, block2, block5
+block5:
+    v3 = v1
+    jmp block4
+block2: block0
+    v2 = 4
+    v3 = v2
+    jump block4
+block4: block0, block2
+    ret v3
 \endtt
-
-Now the copies can be inserted into the new basic block and are executed only
-when control flow actually goes from block Z to block Y:
-
-\begtt
-TODO
-\endtt
+%
+Now the copies could be inserted into the new basic block 5 and are executed only
+when control flow actually goes from block 0 to block 4 (through block 5).
 
 Another problem with eliminating $\phi$-functions correctly is that semantically
 it is as if all $\phi$-functions in a block executed in parallel at the time the
@@ -1640,60 +1852,87 @@ $\phi$-functions in a basic block, a naive insertion of copies into predecessor
 can lead to {\em incorrect translation}.
 
 Briggs~\cite[Briggs1998] identified two examples where this happens, the first is
-known as {\em lost-copy} problem and occurs when deconstructing SSA in code like this:
-
-After SSA deconstruction:
-
-\begtt
-TODO
-\endtt
-
-A copy is missing. TODO. But the example actually has an unsplit critical edge
-and splitting it fixes the problem:
-
-\begtt
-TODO
-\endtt
-
-Though this demonstrates that splitting critical edges can be fairly expensive
-in loops where it introduces additional unneeded jumps. The lost-copy problem
-can be prevented in a much simpler way:
-
-\begtt
-TODO
-\endtt
-
-The second example identified by~\cite[Briggs1998] is the swap problem and
-can be demonstrated on this example:
-
-\begtt
-TODO
-\endtt
-
-There are two $\phi$-functions one of which depends on the result of the other.
-Naively inserting the copies fails to preserve the right semantics of
-$\phi$-functions:
-
-\begtt
-TODO
-\endtt
-
-Additionally, splitting the critical edge doesn't help:
-
-\begtt
-TODO
-\endtt
+known as the {\em lost-copy problem} and the {swap problem}.
+%problem and occurs when deconstructing SSA.
+%in code like
+%this~\cite[Sreedhar1999]:
+%
+%\begtt \optparams
+%block1:
+%	v1 = <...>
+%
+%block2: block1, block2
+%	v2 = phi v1, v3
+%	v3 = add v2, 1
+%	branch <...>, block2, block3
+%
+%block3: block2
+%	<...> = v2
+%\endtt
+%
+%After SSA deconstruction:
+%
+%\begtt \optparams
+%block1:
+%	v1 = <...>
+%	v2 = v1
+%
+%block2: block1, block2
+%	v2 = phi v1, v3
+%	v3 = add v2, 1
+%	v2 = v3
+%	branch <...>, block2, block3
+%
+%block3: block2
+%	<...> = v2
+%\endtt
+%
+%A copy is missing. TODO. But the example actually has an unsplit critical edge
+%and splitting it fixes the problem:
+%
+%\begtt
+%TODO
+%\endtt
+%
+%Though this demonstrates that splitting critical edges can be fairly expensive
+%in loops where it introduces additional unneeded jumps. The lost-copy problem
+%can be prevented in a much simpler way:
+%
+%\begtt
+%TODO
+%\endtt
+%
+%The second example identified by~\cite[Briggs1998] is the swap problem and
+%can be demonstrated on this example:
+%
+%\begtt
+%TODO
+%\endtt
+%
+%There are two $\phi$-functions one of which depends on the result of the other.
+%Naively inserting the copies fails to preserve the right semantics of
+%$\phi$-functions:
+%
+%\begtt
+%TODO
+%\endtt
+%
+%Additionally, splitting the critical edge doesn't help:
+%
+%\begtt
+%TODO
+%\endtt
 
 Both problems are ultimately due to dependencies among the $\phi$-functions and
 their arguments. Bad order of copies can overwrite needed values. Simplest
 possible solution is to do the copies in two steps: copy all phi node arguments
 into temporaries and only then copy from temporaries into the right
-destinations:
-
-\begtt
-TODO
-\endtt
-
+destinations.
+%
+%\begtt
+%TODO
+%\endtt
+%
 The approach is correct, since the first step is non-destructive (unlike the
 naive copy insertion) and in the second (destructive) step only new temporaries
 are read, which are not involved in any-$\phi$ functions. While correct, the
@@ -1713,18 +1952,19 @@ by~\cite[Cytron1991] and other algorithms {\em conventional SSA} and notes that
 it has the important property that all virtual registers in the same {\em phi
 congruence class} (containing virtual registers connected via
 $\phi$-instruction) can be replaced by one representative and the
-$\phi$-instruction eliminated. This means that for example the following code
-(in conventional SSA):
-
-\begtt
-TODO
-\endtt
+$\phi$-instruction eliminated.
+%This means that for example the following code
+%(in conventional SSA):
 %
-Can be translated just by \"omitting the versions":
-
-\begtt
-TODO
-\endtt
+%\begtt
+%TODO
+%\endtt
+%%
+%Can be translated just by \"omitting the versions":
+%
+%\begtt
+%TODO
+%\endtt
 
 Importantly, in~\cite[Sreedhar1999] they also consider {\em transformed SSA},
 which doesn't have the {\em phi congruence property}, and present three methods
@@ -1734,19 +1974,19 @@ blocks, a copy of the $\phi$-instruction is added. But these are different copie
 than in previous algorithms! Here we are still in SSA form---the
 copies can actually be considered {\em aliases} for the original values, or
 products of an {\em identity operation} and they
-obey the single assignment property:\fnote{In fact, exactly because these SSA
+obey the single assignment property.\fnote{In fact, exactly because these SSA
 values are aliases, they are folded by algorithms like {\em copy folding}, that
 result in transformed SSA form, which exhibits problems with naive SSA
 deconstruction.}
 
-\begtt
-TODO
-\endtt
+%\begtt
+%TODO
+%\endtt
 
 The next two methods described by Sreedhar gradually build on top the first one
 and additionally make
-use of liveness (described later in section~\ref[liveness]) and interferences
-(also described in a later section, \ref[interference]) to prevent inserting
+use of liveness (described later in section~\ref[sec:liveness]) and interferences
+(also described in a later section, \ref[sec:interference]) to prevent inserting
 too many unnecessary copies.
 
 Full SSA deconstruction based on Sreedhar's approach thus consists of
@@ -2989,6 +3229,7 @@ The approaches used for spill code insertion are usually very connected to the
 core principle of the register allocation algorithm at hand, and choices of some
 approaches are discussed in section~\ref[sec:regalloc-techniques].
 
+\label[sec:regalloc-concepts]
 \secc Concepts
 
 The terms used in the previous sections about register allocation were not
@@ -3025,6 +3266,7 @@ usually merge both of these parts, while more complex algorithms try to take
 advantage of attacking each of those issues separately to reach more optimal
 results. But this distinction is of course not definitive.
 
+\label[sec:liveness]
 \seccc Liveness
 
 Already in previous sections we hinted that we may reuse a physical register if
@@ -3042,6 +3284,7 @@ available. The definition of liveness carefully says \"may be used in future",
 because in general it is undecidable whether a virtual register {\em will} be
 used.
 
+\label[sec:interference]
 \seccc Interference
 
 Interference captures the fact that registers are live at the same time, and
@@ -3094,7 +3337,7 @@ instruction:
 \begtt
 sub t1, t2, t3
 \endtt
-
+%
 Can be translated to:
 
 \begtt
@@ -3110,7 +3353,7 @@ the following instruction in block 3, which merges virtual registers `t1` and
 \begtt
 phi t3, t1, t2
 \endtt
-
+%
 May translate to the following instructions in the two predecessors blocks:
 
 \begtt
@@ -3191,7 +3434,7 @@ mov t10, ...
 
 ..., t10
 \endtt
-
+%
 To `t11`, `t12` and `t13`:
 
 \begtt
@@ -3497,7 +3740,7 @@ allocation algorithms:
 \begitems
 * Handling of spilling (section~\ref[sec:use-of-spilled]),
 * Split or no split of allocation and assignment
-(section~\ref[ref:regalloc-formalization]).
+(section~\ref[sec:regalloc-concepts]).
 \enditems
 
 \noindent But there are others:
@@ -4227,7 +4470,7 @@ between is the goal of this thesis and the architecture should be designed to
 fulfill the goals presented above.
 
 Traditionally compilers have been split into three main parts---front end,
-middle end, and back end (see section~\ref[TODO compiler structure]). Our compiler
+middle end, and back end (see section~\ref[sec:backend]). Our compiler
 will have a bit of middle end (as it constitutes the input) and focus mainly on
 the back end. Often these three stages operate on completely different
 intermediate representations. In particular middle ends usually aim for
@@ -4602,6 +4845,7 @@ already familiar with C.
 Additionally, a back end written in C, can still be linked to and directly used
 by other projects involved in the Tinyverse.
 
+\label[sec:data]
 \sec Data structures
 
 Presenting the data structures before presenting the implementation details and
@@ -6078,14 +6322,24 @@ to go.
 %        ret v3
 %\endtt
 
+\sec Live range splitting
 
+Currently we don't do any extra live range splitting. Deconstruction of
+$\phi$-operations naturally introduces splits into a lot of places where they
+would be interesting---mainly loops.
+
+Still, we found that sometimes a spill of a variable also spills distant, uses
+of the register. In these situations splitting could help to minimize the
+spilling damage. Splitting around loops and function calls seems like an
+addition that could in some cases improve the generated code. Especially for
+live-through registers, which are not split naturally by $\phi$-operations.
 
 \label[sec:imp-lowering]
 \sec Lowering
 
 Code generation or {\em lowering} is the stage where we go from middle end
-machine independent representation of values to machine dependent instructions.
-We intended our code generator to be simple, with no case analysis. It receives
+(machine independent) representation of values to machine dependent instructions.
+We designed our code generator to be simple, with no case analysis. It receives
 as input a RISC-like value based IR and will transform it to RISC-like x86-64
 machine instructions.
 
@@ -6177,6 +6431,8 @@ octoword"), which does exactly that. After the division, the quotient is in
 \begtt
 v3 = sdiv v1, v2
 \endtt
+%
+to:
 
 \begtt
 mov rax, v1
@@ -6195,7 +6451,7 @@ v7: int = add v6, 1
 \endtt
 %
 Here `v7` is an `Operation` whose first argument is another operation with index
-6, and a `Constant` (see section~\ref[sec:data-structures-middle-end]).
+6, and the second argument is a `Constant` (see section~\ref[sec:data-structures-middle-end]).
 Operations are embedded in concrete places in control flow graph and represent
 the {\em value} resulting from an operation, which is only valid in the function
 (and to be concrete speaking only in operations {\em strictly dominated} by the
@@ -7675,8 +7931,9 @@ preferred to use-def ones (section~\ref[sec:imp-peephole-use-def]).
 Register allocation by graph coloring and in particular the iterated register
 coalescing~\cite[George1996] algorithm we implement, does not consist of one
 simple step, but of multiple. Additionally, the algorithm is repeated until
-it succeeds. The basic means of operation of the algorithm are shown in
-figure~\ref[fig:todo], and briefly introduced here:
+it succeeds. The basic means of operation of the algorithm are
+%shown in figure~\ref[fig:todo], and
+briefly introduced here:
 
 \begitems \style n
 
@@ -9122,7 +9379,7 @@ u32 cost_in_depth(u32 depth) {
 
 \seccc Unspillable nodes
 
-In section~\ref[sec:regalloc-use-of-spilled] we identified that some virtual registers
+In section~\ref[sec:use-of-spilled] we identified that some virtual registers
 are never worth spilling. Often these are virtual registers introduced by spill
 code. But also other registers which have a very close definition and use where
 spilling doesn't decrease register pressure. As they can have lower spill costs
@@ -9270,8 +9527,8 @@ be attempted should be guaranteed statically. In practice, the assertion
 can find issues where the back end programmer mistakenly makes too few registers
 available (i.e. we can't expect the register allocation to succeed with 1
 available register, when most operations require two operands, assuming we don't
-change the instructions while spilling, see
-section~\ref[sec:ragalloc-use-of-spilled]), or makes the registers unavailable
+change the instructions while spilling; see
+section~\ref[sec:use-of-spilled]), or makes the registers unavailable
 with a mistake in an implementation of calling conventions (see
 section~\ref[sec:imp-calling-conventions]).
 
@@ -9599,8 +9856,6 @@ A few wrappers for system calls like `open`, `close`, `read`, `write` (input and
 output) `mmap`, `munmap` (memory mapping, allocation) and `exit` go a long way
 towards a base on top of which a C library could be implemented.
 
-\sec Live range splitting
-
 \label[sec:imp-middle-opt]
 \sec Middle end
 
@@ -9731,7 +9986,7 @@ components of the implementation:
 * `char`s and bit arrays from `int`s,
 * Plenty constants and memory addressing for better use of addressing modes.
 * Control flow in doubly nested loops. If value numbering SSA construction
-(section~\cite[sec:imp-value-number]) is used, then placement of
+(section~\ref[sec:imp-value-number]) is used, then placement of
 cyclic $\phi$-operations in the doubly nested loops is tested.
 \enditems
 
@@ -9756,18 +10011,19 @@ manually, to try to aid comparison. The results are in
 table~\ref[tab:benchmark].
 
 \midinsert
+\def\0{\hphantom{0}}
 %\thistable={\tabiteml={}\tabitemr={}\rulewidth=.2pt}
 %\thistable={\tabiteml={}\tabitemr={}\rulewidth=.2pt}
 \tabskip=-2pt
-\label[tab:benchmark]
+\clabel[tab:benchmark]{Benchmark results}
 \caption/t Benchmark of Sieve of Eratosthenes [ms]
 \cskip
 \ctable{l c c c c c c c c}{\crtop
           & \mspan3[c]{GCC} && \mspan4[c]{Our implementation} \crlp{2-4,6-9}
 	       & `-O2` & `-O1`& `-O0` && P, V & V\tnote{Value numbering SSA construction enabled}    &  P\tnote{Peephole optimization enabled}   & --   \crmid
 sieve          & 1477  & 1475 &  2114 && 1622 & 1751 & 2066 & 2730 \cr
-sieve-bit      &  954  &  931 &  1915 && 1475 & 2009 & 1905 & 3060 \cr
-sieve-bit-cse  &  951  &  935 &  1918 && 1269 & 1760 & 1938 & 2705 \crbot
+sieve-bit      &\0954  &\0931 &  1915 && 1475 & 2009 & 1905 & 3060 \cr
+sieve-bit-cse  &\0951  &\0935 &  1918 && 1269 & 1760 & 1938 & 2705 \crbot
 }
 \typoscale[800/800]
 \tnoteprint
@@ -9828,10 +10084,6 @@ bit slower on the CSE benchmark.
 
 We think our back end did well. Most of the difference in speed seems to be
 coming from the middle end.
-
-\sec TinyC extensions
-
-Potřebné Rozšíření TinyC - vararg, unsigned, narrow types, external functions
 
 \chap Conclusion
 
