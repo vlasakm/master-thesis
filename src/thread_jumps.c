@@ -18,7 +18,6 @@ thread_jumps(Arena *arena, Function *function)
 		}
 		// Block is empty and has only one successor. We can just
 		// forward the jumps from predecessors to the successor.
-		fprintf(stderr, "Threading block%zu to block%zu\n", block->base.index, succ->base.index);
 
 		// Replace all references to `block` in its predecessors, to
 		// point to `succ` instead.

@@ -295,11 +295,6 @@ add_interference(RegAllocState *ras, Oper u, Oper v)
 	if (u == v || are_interfering(ras, u, v)) {
 		return;
 	}
-	fprintf(stderr, "Adding interference ");
-	print_reg(stderr, u);
-	fprintf(stderr, " ");
-	print_reg(stderr, v);
-	fprintf(stderr, "\n");
 	Oper index = bitmatrix_index(ras, u, v);
 	assert(!bs_test(&ras->matrix, index));
 	bs_set(&ras->matrix, index);
@@ -336,9 +331,6 @@ void
 remove_from_set(void *user_data, Oper *oper)
 {
 	WorkList *live_set = user_data;
-	fprintf(stderr, "Removing from live ");
-	print_reg(stderr, *oper);
-	fprintf(stderr, "\n");
 	wl_remove(live_set, *oper);
 }
 
@@ -346,18 +338,12 @@ void
 add_to_set(void *user_data, Oper *oper)
 {
 	WorkList *live_set = user_data;
-	fprintf(stderr, "Adding to live ");
-	print_reg(stderr, *oper);
-	fprintf(stderr, "\n");
 	wl_add(live_set, *oper);
 }
 
 void
 live_step(WorkList *live_set, MFunction *mfunction, Inst *inst)
 {
-	fprintf(stderr, "Live step at\t");
-	print_inst(stderr, mfunction, inst);
-	fprintf(stderr, "\n");
 	// Remove definitions from live.
 	for_each_def(inst, remove_from_set, live_set);
 	// Add uses to live.
@@ -493,10 +479,6 @@ insert_loads_of_spilled(void *user_data, Oper *src)
 	}
 	Oper temp = get_fresh_vreg_for_spill(ras);
 	ras->to_spill[temp] = ras->to_spill[*src];
-	fprintf(stderr, "load ");
-	print_reg(stderr, *src);
-	fprintf(stderr, " through ");
-	print_reg(stderr, temp);
 	Oper disp = spill_displacement(ras, *src);
 	Inst *load = create_load_with_disp(ras->arena, temp, R_RBP, disp);
 	prepend_inst(ss->inst, load);
@@ -560,11 +542,6 @@ insert_stores_of_spilled(void *user_data, Oper *dest)
 	} else {
 		temp = get_fresh_vreg_for_spill(ras);
 	}
-	fprintf(stderr, "store ");
-	print_reg(stderr, *dest);
-	fprintf(stderr, " through ");
-	print_reg(stderr, temp);
-	fprintf(stderr, "\n");
 
 	Oper disp = spill_displacement(ras, *dest);
 	Inst *store = create_store_with_disp(ras->arena, R_RBP, disp, temp);
@@ -629,7 +606,6 @@ rewrite_program(RegAllocState *ras)
 		.ras = ras,
 		.spill_start = mfunction->vreg_cnt,
 	}, *ss = &ss_;
-	print_mfunction(stderr, mfunction);
 	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
 		MBlock *mblock = mfunction->mblocks[b];
 		// NOTE: Beware subtlety ahead:
@@ -638,22 +614,16 @@ rewrite_program(RegAllocState *ras)
 		// is advanced every time a new store instruction is inserted.
 		for (Inst *inst = mblock->insts.next; inst != &mblock->insts; inst = ss->inst->next) {
 			ss->inst = inst;
-			fprintf(stderr, "\n");
-			print_inst(stderr, mfunction, inst);
-			fprintf(stderr, "\n");
 			if (is_move(inst)) {
 				spill_move(ras, inst);
 				continue;
 			}
-			//print_inst_d(stderr, inst);
-			//fprintf(stderr, "\n");
 			// Add loads for all spilled uses.
 			for_each_use(inst, insert_loads_of_spilled, ss);
 			// Add stores for all spilled defs.
 			for_each_def(inst, insert_stores_of_spilled, ss);
 		}
 	}
-	print_mfunction(stderr, mfunction);
 }
 
 void
@@ -704,11 +674,6 @@ mark_defs_with_uninterrupted_uses_unspillable(void *user_data, Oper *def_)
 	// interruptions.
 	if (wl_remove(&ras->uninterrupted, def) && !wl_has(&ras->ever_interrupted, def)) {
 		wl_add(&ras->unspillable, def);
-		if (def >= ras->first_vreg) {
-			fprintf(stderr, "Marking ");
-			print_reg(stderr, def);
-			fprintf(stderr, " as unspillable\n");
-		}
 	}
 	ras->def_cost[def] += cost_in_depth(ras->mblock->block->depth);
 	// Update liveness.
@@ -786,12 +751,6 @@ liveness_analysis(RegAllocState *ras)
 		MBlock *mblock = mfunction->mblocks[b];
 		Block *block = mblock->block;
 		get_live_out(ras, block, live_set);
-		fprintf(stderr, "Live out %zu: ", mblock->block->base.index);
-		FOR_EACH_WL_INDEX(live_set, i) {
-			print_reg(stderr, live_set->dense[i]);
-			fprintf(stderr, ", ");
-		}
-		fprintf(stderr, "\n");
 		// process the block back to front, updating live_set in the
 		// process
 		for (Inst *inst = mblock->insts.prev; inst != &mblock->insts; inst = inst->prev) {
@@ -872,10 +831,6 @@ move_related_callback(RegAllocState *ras, Oper u, Oper m, Inst *move)
 	(void) u;
 	(void) m;
 	(void) move;
-
-	//fprintf(stderr, "Moved in \t");
-	//print_inst(stderr, ras->mfunction, move);
-	//fprintf(stderr, "\n");
 }
 
 bool
@@ -914,19 +869,10 @@ initialize_worklists(RegAllocState *ras)
 		assert(adj_cnt == ras->degree[u]);
 		if (is_significant(ras, u)) {
 			wl_add(&ras->spill_wl, u);
-			fprintf(stderr, "Starting in spill ");
-			print_reg(stderr, u);
-			fprintf(stderr, " (%zu)\n", (size_t) ras->degree[u]);
 		} else if (is_move_related(ras, u)) {
-			fprintf(stderr, "Starting in freeze ");
-			print_reg(stderr, u);
 			wl_add(&ras->freeze_wl, u);
-			fprintf(stderr, " (%zu)\n", (size_t) ras->degree[u]);
 		} else {
 			wl_add(&ras->simplify_wl, u);
-			fprintf(stderr, "Starting in simplify ");
-			print_reg(stderr, u);
-			fprintf(stderr, " (%zu)\n", (size_t) ras->degree[u]);
 		}
 	}
 }
@@ -934,13 +880,10 @@ initialize_worklists(RegAllocState *ras)
 double
 spill_metric(RegAllocState *ras, Oper u)
 {
-	Oper cost = 2 * ras->def_cost[u] + 2 * ras->use_cost[u] - ras->move_cost[u];
-	fprintf(stderr, "Spill cost for ");
-	print_reg(stderr, u);
-	fprintf(stderr, " degree: %"PRIu32", defs: %zu, uses: %zu, moves: %zu, unspillable: %d, cost: %f\n", ras->degree[u], (size_t) ras->def_cost[u], (size_t) ras->use_cost[u], (size_t) ras->move_cost[u], (int) wl_has(&ras->unspillable, u), (double) cost / ras->degree[u]);
 	if (wl_has(&ras->unspillable, u)) {
 		return 1 / 0.0;
 	}
+	Oper cost = 2 * ras->def_cost[u] + 2 * ras->use_cost[u] - ras->move_cost[u];
 	return (double) cost / ras->degree[u];
 }
 
@@ -949,9 +892,6 @@ enable_move(RegAllocState *ras, Oper u, Oper m, Inst *move)
 {
 	(void) u;
 	if (wl_remove(&ras->inactive_moves_wl, m)) {
-		fprintf(stderr, "Enabling move: \t");
-		print_inst(stderr, ras->mfunction, move);
-		fprintf(stderr, "\n");
 		wl_add(&ras->active_moves_wl, m);
 	}
 }
@@ -965,9 +905,6 @@ enable_moves_for_one(RegAllocState *ras, Oper u)
 void
 decrement_degree(RegAllocState *ras, Oper u)
 {
-	fprintf(stderr, "Removing interference with ");
-	print_reg(stderr, u);
-	fprintf(stderr, "\n");
 	assert(ras->degree[u] > 0);
 	if (ras->degree[u]-- == ras->reg_avail) {
 		assert(!is_physical(ras, u));
@@ -981,9 +918,6 @@ decrement_degree(RegAllocState *ras, Oper u)
 			return;
 		}
 		assert(wl_remove(&ras->spill_wl, u));
-		//fprintf(stderr, "Move from spill to %s ", is_move_related(ras, i) ? "freeze" : "simplify");
-		//print_reg(stderr, i);
-		//fprintf(stderr, "\n");
 		if (is_move_related(ras, u)) {
 			wl_add(&ras->freeze_wl, u);
 		} else {
@@ -995,9 +929,6 @@ decrement_degree(RegAllocState *ras, Oper u)
 void
 freeze_move(RegAllocState *ras, Oper u, Oper m, Inst *move)
 {
-	fprintf(stderr, "freezing in: \t");
-	print_inst(stderr, ras->mfunction, move);
-	fprintf(stderr, "\n");
 	if (!wl_remove(&ras->inactive_moves_wl, m)) {
 		assert(wl_remove(&ras->active_moves_wl, m));
 	}
@@ -1006,9 +937,6 @@ freeze_move(RegAllocState *ras, Oper u, Oper m, Inst *move)
 	assert(u == op1 || u == op2);
 	Oper v = op1 != u ? op1 : op2;
 	if (!is_move_related(ras, v) && !is_significant(ras, v)) {
-		fprintf(stderr, "Move from freeze to simplify in freeze ");
-		print_reg(stderr, v);
-		fprintf(stderr, "\n");
 		assert(wl_remove(&ras->freeze_wl, v));
 		wl_add(&ras->simplify_wl, v);
 	}
@@ -1017,9 +945,6 @@ freeze_move(RegAllocState *ras, Oper u, Oper m, Inst *move)
 void
 freeze_moves(RegAllocState *ras, Oper u)
 {
-	fprintf(stderr, "Freezing moves of ");
-	print_reg(stderr, u);
-	fprintf(stderr, "\n");
 	for_each_move(ras, u, freeze_move);
 }
 
@@ -1029,10 +954,6 @@ freeze_one(RegAllocState *ras, Oper u)
 	assert(wl_empty(&ras->simplify_wl));
 	assert(wl_empty(&ras->active_moves_wl));
 
-	fprintf(stderr, "Freezing node ");
-	print_reg(stderr, u);
-	fprintf(stderr, "\n");
-
 	wl_add(&ras->simplify_wl, u);
 	freeze_moves(ras, u);
 }
@@ -1041,9 +962,6 @@ void
 simplify_one(RegAllocState *ras, Oper u)
 {
 	assert(!is_alias(ras, u));
-	fprintf(stderr, "Pushing ");
-	print_reg(stderr, u);
-	fprintf(stderr, "\n");
 
 	wl_add(&ras->stack, u);
 	for_each_adjacent(ras, u, decrement_degree);
@@ -1060,8 +978,6 @@ choose_and_spill_one(RegAllocState *ras)
 		apply_coalescing(ras);
 		ras->had_spill = true;
 	}
-
-	fprintf(stderr, "Potential spill\n");
 
 	Oper candidate = OPER_MAX;
 	double max = 1 / 0.0;
@@ -1080,9 +996,6 @@ choose_and_spill_one(RegAllocState *ras)
 		}
 	}
 
-	fprintf(stderr, "Choosing for spill ");
-	print_reg(stderr, candidate);
-	fprintf(stderr, "\n");
 	assert(candidate != OPER_MAX);
 	assert(max < 1 / 0.0);
 
@@ -1096,9 +1009,6 @@ decrement_move_cnt(RegAllocState *ras, Oper u)
 {
 	if (!is_move_related(ras, u) && !is_significant(ras, u)) {
 		assert(!is_physical(ras, u));
-		fprintf(stderr, "Move from freeze to simplify ");
-		print_reg(stderr, u);
-		fprintf(stderr, "\n");
 		wl_remove(&ras->freeze_wl, u);
 		wl_add(&ras->simplify_wl, u);
 	}
@@ -1164,12 +1074,6 @@ are_coalesceble(RegAllocState *ras, Oper u, Oper v)
 void
 combine(RegAllocState *ras, Oper u, Oper v)
 {
-	fprintf(stderr, "Combining " );
-	print_reg(stderr, u);
-	fprintf(stderr, " and " );
-	print_reg(stderr, v);
-	fprintf(stderr, "\n");
-
 	assert(v >= ras->first_vreg);
 	if (!wl_remove(&ras->freeze_wl, v)) {
 		assert(wl_remove(&ras->spill_wl, v));
@@ -1216,9 +1120,6 @@ combine(RegAllocState *ras, Oper u, Oper v)
 	}
 
 	if (is_significant(ras, u) && wl_remove(&ras->freeze_wl, u)) {
-		fprintf(stderr, "Move combined ");
-		print_reg(stderr, u);
-		fprintf(stderr, " from freeze to spill\n");
 		wl_add(&ras->spill_wl, u);
 	}
 }
@@ -1228,13 +1129,9 @@ coalesce_move(RegAllocState *ras, Oper m)
 {
 	assert(wl_empty(&ras->simplify_wl));
 	assert(wl_empty(&ras->simplify_wl));
-	MFunction *mfunction = ras->mfunction;
 
 	Inst **moves = garena_array(&ras->gmoves, Inst *);
 	Inst *move = moves[m];
-	fprintf(stderr, "Coalescing: \t");
-	print_inst(stderr, mfunction, move);
-	fprintf(stderr, "\n");
 
 	Oper u = get_alias(ras, move->ops[0]);
 	Oper v = get_alias(ras, move->ops[1]);
@@ -1246,15 +1143,9 @@ coalesce_move(RegAllocState *ras, Oper m)
 
 	if (u == v) {
 		// already coalesced
-		fprintf(stderr, "Already coalesced: \t");
-		print_inst(stderr, mfunction, move);
-		fprintf(stderr, "\n");
 		decrement_move_cnt(ras, u);
 	} else if (is_physical(ras, v) || are_interfering(ras, u, v)) {
 		// constrained
-		fprintf(stderr, "Constrained: \t");
-		print_inst(stderr, mfunction, move);
-		fprintf(stderr, "\n");
 		decrement_move_cnt(ras, u);
 		decrement_move_cnt(ras, v);
 	} else if (are_coalesceble(ras, u, v)) {
@@ -1262,9 +1153,6 @@ coalesce_move(RegAllocState *ras, Oper m)
 		combine(ras, u, v);
 		decrement_move_cnt(ras, u);
 	} else {
-		fprintf(stderr, "Moving to active: \t");
-		print_inst(stderr, mfunction, move);
-		fprintf(stderr, "\n");
 		wl_add(&ras->inactive_moves_wl, m);
 	}
 }
@@ -1305,13 +1193,6 @@ find_register_for(RegAllocState *ras, Oper u)
 		}
 		Oper reg = ras->reg_assignment[v];
 		if ((used & (1U << reg)) == 0) {
-			fprintf(stderr, "Preferring ");
-			print_reg(stderr, reg);
-			fprintf(stderr, " for ");
-			print_reg(stderr, u);
-			fprintf(stderr, " due to ");
-			print_reg(stderr, v);
-			fprintf(stderr, "\n");
 			return reg;
 		}
 	}
@@ -1342,7 +1223,6 @@ assign_registers(RegAllocState *ras)
 	assert(wl_empty(&ras->active_moves_wl));
 
 	bool have_spill = false;
-	MFunction *mfunction = ras->mfunction;
 
 	// Physical registers are assigned themselves.
 	for (size_t i = 0; i < ras->first_vreg; i++) {
@@ -1351,37 +1231,15 @@ assign_registers(RegAllocState *ras)
 
 	Oper u;
 	while (wl_take_back(&ras->stack, &u)) {
-		fprintf(stderr, "Popping ");
-		print_reg(stderr, u);
-		fprintf(stderr, "\n");
 		Oper reg = find_register_for(ras, u);
 
 		if (reg == R_NONE) {
-			fprintf(stderr, "Out of registers at ");
-			print_reg(stderr, u);
-			fprintf(stderr, "\n");
 			spill_virtual_register(ras, u);
 			have_spill = true;
 			continue;
 		}
 
 		ras->reg_assignment[u] = reg;
-
-		fprintf(stderr, "allocated ");
-		print_reg(stderr, u);
-		fprintf(stderr, " to ");
-		print_reg(stderr, reg);
-		fprintf(stderr, "\n");
-	}
-
-	for (size_t i = 0; i < mfunction->vreg_cnt; i++) {
-		if (is_alias(ras, i)) {
-			fprintf(stderr, "Coalesced ");
-			print_reg(stderr, i);
-			fprintf(stderr, " to ");
-			print_reg(stderr, get_alias(ras, i));
-			fprintf(stderr, "\n");
-		}
 	}
 
 	return !have_spill;
@@ -1412,7 +1270,6 @@ simplify:
 void
 reg_alloc_function(RegAllocState *ras, MFunction *mfunction)
 {
-	print_mfunction(stderr, mfunction);
 	reg_alloc_state_init_for_function(ras, mfunction);
 	for (;;) {
 		reg_alloc_state_reset(ras);

@@ -43,7 +43,6 @@ analyze_optimizable_allocas(Function *function)
 		Alloca *alloca = (void *) v;
 		Value **uses = garena_array(&function->uses[v->index], Value *);
 		size_t use_cnt = garena_cnt(&function->uses[v->index], Value *);
-		print_value(stderr, v);
 		for (size_t i = 0; i < use_cnt; i++) {
 			Value *use = uses[i];
 			if (VK(use) == VK_STORE && STORE_ADDR(use) == v && STORE_VALUE(use) != v) {
@@ -194,21 +193,15 @@ typedef struct {
 static void
 write_variable(ValueNumberingState *vns, Block *block, Value *variable, Value *value)
 {
-	fprintf(stderr, "Writing var %zu from block%zu with value ", VINDEX(variable), VINDEX(block));
-	print_operand(stderr, value);
-	fprintf(stderr, "\n");
 	vns->var_map[VINDEX(block)][VINDEX(variable)] = value;
 }
 
 static Value *
 read_variable(ValueNumberingState *vns, Block *block, Value *variable)
 {
-	fprintf(stderr, "Reading var %zu from block%zu\n", VINDEX(variable), VINDEX(block));
 	Value *value = vns->var_map[VINDEX(block)][VINDEX(variable)];
 	if (value) {
-		fprintf(stderr, "Have locally %zu\n", VINDEX(value));
 	} else if (vns->filled_pred_cnt[VINDEX(block)] != block_pred_cnt(block)) {
-		fprintf(stderr, "Not sealed\n");
 		assert(block_pred_cnt(block) > 1);
 		// Not all predecessors are filled yet. We only insert a phi,
 		// but initialize it later, when sealing, because only then we
@@ -221,11 +214,9 @@ read_variable(ValueNumberingState *vns, Block *block, Value *variable)
 		value = &phi.phi->base;
 	} else if (block_pred_cnt(block) == 1) {
 		// We only have one predecesssor. Read from it (recursively).
-		fprintf(stderr, "Single pred\n");
 		Block *pred = block_preds(block)[0];
 		value = read_variable(vns, pred, variable);
 	} else {
-		fprintf(stderr, "Merge\n");
 		// We already filled all predecessors, but there are multiple of
 		// them. Which means that we need to introduce a phi and add the
 		// phi operands right now.

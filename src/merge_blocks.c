@@ -17,7 +17,6 @@ merge_blocks(Arena *arena, Function *function)
 		// Block has one successor, and the successor has only one
 		// predecessor. We can just merge the blocks together
 		// and get rid of the jump.
-		fprintf(stderr, "Merging block%zu with block%zu\n", block->base.index, succ->base.index);
 
 		// Replace all references to `succ` in its successors, to point
 		// to `block` instead.

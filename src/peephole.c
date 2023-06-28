@@ -105,8 +105,6 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 	u8 *def_cnt = mfunction->def_count;
 	Inst **defs = mfunction->only_def;
 	u8 *block_use_cnt = mfunction->block_use_count;
-	print_str(stderr, mfunction->func->name);
-	fprintf(stderr, "\n");
 	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
 		MBlock *mblock = mfunction->mblocks[b];
 		if (!mblock) {
@@ -114,9 +112,6 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 		}
 		Inst *inst = mblock->insts.next;
 		while (inst != &mblock->insts) {
-			print_inst(stderr, mfunction, inst);
-			fprintf(stderr, "\n");
-			fflush(stderr);
 			// mov rax, rax
 			// =>
 			// [deleted]
