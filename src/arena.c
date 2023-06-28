@@ -96,6 +96,15 @@ arena_vaprintf(Arena *arena, const char *fmt, va_list ap)
 	return mem;
 }
 
+u8 *
+arena_aprintf(Arena *arena, const char *fmt, ...)
+{
+	va_list ap;
+	va_start(ap, fmt);
+	u8 *str = arena_vaprintf(arena, fmt, ap);
+	va_end(ap);
+	return str;
+}
 
 
 

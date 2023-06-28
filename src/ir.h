@@ -239,6 +239,7 @@ typedef struct {
 	Function **functions;
 	size_t global_cnt;
 	Global **globals;
+	GArena labels;
 	size_t string_cnt;
 	StringLiteral **strings;
 } Module;

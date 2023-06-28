@@ -83,6 +83,7 @@ void arena_restore(Arena *arena, size_t pos);
 
 // Like `vasprintf` - printf to string allocated from the arena.
 unsigned char *arena_vaprintf(Arena *arena, const char *fmt, va_list ap);
+unsigned char *arena_aprintf(Arena *arena, const char *fmt, ...);
 
 
 // The `GArena` ("growable arena") is an implementation of the approach (3).

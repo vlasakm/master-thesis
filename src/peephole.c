@@ -100,7 +100,7 @@ try_combine_label(MFunction *mfunction, Inst *inst)
 void
 peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 {
-	(void) arena;
+	calculate_def_use_info(mfunction);
 	u8 *use_cnt = mfunction->use_count;
 	u8 *def_cnt = mfunction->def_count;
 	Inst **defs = mfunction->only_def;
@@ -887,6 +887,22 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 			mblock->insts.prev = next->insts.prev;
 			inst = last;
 			goto next;
+		}
+	}
+}
+
+void
+remove_redundant_copies(MFunction *mfunction)
+{
+	for (size_t b = 0; b < mfunction->mblock_cnt; b++) {
+		MBlock *mblock = mfunction->mblocks[b];
+		if (!mblock) {
+			continue;
+		}
+		for (Inst *inst = mblock->insts.next; inst != &mblock->insts; inst = inst->next) {
+			if (IK(inst) == IK_MOV && IS(inst) == MOV && IM(inst) == M_Cr && IREG(inst) == IREG2(inst)) {
+				remove_inst(inst);
+			}
 		}
 	}
 }

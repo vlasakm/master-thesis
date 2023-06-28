@@ -422,7 +422,9 @@ print_label(FILE *f, MFunction *mfunction, Inst *inst)
 {
 	Value *value = garena_array(mfunction->labels, Value *)[ILABEL(inst)];
 	print_value(f, value);
-	if (VK(value) == VK_FUNCTION && !function_is_fully_defined((Function *) value)) {
+	extern bool linux_freestanding;
+	if (VK(value) == VK_FUNCTION && !((Function *) value)->mfunction
+			&& (!linux_freestanding || !str_eq(((Function *) value)->name, STR("syscall")))) {
 		fprintf(f, " wrt ..plt");
 	}
 }

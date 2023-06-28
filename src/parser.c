@@ -1852,6 +1852,7 @@ parse(Arena *arena, GArena *scratch, Str source, void (*error_callback)(void *us
 	module->globals = move_to_arena(arena, &parser.globals, 0, Global *);
 	module->string_cnt = garena_cnt(&parser.strings, StringLiteral *);
 	module->strings = move_to_arena(arena, &parser.strings, 0, StringLiteral *);
+	module->labels = (GArena) {0};
 	garena_free(&parser.functions);
 	garena_free(&parser.globals);
 	garena_free(&parser.strings);

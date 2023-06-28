@@ -201,6 +201,7 @@ typedef enum {
 MFunction *translate_function(Arena *arena, GArena *labels, Function *function);
 
 void peephole(MFunction *mfunction, Arena *arena, bool last_pass);
+void remove_redundant_copies(MFunction *mfunction);
 
 Inst *create_inst(Arena *arena, InstKind kind, u8 subkind, X86Mode mode);
 
