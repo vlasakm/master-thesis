@@ -69,7 +69,9 @@
    \global\tnotenum=0 \gdef\tnotelist{}%
 }
 
-\def\pdfstdcite[#1]{[\rcite[iso32000-1], část~#1]}
+\def\crtop{\crcr \noalign{\hrule height.25mm \kern2.5pt}} 
+\def\crbot{\crcr \noalign{\kern2.5pt\hrule height.25mm}} 
+\def\crmid{\crcr \noalign{\kern1pt\hrule height.15mm\kern1pt}} 
 
 \newdimen\halfhsize \halfhsize=\dimexpr\hsize/2-2pt\relax
 
@@ -181,8 +183,6 @@ různé konstrukce jako calling conventions, argumenty, alloca instrukce apod.
 Taky chary a struktury.
 
 * Testing
-
-* Liveness and interference definitions
 
 * Instruction scheduling -> non-pessimization e.g. setcc + movzx
 
@@ -316,7 +316,7 @@ strictly limited to TinyC.
 %compiler back ends and to design based on that a compiler backend from the TinyC
 %middle end to x86-64 machine instructions.
 
-Most real world programs don't run in isolation. Apart from needing the
+Real world programs don't run in isolation. Apart from needing the
 processor to execute their machine code, they have other needs, that are towards
 the {\em runtime system} (which for compiled programs is usually the {\em
 operating system}). Programs want to allocate memory, perform I/O (input/output)
@@ -343,41 +343,42 @@ with comparison to existing C compilers (chapter~\ref[chap:evaluation]).
 The x86-64 architecture, originally introduced by AMD under the name AMD64, and
 sometimes also called x64, is still one of the most prevalent architectures
 today. It is used in a most desktops, servers, but has also seen some use in
-mobile low power devices.
+mobile, low power, devices.
 
 This widespread use of the architecture alone make it a worthwhile target for
 studying. From a compiler writer's perspective, it is interesting because of its
 CISC {\em Complex Instruction Set Computing} design, which is not
-straightforward to compile into either efficiently or at all.
+straightforward to compile into.
 
 For this reason the x86-64 has been used as an inspiration for Tiny x86 (also
 called Tiny86) designed by Strejc~\cite[Strejc2021], which is used for teaching
 purposes in the NI-GEN course at the Faculty of Information Technology CTU in Prague.
 
 This chapter introduces the x86-64 architecture, its characteristics,
-constraints and to compares it to the simplified Tiny86. Knowledge of some
-other instruction architecture or at least basic understanding of a processor is
-expected, but familiarity with x86-64 is not.
+constraints and compares it to the simplified Tiny86. Knowledge of some
+other instruction set architecture, or at least basic understanding of a
+processor, are expected, but familiarity with x86-64 is not.
 
-This chapter takes the liberty of approaching some of explaining some of the
-properties or advancements non-linearly and often tells little lies. From the
+This chapter takes the liberty of explaining some of the
+properties or advancements non-linearly with regards to the actual history, and
+sometimes tells little lies. From the
 perspective of x86-64, where all of gradual additions to the instructions sets
 are already available, it doesn't matter much, but note that some of the things
-presented aren't really true for the actual, original 8086 16-bit processors.
+presented, aren't really true for the actual 8086 16-bit processor.
 The Intel software developer's manual~\cite[IntelDeveloper] should be taken as
-the definitive resource, though I can wholeheartedly also recommend Volume 3 of
+the definitive resource, though we can wholeheartedly also recommend Volume 3 of
 AMD's Programmer's Manual~\cite[AMDVol3] (which is focused on the general
-purpose instructions and their encodings and I found sometimes more focused and
-little bit more approachable), and the unofficial X86 Opcode and Instruction
-reference\urlnote{http://ref.x86asm.net/coder64.html}.
+purpose instructions and their encodings and is sometimes more focused and
+little bit more approachable than Intel's equivalent), and the unofficial X86
+Opcode and Instruction reference\urlnote{http://ref.x86asm.net/coder64.html}.
+
 
 \sec History
 
 Although AMD introduced the x86-64 in the year 1999, the architecture has a much
 richer history. Interestingly enough, throughout the history, the instruction
 sets remained almost fully compatible. For this reason it is important to keep
-the history in mind when thinking about the x86-64, and we introduce it here
-briefly.
+the history in mind when thinking about the x86-64.
 
 The x86-64 is mostly still fully capable of behaving like its eldest ancestor,
 the Intel 8086, a 16-bit microprocessor introduced by Intel in 1978. This
@@ -385,14 +386,14 @@ original design (loosely based on earlier Intel 8-bit processors) is where most
 of the instruction set originates.
 
 The line of Intel 16-bit processors based on 8086 included 80186 and 80286,
-which added some new capabilities (like virtual memory) and instructions. A big
+which added some new instructions and capabilities (like virtual memory). A big
 step was the 32-bit 80386 (also called i386), which extended most of the
 original 8086 design to 32-bits in a relatively straightforward way.
 
 After several iteration on i386, AMD introduced a 64-bit extension of the
-design, the x86-64 (also called AMD64), which also featured all the 32-bit
+design, the x86-64 (also called AMD64), which also kept all the 32-bit
 additions by Intel, still staying fully backwards compatible. The extension to
-64-bits was done in a different way then the extension to 32 bits and brings
+64-bits was done in a different way then the extension to 32 bits and brought
 additional interesting limitations.
 
 \sec Characteristic
@@ -428,17 +429,17 @@ This instructions reads the contents of the `ax` and `bx` registers, adds them
 together and writes the result to the `ax` register. Most instruction 8086
 arithmetic instructions work this way---they have two operands, both are used as
 sources and the first as the destination for the result. We call this {\em
-two address code}, as opposed to three address code that would also have a
-non-source destination.
+two address code}, as opposed to {\em three address code}, which has two sources
+and one destination.
 
-Most operations manipulate registers and memory locations. For example, there is
+Most operations manipulate registers and values stored in memory. For example, there is
 an instruction to copy (\"move") a value from one register to another:
 
 \begtt \optparams
 mov <reg>, <reg>
 \endtt
 
-But similar instructions that instead use memory locations do slightly different
+But similar instructions that address memory locations do slightly different
 things:
 
 \begtt \optparams
@@ -449,9 +450,9 @@ mov <reg>, <mem>
 In the first instruction, we copy a value from register to memory, and with the
 second instruction we copy a value from memory to a register. We can call these
 {\em store} and {\em load} instructions. Even though they use the same mnemonic
-(`mov`), they do different operations and they are encoded in a different way.
-We can view them as different {\em instructions}. Internally, what distinguishes
-them is an opcode---some encoding of the instruction as a number, which uniquely
+(`mov`), they do different operations and they are encoded a bit differently.
+We can view them as distinct {\em instructions}. Internally, what distinguishes
+them is an opcode---a number, which uniquely
 identifies all instructions and the kinds of operands. Together, we will call
 the kinds of operands allowed by an instruction an {\em addressing mode}. Due to
 details that will become clear soon, 8086 instructions mostly allow two kinds of
@@ -471,20 +472,21 @@ mov <reg>, <reg/mem>
 \endtt
 %
 Two different opcodes can actually encode a register to register copy
-operation and we can choose arbitrarily. With this nomenclature in mind, we can
-for example say that the following:
+operation and we can choose arbitrarily.
+
+With the nomenclature in mind, we can for example call the following:
 
 \begtt
 mov ax, [bx]
 \endtt
 %
-can be called a load instruction, but is actually no more than an instruction
+a load instruction, but is actually no more than an instruction
 with opcode (137 or 10001001 in binary), which uniquely encodes both the
-semantics (copy from second operand to first) and the addressing mode, which has
-two operands, first `<reg>`, the other `<reg/mem>`.
+semantics (copy from second operand to first) and the addressing mode (first
+`<reg>`, second `<reg/mem>`).
 
-The distinction of opcode and mnemonic is important, because in a compiler we
-mostly care about the semantics and addressing mode of the operation (i.e. the
+The distinction between opcode and mnemonic is important, because in a compiler we
+mostly care about the semantics and the addressing mode of the operation (i.e. the
 opcode and the actual operands), not how it is written textually in assembly,
 which is just a representation that is meant to be convenient for humans. The
 difference can be more subtle for some mnemonics like `imul` which have a few
@@ -492,67 +494,68 @@ very different forms.
 
 \secc Registers
 
-There are actually 8 registers on the 8086. They have names and some are
+There are 8 registers on the 8086. They have names and some are
 sometimes used in special ways. But mostly, we can call the registers {\em general
 purpose}, since usual operations all work with them and allow either register to
 be used.
 
 %The registers are illustrated in figure~\ref[TODO].
 The full registers (like
-`ax`) are 16-bit, but separate access to either the upper 8-bits or lower 8-bits
+`ax`) are 16-bit, but separate access to either the upper 8-bits or the lower 8-bits
 is allowed through the `ah` (\"`ax` high") and `al` (\"`ax` low") registers.
-Because of this `ah` and `al` are not real registers, they are just different
-names for parts of the existing registers.
+Because of this, registers like `ah` and `al` are not real registers, but just
+different names for parts of the existing registers.
 
 Not all registers allow access to the 8-bit parts. The registers that are only
-accessible as 16-bit are `sp` ({\em stack pointer}), `bp` ({\em base pointer}),
+accessible as 16-bit are `sp` ({\em stack pointer}), `bp` ({\em base pointer},
 also known as frame pointer), `di` (destination index) and `si` (source index).
 As can be seen from their names, they are often used for special purposes and
 hold potentially large integers or addresses, which need the full 16 bits. On
 the other hand, the other four registers are known as the {\em accumulator}
 registers---they are just general purpose registers intended for most arithmetic
-and called in the alphabetical order `ax`, `bx`, `cx`, `dx`. The registers are
-all still general purpose. The categories just signify how they are {\em
+and called in the alphabetical order `ax`, `bx`, `cx`, `dx`. All registers are
+still general purpose, the categories just signify how they are {\em
 usually} used.
 
-Though `bp` and `sp` are usually reserved for special purposes---the {\em call}
-stack. The `sp` instruction points to the system stack, which is also used as
-the call stack, and `bp` points to the {\em base} of the current functions stack
+`bp` and `sp` are usually used for special purpose---as pointers to
+the stack. The `sp` instruction points to the top of the system stack (growing
+towards lower address), which is also used as
+the call stack, and `bp` points to the {\em base} of the current function's stack
 frame. As function calls are nested, return addresses and base pointers of the
 previous functions are pushed to the stack and popped back on returns.
 
-It is no coincidence that there are 8 16-bit registers and 8 8-bit registers.
-Most things on the 8086 come in 8s. This stems from the actual encoding of the
+It is no coincidence that there are eight 16-bit registers and eight 8-bit registers.
+Most things on the 8086 come in eights. This stems from the actual encoding of the
 instructions, where a register is encoded with 3 bits. In a context where 16-bit
 register is expected, these 3 bits as a number identify one of the eight 16-bit
 registers, and in 8-bit contexts the 3 bits mean one of the halves of the
 four accumulator registers.
 
 Most instructions have two variants: 8-bit and 16-bit which work with the
-respective registers, or imply {\em byte} (8-bit) or respectively {\em word}
+respective registers, or {\em byte} (8-bit) and {\em word}
 (16-bit) memory locations in memory.
 
 For example an 8-bit variant of a load instruction has opcode 136 (16-bit
-variant has 137) and can look like this:
+variant is 137) and can look like this:
 
 \begtt
 mov al, byte [bx]
 \endtt
 
-There are two important things to note: only the first destination became 8-bit,
-the memory location is still identified by 16-bit pointer. Also, in the textual
-assembly, we can also specify the memory location's operand size with either
+There are two important things to note: only the first register became 8-bit,
+the memory location is still identified by a 16-bit pointer. Also, in the textual
+assembly, we can specify the memory location's operand size with either
 `byte` or `word`. The keyword is mostly optional if the operand size can be
 deducted otherwise (like here from the 8-bit `al` register).
 
 \label[sec:x86-memory]
 \secc Memory locations
 
-We have already seen that there are addressing modes which allow memory
+We have already seen, that there are addressing modes which allow memory
 locations to be encoded. These memory locations allow values to be stored to
-memory and loaded back, but a lot of other instructions allow their operands to
-be memory locations. We usually write memory locations in between brackets (`[`,
-`]`) to distinguish them from ordinary uses of registers.
+memory or loaded back. But a lot of other instructions allow their operands to
+be values stored at the memory locations. We usually write memory locations in
+between brackets (`[`, `]`) to distinguish them from ordinary uses of registers.
 
 In general, memory locations are either directly specified with an integer
 literal ({\em an immediate}) or computed from values of registers and
@@ -569,7 +572,7 @@ The memory locations are in the following form:
 
 Base and index are registers, scale is either 1, 2, 4 or 8 and displacement is
 an immediate value (on 8086 either 8-bit or 16-bit). All of the individual parts
-are optional. This allows all of the following:
+are optional. All of the following are valid:
 
 \begtt
 [100]
@@ -584,7 +587,7 @@ are optional. This allows all of the following:
 \endtt
 
 * {\em RIP-relative mode}. This encoding addresses relatively to the current
-{\em instruction pointer} (on 8086 called `ip`). Beware that on x86-64 the
+{\em instruction pointer} (on 8086 called `ip`). On x86-64, the
 instruction pointer points to the beginning of the {\em next} instruction, not
 to the current one. Addressing relative to the instruction pointer is new
 addition of x86-64. The instruction pointer is not necessarily a real register,
@@ -596,18 +599,19 @@ following was allowed:
 \endtt
 %
 A displacement (relative offset) is added to the instruction pointer. This is
-useful for {\em position independent code}, often used for libraries---as long
+useful for {\em position independent code}, often used for libraries, because as long
 as the whole library is in a continuous piece of memory and uses RIP-relative
-addressing, it can actually be located anywhere in memory.
+addressing, it can actually be anywhere in memory. This is unlike absolute
+addresses, which require so called {\em relocations}.
 
 Due to the relative addressing nature, assemblers usually use a different syntax
 for RIP-relative addressing, e.g. for NASM:
 
-\begtt
-[rel <label>]
+\begtt \optparams
+[rel <label> + <constant>]
 \endtt
 
-Assembler will transform this to the offset to `<label>`, relative to the next
+Assembler will transform this to the offset to `<label> + <constant>`, relative to the next
 instruction.
 \enditems
 
@@ -623,8 +627,8 @@ There are:
 \enditems
 
 Operations in these groups have the same encoding (the real reason for the
-grouping) and often also very similar nature of working. In no category are all
-the 8 operations useful for translating usual programs, but here are some
+grouping) and often also very similar nature. In no category are all
+the 8 operations useful for translating usual programs, but these are some
 notable examples of instructions in these categories:
 
 \begitems
@@ -636,8 +640,9 @@ negation), `mul` (unsigned long multiplication), `imul` (signed long multiplicat
 `div` (unsigned long division).
 \enditems
 
-Binary arithmetic is nice and simple and allows a memory location as either of
-the two operands, e.g. the `add` operation has the following modes:
+Binary arithmetic is straightforward and except for working with registers, it
+allows a memory location as either one of the two operands (but not both), e.g.
+the `add` operation has the following modes:
 
 \begtt \optparams
 add <reg/mem16>, <reg16>
@@ -665,18 +670,18 @@ add dx, 1
 add [ax], -5
 \endtt
 
-There are two immediate sizes available for 16 bit operations---one can save 8
-bits for the immediate if the immediate is small. In these cases when the
+There are two immediate sizes available for 16 bit operations---the 8-bit one
+can save a byte if the immediate is small. In cases when the
 immediate is smaller then the operand size, it is {\em sign extended} to the
 operand size. x86-64 uses two's complement representation for negative numbers.
 
-No special operations are provided for signed or unsigned `add` and other
-operations. This is because the produced result is the same for both signed and
-unsigned operations---they differ only in how the bits are interpreted (i.e.
-unsigned or two's complement) and how an invalid result is detected (either with
+There isn't a separate signed and unsigned version of `add` and some other
+instructions. This is because the produced result is the same for both signed and
+unsigned operations---they differ only in how the bits are {\em interpreted} by
+later operations and how an invalid result is detected (either with
 the carry out bit, or with the overflow bit). Carry and overflow are made
-available through the special flags register, which has a bit for each of the
-flags (apart from carry and overflow notably also the zero flag, parity flag or
+available through the special `flags` register, which has a bit for each of the
+flags (like carry, overflow, but also the zero flag, parity flag or
 sign flag). Every arithmetic operation sets the flags register based on the
 flags of the result of the arithmetic operation.
 
@@ -690,18 +695,18 @@ neg <reg/mem8>
 
 One operand is necessarily not enough for long multiplication and division which
 are also encoded like unary operations. They are also not really binary
-operations---they are {\em long} multiplication and division, i.e. one of the
+operations---they are {\em long} multiplication and division, i.e. at least one of the
 operands is twice as large (i.e. 32-bit on 8086), which needs {\em two
 registers}. These two registers are implicitly understood to be `ax` and `dx`.
 With multiplication, `ax` is multiplied by the single operand and the result put
 into `ax` (low 16-bits of the result) and `dx` (high 16-bits of the result).
-With division 32-bit value whose upper 16-bits are in `dx` and lower 16-bits in
-`ax` is divided by the single operand and the quotient is put into `ax` and the
+With division, 32-bit value whose upper 16-bits are in `dx` and lower 16-bits in
+`ax`, is divided by the single operand and the quotient is put into `ax` and the
 remainder into `dx`.
 
 Ordinary multiplication, where the result is limited to the size of the inputs
 is possible with the `imul` instruction. Since it produces 16-bit result from
-two 16-bit operands, it can actually be used for signed and unsigned
+two 16-bit operands, it can actually be used for both signed and unsigned
 multiplication. This instruction is much more suitable for compiler generated
 code, which often can't make use of the high 16-bits of the 32-bit result
 anyways.
@@ -735,14 +740,14 @@ ways, e.g.:
 * {\em Zero} (`z`). Is true if the zero flag is 1.
 * {\em Not zero} (`nz`). Is true if the zero flag is 0.
 * {\em Equal} (`e`). Is true if the zero flag is 1.
-* {\em Less than} (`l`). Is true if sign flags is not equal to overflow flag.
+* {\em Less than} (`l`). Is true if sign flag is not equal to overflow flag.
 * {\em Below} (`l`). Is true if carry flag is 1.
 * \dots
 \enditems
 
-While there are 16 predetermined ways to interpret either one or two flags, they
-can have {\em semantic meaning}, even if they are the same. For example, to
-detect that the value is zero, the zero flag can be checked to be 1, through the
+While there are 16 predetermined ways to interpret the flags, we
+use more than 16 names for these condition codes. For example, to
+detect that the value is zero, the zero flag can be checked to be 1 through the
 `z` condition code. But the same condition code checking zero flag to be 1 can
 be used for equality checks---values are compared by subtraction and if the
 result is zero, then the values are equal. But in that case we usually call the
@@ -750,13 +755,13 @@ condition code `e` (\"equal"). Multiple {\em semantic mnemonics} compile to just
 16 condition codes.
 
 Another thing of note is that there are two ways of doing a \"smaller"
-check---{\em less than} or {\em below}. The first is intended for unsigned
+check---{\em less than} and {\em below}. The first is intended for unsigned
 numbers (and uses the carry flag) and the second is for signed numbers (and
 checks the carry flag {\em and} the overflow flag). These are one of the
 operations where signedness matters.
 
-The following instructions have condition codes as part of their opcodes (
-`cc` stands for the condition code):
+The following instructions have condition codes as part of their opcodes (`cc`
+stands for the condition code):
 
 \begitems
 * `jcc <destination>`---jumps to destination if the condition is true. E.g.
@@ -772,7 +777,7 @@ cmove ax, bx
 cmovl ax, [bx]
 \endtt
 * `setcc <reg/mem8>`---sets lower 8 bits to 00000001 if the condition is true,
-and zero otherwise.
+and to zero otherwise.
 \begtt
 setl al
 sete ah
@@ -792,19 +797,19 @@ jmp <reg/mem16>
 \endtt
 %
 All three instructions allow instructions allow relative jumps based on
-immediates, but only `jmp` and `call` allow absolute jumps to address in
-register or in memory.
+immediates, but only `jmp` and `call` allow absolute jump addresses to be read
+either from register or from memory.
 
 \secc Encoding
 
-All of the opcodes, addressing modes, sizes of operands, are deeply connected
+All of the opcodes, addressing modes and sizes of operands, are deeply connected
 with the actual encoding of the instructions. On the x86, most instructions
 follow this scheme:
 
 \begitems \style n
 %\let\em=\relax
 * {\em Prefix bytes}. Optional, one byte per prefix. Some instructions allow
-behaviour to be changed by a prefix, e.g. the `lock` prefix byte makes some
+behavior to be changed by a prefix, e.g. the `lock` prefix makes some
 arithmetic instructions atomic.
 * {\em Opcode byte}. Specifies the opcode, i.e. both the operation and the
    addressing mode.
@@ -814,9 +819,9 @@ arithmetic instructions atomic.
 \enditems
 
 The ModRM byte is the most important thing when considering addressing modes. It
-is present for most instructions (though for example, instructions without any
-operands don't need it). It encodes up to two operands, one is register and the
-other is either register or memory location. The name of the byte stems from its
+is present for most instructions (only e.g. instructions without any
+operands don't use it). It encodes up to two operands, one register, the
+other either register or memory location. The name of the ModRM byte stems from its
 three components:
 
 \begitems
@@ -825,7 +830,7 @@ three components:
 * {\em Memory or register}. 3 bits.
 \enditems
 
-The four modes are able to encode the following two operands:
+The four modes are able to encode the following pairs of operands:
 
 \begtt \optparams
 <reg>, [<reg>]
@@ -847,17 +852,18 @@ have to be encoded with a separate SIB byte, which has the following components:
 \enditems
 
 The encoding is fairly straightforward. Though as presented has a few problems:
-none of the ModRM modes uses the values from SIB, absence of index or base
-cannot be encoded in 3 bits if the registers are also 3 bits. This is {\em
-special cases} come in. They are unfortunately too confusing to list here, but
+none of the ModRM modes uses the values from SIB, and in SIB absence of index or base
+cannot be encoded in 3 bits if the registers are also 3 bits. Unfortunately,
+there are {\em
+special cases} on the x86-64. They are too confusing to list here, but
 they can be found in~\cite[IntelDeveloper]. Simply put, usually one of the
-possible values of a field is reserved for special meaning (e.g. one register in
-the `M` part of ModRM means that SIB should be present and consulted). There are
+possible values of a field is reserved for special meaning (e.g. `sp` in
+the `M` part of ModRM actually means that SIB should be present and consulted). There are
 necessarily a few unencodable memory locations, but there is usually an
 alternative way of specifying the same (e.g. with a displacement of 0). The only
-exception is using the stack pointer, `sp`, as an index register, which is not
+exception is using the `sp` stack pointer as an index register, which is not
 encodable. Fortunately, using `sp` as index register would rarely make sense,
-and it can still be used as base.
+and it can still be used as base, which is more useful.
 
 It is important to note that the ModRM byte always encodes the two operands in
 the same way. The meaning and order of the operands is determined from the
@@ -871,7 +877,7 @@ one means 16-bit operation.
 
 For operation which encode only one operand (like shifts, `neg` or `idiv`), only
 the {\em M} operand is used. Because of this, the three bits for the {\em R}
-operand were free and could instead be used for extension of the opcode. It is
+operand are free and instead used for extension of the opcode. It is
 no coincidence that there are 8 shifts and 8 unary operations, because the exact
 kind of the operation is encoded in these three bits. For example, opcode 192
 (`0xC0`) corresponds to shifts in the following addressing mode:
@@ -924,43 +930,43 @@ Often they are not, but by consistently introducing everything like it would be
 on the 16-bit processor, we can look at how the 32-bit extension was done by
 Intel.
 
-The extension was done in a very straightforward way: the processor supported
-a new 32-bit mode, but also a 16-bit mode for backwards compatibility. In the
+The extension was straightforward: the processors came with two
+modes---32-bit, but also a 16-bit mode for backwards compatibility. In the
 new 32-bit mode, everything 16-bit is now 32-bit, including operand sizes,
 immediate sizes, displacements, etc. This meant that in 32-bit the two supported
 operand sizes are 8-bit and 32-bit and these are distinguished by the opcode.
-Encoded in exactly the same way as on the 16-bit processors, but with larger
-immediates.
+The 32-bit operations are encoded exactly like the 16-bit processors, but with
+larger immediates.
 
-The processor was already capable of doing both 16-bit operations and
-32-bit operations, but they were multiplexed in the same opcodes. To allow
+The processor is thus capable of doing both 16-bit operations and
+32-bit operations, but they are multiplexed in the same opcodes. To allow
 16-bit mode to use 32-bit operations and vice versa, the {\em operand-size
 prefix} (`0x66`) was introduced. 8-bit operations have separate opcodes, so
 these are available in both modes.
 
 Similar prefix was introduced for addresses---the {\em address-size} prefix,
-which is able to make memory locations based on 16-bit calculations on 32-bit
+which is able to make a memory location be based on 16-bit calculations on 32-bit
 systems and vice versa. Though this is less useful in practice.
 
 All of the registers got extended to 32-bits. The full 32-bits became available
 with the `e` (\"extended") prefix of the register name, e.g. `eax` or `esp`. The
 upper 16-bits of the registers are no longer addressable individually and can
-change only as part of the 32-bit operations.
+change only as part of the full 32-bit operations.
 
 \label[sec:x86-64]
 \sec 64-bit extension
 
 When AMD extended x86 to 64-bits they brought also many other extensions.
 Notably this included 8 additional registers (with no descriptive names, just
-numbered from 8 to 15) and the registers are 64-bit (the full 64-bits are
+numbered from 8 to 15) and the extension of  registers to 64 bitt (the full 64 bits are
 accessible with prefix `r` instead of `e`, e.g. `rax` or `rsp`). The encoding
 had only 3 bits available to encode a register, so a new mode or operand size
 prefix was not enough, especially since backwards compatibility was still
 desired.
 
-Their solution is the REX (\"register extension") prefix. It is a byte, where
+The solution was the REX (\"register extension") prefix. It is a byte, where
 the 4 most significant bits are constant (0100, i.e. 4) and the 4 individual
-least significant bits are used as follows:
+least significant bits have individual meaning as follows:
 
 \begitems
 * REX.R extends the {\em R} field of ModRM to 4 bits.
@@ -979,16 +985,17 @@ default operand size on x86-64 is still 32-bits. Either 8-bit or 32-bit opcodes
 are available by default. REX byte has to be applied before the 32-bit opcodes
 to achieve 64-bit operand size.
 
-As operand size, also the immediate size stayed at 32 bits. Only a few
+Like operand size, also the immediate size stayed at 32 bits. Only a few
 instructions were allowed full 64-bit immediates. The most notable one is:
 
 \begtt \optparams
 mov <reg64>, <imm64>
 \endtt
 %
-which allows 64-bit immediates to be loaded into a register without bit
-twiddling. 64-bit immediates were disallowed likely because they both too
-large, which negatively impacts the code size, but also unnecessary since most
+which allows 64-bit immediates to be loaded into a register directly, without bit
+twiddling. 64-bit immediates were disallowed likely because they are both too
+large, which negatively impacts the code size, but also because they are mostly
+unnecessary---most
 useful immediates are \"small" positive and negative numbers, which can still be
 achieved through the implicit sign extension of the 32-bit or even 8-bit
 immediate.
@@ -996,9 +1003,9 @@ immediate.
 Another important change is, that operations with the 64-bit operand size
 automatically zero out the upper 32-bits of the 64-bit registers. This is
 different from 16-bit operations, which don't change the upper 16 bits of the
-lower 32-bits. This means that 32-bit operations don't care about the upper
+lower 32-bits. This behavior implies that 32-bit operations don't care about the upper
 32-bits of the 64 bit registers, which is actually very important for modern
-super scalar processors. Because with the default 32-bit operand size, if the
+super scalar processors. If, with the default 32-bit operand size, the
 32-bit operations only changed parts of the registers, the operations would {\em
 depend} on the unchanged upper 32-bits. These kinds of {\em partial
 dependencies} are detrimental for performance, because they are mostly false
@@ -1016,7 +1023,7 @@ When {\em any} REX prefix is used, then the 8-bit registers change
 behavior---instead of addressing lowest and second lowest 8-bits of the first 4
 registers, they will address lowest 8-bits of all registers. This makes x86-64 a
 bit more regular then its predecessors, because no longer is there a distinction
-between accumulator and other registers, if in some cases we are willing to use
+between accumulator and other registers, provided are willing to in some cases use
 an otherwise unneeded REX prefix byte.
 
 \label[sec:x86-calling-conv]
@@ -1026,9 +1033,7 @@ As functions are called, there has to be an agreement in how resources are
 shared between the calling function ({\em caller}) and the called function ({\em
 callee}). An ABI specifies this as well as the details on how arguments are
 passed, what layout does the stack have, how the functions are named and how big
-are essential types.
-
-For the x86-64 architecture, there are two prevalent ABIs:
+are essential types. For the x86-64 architecture, there are two prevalent ABIs:
 
 \begitems
 * System V AMD64 ABI~\cite[SysVABI]. Used on most operating systems.
@@ -1046,24 +1051,25 @@ registers also differ (these are explained in more detail in
 section~\ref[sec:regalloc-constraints]). Even alignment of stack is handled
 differently.
 
-From a perspective of a compiler, the system ABI is not important to internal
-functions. But a function which is either called by external code, or which
-calls external code must respect the system ABI. The ABI provides standard
+From a perspective of a compiler, the system ABI is not important to {\em
+internal functions}, which are only seen by one compiler,
+but functions which are either called by external code, or which
+call external code must respect the system ABI. The ABI provides standard
 interface, and with that even code from multiple compilers can be linked or even
 dynamically linked together and run without problems.
 
 Languages like C usually abide the system ABI's calling conventions for {\em
 all} functions. In any case, functions from the C standard library usually are
-based on the C ABI, so at least calls to the standard functions have to respect
-it.
+based on the C ABI, so at least calls to standard functions have to respect
+the ABI.
 
 \label[sec:x86-os]
 \sec Operating system interface
 
-Other operating systems allow the raw form of calling into operating system to
-take place.
+%Other operating systems allow the raw form of calling into operating system to
+%take place.
 
-On the x86-64 programs ultimately use the `syscall` instruction to
+On the x86-64, programs ultimately use the `syscall` instruction to
 transfer the control to the operating system. The instruction itself saves the
 instruction pointer (the return address) to `rcx` and `rflags` to `r11`.
 Anything else is up to the operating system and thus subject to a calling
@@ -1071,11 +1077,14 @@ convention of its choosing. If this system call calling convention is
 documented for applications, then applications can use it and call into the OS
 directly.
 
-Linux is one of the few operating systems that documents the system call
-convention. It is very similar to the calling convention specified by the System
-V ABI (it is in fact specified in the same document~\cite[SysVABI]). Only an
-extra integer is passed to signify the system call number (because the `syscall`
-instruction unlike a normal call doesn't specify \"what to call").
+Linux is one of the few operating systems that documents the calling convention
+used for system calls. The convention is very similar to the C one specified by
+the System
+V ABI (they are in fact both specified in the same document~\cite[SysVABI]).
+Though for system calls, an
+extra integer is passed to hold the system call number (because the `syscall`
+instruction doesn't specify \"what to call" in any way, unlike a normal `call`
+instruction).
 
 On other operating systems like OpenBSD and Solaris (using the System V ABI for
 ordinary calls), or Microsoft Windows, the system calls and the system call
@@ -1086,22 +1095,22 @@ C library abstracts requests to the operating system.
 We can distinguish between the {\em standard part} of the system C library and the OS
 specific {\em system part}. By making the operating system interface the system
 C functions, the operating system is free to only abide to the normal C calling
-convention and doesn't even have to realize the system calls with a
-`syscall`.
+convention and may choose to implement simple system calls without a
+`syscall` if a switch to kernel space is not needed.
 
 \sec Comparison with Tiny86
 
 Tiny86~\cite[Strejc2021] is a 64-bit architecture inspired by x86-64. It copies
-many of the design decisions of x86-64, which is great for both familiarity (as
-FIT students encounter x86-64 in other courses) and as a target, because x86-64
-is still very popular this day.
+many of the design decisions of x86-64, which is great because it is
+familiar (FIT students encounter x86-64 in other courses), non-trivial as a
+target, and still popular in practice.
 
 \secc Registers
 
-One of the main differences is the available registers. On x86-64 there are 16
+One of the main differences are the available registers. On x86-64 there are 16
 {\em general purpose} registers, of which two are usually used for special purposes
 (`rbp`, `rsp`) and some {\em special purpose} registers like `rflags` or `rip`,
-which are only accessible through \"special". Tiny86 separates all these 4
+which are only accessible through \"special" instructions. Tiny86 separates these 4
 special registers and on top allows configurable number of 64-bit general purpose and
 64-bit floating point (i.e. double precision) registers. No access to narrower
 parts of the registers is allowed.
@@ -1110,20 +1119,20 @@ parts of the registers is allowed.
 
 Tiny86 supports pretty much the same set of arithmetic operations the x86-64
 does. Notably two separate instructions are available for computing the
-remainder (confusingly called `mod`) and quotient and there is no long
+remainder (confusingly called `mod`) and quotient. There isn't long
 multiplication (i.e. multiplication of two 64-bit numbers only gives 64-bit
 result). This makes it much easier to use the instructions, as it doesn't
 involve any implicit operands.
 
-Operations that are distinct for unsigned and signed variants are also
+Operations that are distinct in signed and unsigned variants are also
 distinguished on Tiny86, just like on x86-64. Unfortunately, logical right shift
 (unsigned version of the right shift) is not present, while the arithmetic right
 shift (the signed version) is. This makes it harder for unsigned operations to
 be lowered.
 
-Special purpose instructions are available for debugging, as well as reading (from
-standard input) and writing (to standard output) numbers. These are implemented
-by the Tiny86 VM with calls to C++ standard library.
+Special purpose instructions are available for debugging, as well as for reading
+numbers from standard input and for writing numbers to standard output. These
+are implemented by the Tiny86 VM with calls to the C++ standard library.
 
 \secc Addressing modes
 
@@ -1148,7 +1157,7 @@ The following addressing modes are supported by Tiny86:
 <unop> <reg>
 \endtt
 
-* For move and lea instructions:
+* For move and `lea` instructions:
 
 \begtt \optparams
 mov <reg>, <reg>
@@ -1161,7 +1170,7 @@ mov <mem>, <imm>
 lea <reg>, <mem>
 \endtt
 %
-where `<mem>` is the following, where all components are optional:
+where `<mem>` is the following (all components are optional):
 
 \begtt \optparams
 [<reg> + <reg> * <imm> + <imm>]
@@ -1170,9 +1179,10 @@ where `<mem>` is the following, where all components are optional:
 \enditems
 
 The interesting thing is, that the addressing modes for `mov` and `lea`
-instructions are a superset of the SIB mode on x86-64---like all immediates on
-Tiny86, even those specifying memory locations are 64-bit. This makes it much
-more flexible for access to array elements then x86-64, which allows the scale
+instructions are a superset of the SIB mode on x86-64. Like all immediates on
+Tiny86, even those specifying memory locations are 64-bit. This makes the
+instructions much
+more flexible in access to array elements than x86-64, which allows the scale
 to be only a small power of two.
 
 Unfortunately, unlike x86-64, Tin86 chooses to allow different memory accesses
@@ -1187,7 +1197,7 @@ problem, since the TinyC language supports exactly those.
 
 The addressing modes on x86-64 are fairly regular, even if it may not seem so.
 The actual encoding is more complex because of the special cases, but all useful
-operand specifications are allowed, so the complexity is limited to the
+operand combinations are allowed, so the complexity is limited to the
 encoder/decoder, and not the compiler, which sees the operations as fairly
 orthogonal.
 
@@ -1204,7 +1214,7 @@ separately and not as part of the opcode.
 
 x86-64 on the other hand, is only regular in its irregularities. This actually
 makes it a very interesting compilation target, as it has the complex CISC
-features, but irregularities, which stress compiler capabilities.
+features, but also the irregularities, which test compiler capabilities.
 
 \label[chap:state-of-the-art]
 \chap State of the art
@@ -1772,9 +1782,9 @@ Instruction selection is the process which translates a compiler's intermediate
 representation to machine instructions. While compiler middle end intermediate
 representations ({\em IRs}) are usually machine independent and made to
 be easily optimizable, machine instructions are usually designed to be
-conveniently executable by a processor. This disconnect, irregularities and
-special constraints imposed by the instructions make the problem of choosing the
-\"best" instructions hard.
+conveniently executable by a processor. This, irregularities in instruction sets
+as well as special constraints imposed by individual instructions make the
+problem of choosing the \"best" instructions hard.
 
 To ease translation and split concerns, instruction selection is usually allowed
 to assume that there is an infinite amount of registers available. These
@@ -1784,11 +1794,11 @@ later section (section~\ref[sec:regalloc]), where we also discuss the problems
 of {\em machine instruction constraints}, where some instructions only work with
 some physical registers (section~\ref[sec:regalloc-constraints]). In this
 chapter we will use the prefix `t` and a number (for example `t12`) for virtual
-registers.
+registers and assume that there is unlimited number of them.
 %and~\ref[sec:regalloc-classes]).
 
 If the middle end IR and machine instruction set are relatively close, then even
-something as simple as one-to-one mappings are possible. For example, this
+something as simple as one-to-one mapping is possible. For example, this
 middle end IR:
 
 \begtt
@@ -1796,13 +1806,13 @@ v3 = add v1, v2
 v4 = load v3
 \endtt
 %
-Can be translated to the following RISC-V code:
+can be translated to the following RISC-V code:
 
 \begtt
-add v3, v1, v2
+add t3, t1, t2
 ld t4, 0(t3)
 \endtt
-%
+
 The mapping is relatively easy, because with RISC machine instructions, all
 operations are
 done on {\em registers}, and only load and store instructions touch memory. This closely
@@ -1889,7 +1899,7 @@ Most existing algorithms for instruction selection fall into one of these three
 categories, though even algorithms falling into the same category can differ
 significantly in their speed (how fast they run), quality (how fast does the
 produced code run) and capabilities (e.g. ability to handle instructions with
-multiple destinations, like `idiv` on x86-64). In the following subsections we
+multiple outputs, like `idiv` on x86-64). In the following subsections we
 introduce the three approaches.
 
 \label[sec:selection-peephole]
@@ -1903,17 +1913,17 @@ allocation. But peephole optimization has been applied even to perform
 instruction selection. To distinguish this, we will call the technique {\em
 instruction selection by peephole optimization}.
 
-The idea for instruction selection by peephole optimization is simple. If the
-naive expansion method produces a simple one-to-many translation, we can improve
+The idea for instruction selection by peephole optimization is simple. The
+naive expansion method produces a simple one-to-many translation, and we can improve
 it, by a peephole optimization pass that can find patterns and replace multiple
 instructions with either shorter or more efficient instruction sequences. Since a
-lot of expansions are mere translations one-to-one even a relatively small
+lot of expansions are mere translations one-to-one, even a relatively small
 peephole window can actually examine many instructions in the original IR.
 
 But, while the peephole optimization can be done on the machine instructions
 themselves, they are not much suitable for optimization. Apart from that, they
 are also machine specific, and while improvements to instruction selection are
-machine specific by nature, it is preferable if a single mechanism can drive
+machine specific by nature, it is preferable when a single mechanism can drive
 the optimization for many different instruction sets. Also, writing the peephole
 optimization patterns by hand is tedious and does not scale for a compiler
 targeting many architectures.
@@ -1934,7 +1944,8 @@ effects (register transfers) of each list.
 
 * Iterate over the register transfer lists forwards and check for each pair of
 whether there is an instruction whose register transfer list has the combined
-effects of the pair. If there is, it combine the two register transfer lists.
+effects of the pair. If there is, combine the two register transfer lists into
+one.
 
 * Iterate forward over the code and for each register transfer list find an
 instruction that implements it and emit it.
@@ -1945,19 +1956,19 @@ register transfers directly, but nominally their algorithm both reads and writes
 machine instructions. The register transfers are only an immediate step, and
 importantly the backwards pass deletes unobservable effects, which don't need to
 be implemented by the combined instructions. The effects are mainly assignments
-to registers and flags, which they both handle in a unified way. Since an
+to registers and flags, which Davidson and Fraser handle in a unified way. Since an
 assigned (virtual) register or a flag may not ever be read before being assigned
 again, it may be deleted. Liveness or rather death of registers is also
 important for deletions: if a definition gets \"inlined" into all its uses (e.g.
 a small constant on an architecture which has addressing mode allowing small
 immediates), then the definition can be deleted only if it is determined to no
 longer be live after the deletion ({\em becomes dead}).
-The deletion may take form of either combining into an
+The deletion may take form of either combination into an
 instruction which doesn't have the extraneous effect (in phase 3) or replacement
 by a single final instruction (phase 4) which also doesn't need to have the
 extra effect. This is a form of dead code elimination (since for example an
-empty register transfer list doesn't translate to any instruction) but the
-extraneous assignments are kept if there isn't an instruction that doesn't have
+empty register transfer list doesn't translate to any instruction). But the
+extraneous assignments are kept if there {\em isn't} an instruction that doesn't have
 them (for example, most arithmetic instructions set flags, even if they are not
 needed, and there may be no equivalent instruction that doesn't set the flags).
 
@@ -1969,9 +1980,9 @@ register transfer lists (phase 3) and to map register transfer lists back to
 instructions (phase 4). All of these phases use the textual description and are
 thus based on operations with strings. This has the advantage that the compiler
 is easily retargetable just by swapping out the machine descriptions. Since in
-the last phase register transfer lists are mapped back to instructions the
-algorithm has to obey an invariant, that any produced register transfer list is
-implementable by at least one instruction---this is why phase 3 is guided by the
+the last phase register transfer lists are mapped back to instructions, the
+algorithm has to obey an invariant: any produced register transfer list is
+implementable by at least one instruction. This is why phase 3 is guided by the
 machine description and why the machine description has to be written with care.
 In phase 4, if more machine instructions can implement the same register
 transfer list the first one in the machine description is chosen (simply because
@@ -1992,34 +2003,37 @@ strings. {\em Cacher} is a new addition and performs local common
 subexpression elimination by keeping track of what values are available in what
 registers in a basic block. Another powerful addition was consideration of not
 only {\em physically adjacent} instructions, but also {\em logically
-adjacent} instructions---so instead of considering instructions in their {\em control
+adjacent} instructions---instead of considering instructions in their {\em control
 flow} order, they are considered based on {\em data flow}. This allowed to
 consider simple definitions (like constants) to be folded into instructions,
 even if they fell out of the small peephole window.
 
 Davidson's and Fraser's design turned out to be very influential in the area of
-peephole optimization, in particular the idea of expanding the instructions
+peephole optimization. In particular the idea of expanding the instructions
 into a machine independent representation, that exposes even the smallest
-operations, performing optimizations and then combining the operations into
+operations, then performing optimizations and then combining the operations into
 machine instructions. This aspect is kept by a lot of compilers using peephole
-optimization for instruction selection. Even though it makes bigger peephole
-windows necessary, using data-flow helps considerably. The idea of a
+optimization for instruction selection.
+%Even though it makes bigger peephole
+%windows necessary, using data-flow helps considerably.
+The idea of a
 machine description that is preprocessed at compiler-compile time also stuck.
-Being slow at compiler compile time doesn't matter as much as the speed of the
+Slow compiler compile time doesn't matter as much as the speed of the
 compiler itself.
 
 Other aspects of the original Davidson-Fraser design didn't catch much. Later
-algorithms opted for a {\em fixed set of patterns}, in place of deriving them on
+algorithms opted for a {\em fixed sets of patterns}, in place of deriving them on
 the fly with symbolic execution. These patterns used to be written by
 hand, but considering the existence of the machine descriptions and symbolic
 executors based on them, Davidson and Fraser~\cite[Davidson1984b] used them to
 derive the patterns. They did this by introducing a set of programs known as the
 {\em training set}, over which they run their classical peephole
-optimizer~\cite[Davidson1984a]. Each unique performed optimization
-was written to a file, which was then used as base of a more limited peephole optimizer,
+optimizer~\cite[Davidson1984a]. Each unique optimization performed on the
+training set
+is written to a file, which is then used as base of a more limited peephole optimizer,
 which operates only based on these patterns. While the files are still text
 based, they use {\em string interning} based on a hash based data structure to
-avoid comparing strings and to speed up strings comparisons.
+avoid comparing strings and to speed up string comparisons.
 
 %TODO: figure data-flow vs control flow
 
@@ -2028,29 +2042,30 @@ avoid comparing strings and to speed up strings comparisons.
 \secc Covering
 
 A different paradigm for approaching instruction selection is {\em covering}.
-With intermediate representations like trees, DAGs, e.g. with value-based SSA on
-a control flow graph (see section~\ref[sec:SSA-value]) the operations and their
+With intermediate representations like trees and DAGs (e.g. with value-based SSA on
+a control flow graph from section~\ref[sec:SSA-value]) the operations and their
 operands form graphs---in particular {\em data-flow graphs}, because the graphs
 capture the flow of values from their definitions to their uses.
 
-Even instructions can be represented as graph based patterns. For example an
-`add` instruction which accepts two registers and produces a result in a
+Also instructions can be represented as graphs, or rather graph-based {\em
+patterns}. For example an `add` instruction, which accepts two registers and
+produces a result in a
 register, can be represented as a node (the result of the addition) with two
-children nodes (the operands). Other pattern can represent a similar
-instruction, but with a different addressing mode, e.g. an `add` of a register
+children nodes (the operands). A different pattern can represent a similar
+instruction, but with another addressing mode, e.g. an `add` of a register
 and an immediate or `add` of register to memory location.
 
 {\em Covering instruction selection} covers the data-flow graph of the middle
 end IR with the instruction patterns. As each instruction pattern is associated
 with an instruction (or instruction sequence), the covering gives the final set
-of instructions, but not necessarily their full ordering---any order resulting
+of instructions, but not necessarily their exact ordering---any order resulting
 from a bottom-up walk is a possible final instruction sequence.
 
-The nodes in the instruction patterns are typed by the types of operands of the
-x86-64 architecture. This captures has gradually nodes in the original graph are
-covered by instruction patterns and the produced values themselves may be used
-as operands of other instructions. For the x86-64 architecture for example, at
-least the following fundamental types are required:
+As nodes are gradually covered, results from operations
+themselves become operands covered by instruction patterns and the produced. The
+nodes in the instruction patterns are typed by the kinds of operands of the
+x86-64 architecture. For the x86-64 architecture for example, at least the
+following fundamental types are required:
 
 \begitems
 * Registers.
@@ -2059,33 +2074,33 @@ least the following fundamental types are required:
 * Integer constants (64-bits)
 \enditems
 
-Small immediates can be used anywhere where full integer constants are allowed,
-so this can be captured by a pattern which \"retypes" the node.
+Small immediates can be used anywhere where full integer constants are allowed.
+A \"retyping" pattern is usally associated with these transitions.
 %TODO figure
 There is no actual instruction associated with such pattern. Leaves in patterns
 are special and may need special separate types to be represented. For example,
 access to stack allocated variables requires access to the base pointer which
-is not produced by anything. Additionally a \"retyping" no-op pattern which
-accepts a base pointer and produces a register will then allow the frame
-pointer to be usable like registers produced by other patterns like loads of
-constants, arguments or results of arithmetic operations.
+is not produced by anything. A \"retyping" no-op pattern, which
+makes base pointer (leaf) available as register will then allow the frame
+pointer to be usable like registers produced by other patterns, for instance
+loads of constants, arguments or results of arithmetic operations.
 
 The formulation on {\em graphs} is very general and allows both the IR which is
 pattern matched and the patterns to be general graphs. In practice, simpler
-forms sometimes suffice and we stick to the three categories described
-in~\cite[Blindell2016]
+forms sometimes suffice and we stick to three categories as described
+in~\cite[Blindell2016]:
 
 \begitems \style n
 
 * {\em Trees}. Trees are natural when the IR is an AST or a low level version
 of it---i.e. only with simple RISC-like close-to-machine operations, which are
 more amenable to matching. Many instruction patterns also form trees---most
-arithmetic operations produce on result from multiple operands.
+arithmetic operations produce one result from multiple operands.
 
 * {\em DAGs}. While trees are nice and simple, they are often too limiting in an
 optimizing compiler. For example, when common subexpressions are eliminated, a
 single node can be used by multiple operations, but this means that the node no
-longer has a single parent, but can have multiple. Directed acyclic graphs
+longer has a single parent, but multiple. Directed acyclic graphs
 (DAGs) are able to represent this exactly.
 
 DAGs are sometimes also necessary for exact modelling of instructions, which
@@ -2099,7 +2114,7 @@ would be multi-output.
 
 * {\em General graphs}. Both trees and DAGs are unable to capture control flow,
 which in non-trivial programs contains loops and hence {\em cycles} in the
-control flow graphs. Most advanced instruction selection for a whole procedure
+control flow graphs. Most advanced instruction selection for an entire procedure
 (across basic blocks) thus requires instruction selection to be performed on
 general graphs with suitable patterns that are able to cover such graphs.
 
@@ -2107,8 +2122,8 @@ general graphs with suitable patterns that are able to cover such graphs.
 
 Importantly for multi-target compilers, even though the patterns themselves are
 machine specific, their form is machine independent. A single algorithm can work
-for any architecture provided a suitable set of patterns and instructions that
-correspond to them.
+for any architecture, as long as it is provided a suitable set of patterns and
+instructions that correspond to them.
 
 Wide variety of algorithms have been used to perform the covering. They range in
 what graphs they are able to handle, quality, run time and complexity. In the
@@ -2125,22 +2140,22 @@ as a general technique that allows matching of tree patterns. The productions in
 a context free grammar can be seen as the patterns, where non-terminal symbols
 are the roots of patterns and correspond to the types of nodes. Terminal symbols
 are then the trivial constants like the base pointer or concrete integer
-literals.
+literals---leaves.
 
-The advantage of LR parsing is that it is well studied, the parsers
+The advantage of LR parsing is that it is well studied. The parsers
 can be generated from context free grammars based on the instruction patterns.
-The expensive preprocessing is done at compiler-compile time an thus the
-generated parsers are fast. Additional predicates (e.g. checks of small
+The expensive preprocessing is done at compiler-compile time and the
+generated parsers themselves are fast. Additional predicates (e.g. checks of small
 constants) and actions can be added to the LR parsing through the use of {\em
 attributed grammars}~\cite[Knuth1968].
 
-A fundamental problem LR parsing in the area of instruction selection is, that
-it expects a linear sequence of terminals, thus the tree structure has to be
+A fundamental problem with LR parsing in the area of instruction selection is, that
+it expects a linear sequence of terminals---the tree structure has to be
 linearized and the matching happens over that linearization. Additionally, the
 patterns for instruction selection are usually highly ambiguous---many
 instructions can produce the same effects. A method for resolving the numerous
-of reduce-reduce and shift-reduce conflicts is needed. Often shifts are
-preferred for reductions, because they are likely to result in bigger matches.
+reduce-reduce and shift-reduce conflicts is needed. Often shifts are
+preferred to reductions, because they are likely to result in bigger matches.
 Some kind of cost model is useful for resolving reduce-reduce conflicts.
 
 Other problematic areas include ensuring of correctness (where we want to
@@ -2160,26 +2175,23 @@ which top-to-bottom does the following for each node:
 \begitems
 * Try matching all patterns with the current node as root. Select the first
 matching.
-* Apply the algorithm recursively for each child induced by the pattern.
+* Apply the algorithm recursively for each child implied by the pattern.
 * Emit code associated with the selected pattern.
 \enditems
 
 This is a greedy algorithm. The algorithm prioritizes patterns through their
-ordering. {\em Large} patterns are tried first, but attention is also paid to
-their cost. Larger patterns are usually better, because as they implement more
+ordering. In Cattel's algorithm {\em large} patterns are ordered first, but attention is also paid to
+their cost per covered node. Larger patterns are usually better, because they implement more
 of the tree with fewer instructions. Though doing these decisions top down
 misses a lot of low level context found only at the bottom.
 
 The biggest advantage of maximal munch is its simplicity. But the limitation to
-trees, and the worse quality due to greediness make it not as practical.
+trees, and the worse quality (due to greediness) make it not as practical.
 
 \seccc Bottom-up rewriting
 
-R parsing, a classic bottom-up approach, is not that fit for actual application
-for trees or DAGs, while a naive top-down approach seems very unoptimal, due to
-lack of any backtracking. However, better approaches for bottom-up instruction
-selection.
-
+LR parsing is too problematic and top-down too weak due to lack of any
+backtracking. However, there are better approaches for bottom-up instruction selection.
 A group of algorithms is based on {\em dynamic programming}. One such algorithm
 is~\cite[Aho1989], which operates in three passes:
 
@@ -2201,7 +2213,9 @@ cheapest type to be selected.
 Only the cheapest patterns for each type are interesting, because while any mode
 can ultimately be chosen for a node in the third pass, we will only need the
 cheapest pattern of a certain type. But the type itself is not known until the
-third pass. The conflicts that hindered the LR parsing approach are gone---the
+third pass.
+
+The conflicts that hindered the LR parsing approach are gone---the
 results either identify the cheapest tiling uniquely through the type of the
 root node, or it can be chosen arbitrarily if multiple types have the cheapest
 cost.
@@ -2218,7 +2232,7 @@ first pass of~\cite[Aho1989] is not needed.
 
 A tool called `burg`~\cite[Fraser1992a] is based on the BURS theory and does the
 dynamic programming at compiler-compile time. This unfortunately means some
-restrictions on the grammars, and a similar tool `iburg`~\cite[Fraser1992b]
+restrictions on the grammars. A similar tool called `iburg`~\cite[Fraser1992b]
 remains more flexible by doing the dynamic programming in compile time.
 
 \seccc DAG covering by tree covering
@@ -2228,7 +2242,7 @@ i.e. only tree programs and tree patterns were allowed. In general, extending
 the tree approaches to {\em DAG programs} is possible by transforming the DAGs
 into trees. Two fundamental methods are described by~\cite[Blindell2016] and
 both work by identifying the {\em trees with multiple parents} (i.e. the common
-subexpressions), then it is possible to either:
+subexpressions), on which is possible to either:
 
 \begitems \style n
 * {\em Split the edge}. The tree is removed from the graph and replaced by a
@@ -2239,14 +2253,14 @@ merged.
 
 Both of these approaches are problematic: splitting makes small trees, which
 can miss covering with bigger patterns (of supposedly better instruction) and
-duplication repeats computations.
+duplication undoes so carefully done common subexpression elimination.
 
 A notable application of duplication is Ertl's~\cite[Ertl1999], which is able
-to reduce the need for duplication for a class of DAGs. While edge splitting has
+to reduce the need for duplication for a class of DAGs. Edge splitting has
 been successfully used by Koes and Goldstein~\cite[Koes2008].
 
 Unfortunately these straightforward extensions of tree covering don't easily
-support DAG {\em patterns}, which are required for multi-output instructions
+support {\em DAG patterns}, which are required for multi-output instructions
 like `idiv`.
 
 \secc Reduction
@@ -2279,6 +2293,14 @@ transfers can be viewed similarly as the micro-operations. Combining multiple
 register transfers and register transfer lists can then be seen as {\em
 compression} producing the fewest instructions having the same effect.
 
+Processors sometimes also find it more valuable to keep some operations
+together. This combination of multiple instructions or micro-operations into a
+single micro-operation are called macro-fusion and micro-fusion. They are
+used for example for comparisons followed by branches.
+
+In a way, we can say that the processor receives a compressed form of
+instructions and reencodes it to a form suitable for execution.
+
 \label[sec:scheduling]
 \sec Instruction scheduling
 
@@ -2287,31 +2309,30 @@ behavior. However, these instructions are not necessarily ordered well to suite
 the concrete machine. It is the job of instruction scheduling to decide on the
 final order of the instructions.
 
-The dependencies among instructions as selected by the instruction selection
+The dependencies among instructions (selected by instruction selection)
 impose a {\em partial order} on the instructions. These dependencies include
 data-flow on registers (i.e. operands have to be evaluated before the operations
-itself), but also memory operations. Loads and stores to memory can be very
-limiting to the ordering, alias analysis may be able to tell which stores and
-loads are safe to reorder, but writes to memory are always possible, which can
-make any reordering hard.
+that use them), but also memory operations. Loads and stores to memory can be very
+limiting to the ordering, though {\em alias analysis} may be able to tell which
+stores and loads are safe to reorder.
 
 Instruction scheduling then produces a {\em linear order} of the instructions,
-where the dependencies are honored, but the instructions themselves are now able
-to make better use of machine resources.
+where the dependencies are honored, but the order is more suitable to to make
+better use of machine resources.
 
 \secc Motivation
 
 In a processor, that processes and executes exactly one instruction per cycle,
 there is not much needed to find better orders of instructions---when all
-operations take the same time, any ordering will produce the same sum.
+operations take the same time, any ordering will produce the same net result.
 
 In pipelined processors this becomes more interesting, because although the
 processor still executes one instruction per cycle, {\em multiple instructions}
 are processed at the same time in the pipeline. Each cycle a new instruction
 enters the pipeline and one finishes its execution. Hence there are as many
-instruction in the pipeline as there are pipeline stages and progress is made on
+instructions in the pipeline as there are pipeline stages and progress is made on
 each instruction in each stage of the pipeline. This is comparable to to an
-assembly line in a car factory. In a usual pipelined processor we can imagine
+assembly line in a factory. In a usual pipelined processor we can imagine
 the following stages:
 
 \begitems \style n
@@ -2336,11 +2357,11 @@ add rax, rcx
 The first instruction writes `rax` in its stage 4, but the second instruction
 reads `rax` in the first instruction's stage 3 when the results are not yet
 available. The processor has to detect this, and often has to {\em stall} the
-execution until the results become available Actually, here the result
+execution until the results become available. Actually, here the result
 written back at stage 4 is already available at stage 3 and may be {\em
-forwarded} to the stage 2 at the same cycle, but in a real pipelined processor
-there is a higher number of stages, which makes dependencies of adjacent
-instructions much more problematic.
+forwarded} to the stage 2 of the preceding instruction at the same cycle. But in
+a real pipelined processor there is a higher number of stages, which makes
+dependencies of adjacent instructions much more problematic.
 
 For pipelined processors, it is beneficial to {\em interleave} unrelated
 computations---while one waits for the results, the other can be executed
@@ -2358,13 +2379,12 @@ techniques. The approach works in four stages:
 * {\em Rename}.	Registers are renamed to prevent false dependencies.
 * {\em Build dependency graph}. In a backwards fashion the operations in the
 block are examined, and edges from definitions to uses are added.
-* {\em Assign priorities}. The assigned priorities are used to guide the
-scheduler.
+* {\em Assign priorities}. Priorities are assigned to be used to later to guide
+the scheduler.
 * {\em Schedule operations}. A {\em ready list} containing the instructions
-that can execute in the current cycle is maintained and the scheduling continues
-until it becomes empty. Instructions are removed from this list, until it
-becomes empty, at which point based on the cycle count and prepared operands,
-new instructions can become ready.
+that can execute in the current cycle is maintained. Instructions are removed
+from this list, until it becomes empty. At which point (based on the cycle count
+and prepared operands), new instructions can become ready.
 \enditems
 
 \label[sec:scheduling-practical]
@@ -2388,10 +2408,11 @@ buffer. This is supported by:
 \begitems
 * Multiple {\em execution units}. Instead of being able to execute only one operation
 at a time, multiple operations can be executed in different execution units,
-though each supports only certain kinds of operations. Thus many operations can
+though each supports only certain kinds of operations. Many operations can
 be executed in parallel.
-* Issuing of multiple instruction in a single cycle. Multiple execution units
-are kept saturated, because many operations can start their execution at once.
+* Issuing of multiple instruction in a single cycle. This way, multiple
+execution units are kept saturated, because many operations can start their
+execution at once.
 \enditems
 * {\em Branch prediction} and {\em speculative execution}. The processor is able
 to continue executing code after a branch even before evaluating the condition.
@@ -2403,13 +2424,13 @@ by itself {\em dynamically} at run time. This is very powerful, because with
 the addition of branch prediction and speculative execution, it works across
 basic blocks and adjusts to the actual execution.
 
-This makes {\em static} instruction scheduling in a compiler a lot less
+This makes {\em static} instruction scheduling in a compiler a less
 important optimization. It is still useful, but becomes interesting with at
 least some of the following:
 
 \begitems
 * expensive operations (like division, which can only execute in a small number
-of execution units and have high latency),
+of execution units and has high latency),
 * precise processor specific information (about execution units, reorder buffer
 size, instruction latencies and throughput, etc.),
 * long or computation heavy basic blocks (i.e. the static scheduling has
@@ -2968,7 +2989,7 @@ The approaches used for spill code insertion are usually very connected to the
 core principle of the register allocation algorithm at hand, and choices of some
 approaches are discussed in section~\ref[sec:regalloc-techniques].
 
-\secc Formalization
+\secc Concepts
 
 The terms used in the previous sections about register allocation were not
 properly defined, and used a bit vaguely. The intention was to practically show
@@ -3004,13 +3025,14 @@ usually merge both of these parts, while more complex algorithms try to take
 advantage of attacking each of those issues separately to reach more optimal
 results. But this distinction is of course not definitive.
 
-\seccc Liveness, interference
+\seccc Liveness
 
 Already in previous sections we hinted that we may reuse a physical register if
 the virtual register occupying has no further use. Liveness is the property that
 captures this formally.
 
-A virtual register is {\em live} at a program point if it {\em may} be used in
+\label[def:liveness]
+\definition[Liveness] A virtual register is {\em live} at a program point if it {\em may} be used in
 future.
 
 The definition of liveness captures the \"not used further" aspect that we found
@@ -3020,19 +3042,35 @@ available. The definition of liveness carefully says \"may be used in future",
 because in general it is undecidable whether a virtual register {\em will} be
 used.
 
-For computing liveness analysis the means of classical data flow analysis may be
-used. For each program point we can compute the liveness property on the control
-flow edges coming to it ($\hbox{LIVE}_{\hbox{\it in}}$) and control flow edges
-coming out of it.
+\seccc Interference
 
-Liveness is the most basic property on which register allocation is based.
-Liveness of a virtual register represents whether from a 
-Liveness is a property of virtual registers and tells us at which points in the
-control flow a virtual register is {\em live}.
+Interference captures the fact that registers are live at the same time, and
+thus cannot be allocated the same register (nor coalesced).
+
+\label[def:interference]
+\definition[Interference] Two virtual registers {\em interfere}, when they are
+simultaneously live at some point in the object program.~\cite[Chaitin1981]
 
 \seccc Live ranges
 
-vs value vs variable.
+It is usually not desirable to allocate registers for {\em variables}. We prefer
+to assign registers separately for each distinct definitions and its uses.
+
+This is in principle very similar to SSA form, where we also want to split
+multiple assignments to each variable into multiple entities. In register
+allocation, the main advantage is, that the \"splits" may be assigned physical
+registers or spilled separately.
+
+The splits are known by different names in literature: {\em
+names}~\cite[Chaitin1981], {\em webs}~\cite[Muchnich1997], and {\em live
+ranges}~\cite[Cooper2004]. Live range is the often used name, because the
+splitting exactly corresponds to a technique which is able to introduce
+additional splits: {\em live range splitting} (see
+section~\ref[sec:regalloc-splitting]).
+
+Since we are mostly concerned with translation out of SSA, our virtual registers
+practically correspond to live ranges. In later text a mention of a virtual
+register should also be taken to mean a {\em live range}.
 
 \label[sec:regalloc-coalescing]
 \seccc Coalescing
@@ -4072,16 +4110,17 @@ of the $\phi$ instructions.
 \seccc Reduction
 
 Like with instruction selection, since register allocation is a very hard
-problem, it is possible to leverage efficient methods for solving other problems
-through a {\em reduction}.
+problem, it is possible to leverage existing efficient methods for solving other
+problems through a {\em reduction}.
 
 The methods using reduction fully transform the register allocation problem to
-an instance of another problem, often use an external generic solver and then
+an instance of another problem, then use (often an external) generic solver and then
 translate the result back into a register allocation. This is a bit different
-than using the graph coloring register allocators, which use the ideas of graph
+from the graph coloring register allocators, which use ideas of graph
 coloring, but can still be seen as solving the register allocation problem
 directly---the coloring itself is only part of a scheme that consists of also
-spilling and coalescing.
+spilling and coalescing, which are not handled as part of the graph coloring in an
+integrated fashion.
 
 A notable example is reduction to integer linear programming by Appel and
 George~\cite[Appel2001]. The characteristics of their approach are separation of
@@ -4098,13 +4137,13 @@ time.
 
 This thesis looks into practical issues of taking a modern middle end
 intermediate representation and translating it to executable machine code of a
-real architecture, x86-64. This is not something that hasn't been done before.
+real architecture, the x86-64. This is not something that hasn't been done before.
 The main benefits of this thesis are doing it as part of a TinyC compiler. TinyC
 is like C, but simpler in some aspects, though still keeping many challenges for
 implementations of middle ends and back ends alike.
 
 In the NI-GEN course at FIT CTU, where TinyC originated, students write
-compilers from TinyC to {\em Tiny 86}.
+compilers from TinyC to {\em Tiny86}.
 
 After careful consideration we set the following goals for the implementation of
 a TinyC back end for x86-64 and the runtime:
@@ -4126,7 +4165,7 @@ real machine architecture.
 * The source code should be readable by students of the NI-GEN course, who are
 learning about compiler back ends.
 
-* The number of intermediate representations should be low. This should make the
+* The number of intermediate representations should be low. This will hopefully make the
 code more digestible and prevents much of the code being just translations from
 one IR to another.
 
@@ -4145,7 +4184,9 @@ one architecture, but extensibility to other architectures should be considered.
 
 * The back end should be a separate program, independent of the TinyC front end.
 This allows the TinyC front end used in the NI-GEN course to adapt to
-needs of the course without having to worry about our back end.
+needs of the course without having to worry about our back end. And on the other
+hand it allows our implementation to define features which the TinyC front end
+doesn't want to have, but we need for runtime.
 
 * The produced x86-64 assembly should be optimized not only for machine
 consumption by an assembler, but also for consumption by a {\em
@@ -4217,7 +4258,7 @@ particular~\ref[sec:data-backend] and~\ref[sec:imp-lowering]).
 \label[sec:imp-backend]
 \secc Back end
 
-Main interest of this thesis is a back end. As introduced in
+Main interest of this thesis is the back end. As introduced in
 section~\ref[sec:backend] the main goal of a compiler back end is to translate
 from a (preferably machine independent) intermediate representation into machine
 instructions that can be executed by the processor.
@@ -4231,7 +4272,7 @@ While often register allocation is done on selected and ordered instructions, it
 doesn't have that many requirements on the actual IR. Though depending on the
 allocator, the IR has to to easily support calculation of {\em liveness}, which
 for iterative data-flow analysis requires the availability of control flow
-information and the ability to iterate over {\em used} and {\em defined}
+information, and the ability to iterate over {\em used} and {\em defined}
 registers.
 
 In our back end, we are dealing with the x86-64 architecture, its machine
@@ -4272,6 +4313,10 @@ components of a back end. Though for educational purposes, we want to focus on
 dealing with instruction selection and register allocation directly, and not
 focus on heuristics for solving NP-complete problems or offload the work to
 external dependencies.
+
+For the very same educational reasons we also won't use something like
+`iburg`~\cite[Fraser1992b] to generate our instruction selector from a declarative
+description of the architecture.
 
 Considering all these requirements, we decided to use {\em machine
 instructions} as the intermediate representation throughout the back end. This
@@ -4408,7 +4453,7 @@ matter of serializing the machine instructions and adding headers depending on
 the executable format (like ELF, or PE).
 
 The job of the back end is not made much easier by omission of serialization. As
-we show in later sections, the compiler has to know exactly which instructions
+we also show in later sections, the compiler has to know exactly which instructions
 it intends to emit, otherwise it could easily use non-existing addressing modes.
 This distinction is in fact similar to the distinction of a {\em mnemonic} and
 an {\em opcode} (see section~\ref[sec:x86-basics])---while assemblers expect
@@ -4417,11 +4462,11 @@ opcode.
 
 The most useful job of the assembler is then the implementation of the
 serialization rules, which are sometimes tricky on x86-64. But more usefully, it
-also handles {\em relocations}, i.e. it adds notes to either the static or
+also handles {\em relocations}, i.e. it adds notes for either the static or
 dynamic linker, which make the application work with external code. Emitting our
 own executables would mean that we could do without relocations altogether, but
 using external code is so interesting in its own right, that we prefer to
-implement it (see also section~\ref[sec:runtime-external]).
+keep the possibility (see also section~\ref[sec:runtime-external]).
 
 Our assembly still has to keep in mind what kind of executable it produces. For
 example, we choose to output {\em positional independent code}, where we refer
@@ -4506,9 +4551,14 @@ implementation and any other dependencies.
 
 \secc Assembler
 
-For the assembler, we chose NASM\urlnote{https://www.nasm.us/}. It is assembler
-intended for assembly written by humans and as such supports very readable
-syntax, unlike other assemblers like the GNU assembler.
+For the assembler, we chose NASM\urlnote{https://www.nasm.us/}. It is an
+assembler intended for consumption of programs written by humans and because of
+this, the syntax is nice to read. Additionally, it is available on wide range of
+platforms, which makes it an easy dependency to obtain.
+
+Other assemblers, like the GNU assembler, are not concerned much with human
+readability of the assembly, as they mainly consume assembly produced by
+compilers.
 
 Unfortunately, NASM, like other assemblers, cannot be linked in to our compiler
 as a library, and we will have to either call it externally or leave it up to
@@ -4521,7 +4571,7 @@ We considered the programming language by several criteria:
 \begitems
 * Suitability for compiler development.
 * Familiarity to the students of the NI-GEN course.
-* How easy it is to build and distribute the compiler.
+* How easy it is to compile and distribute the compiler.
 \enditems
 
 Languages like OCaml or Scala are great for compilers, because they offer
@@ -4535,17 +4585,19 @@ We rejected emerging languages like Zig because they are still not stable enough
 and students are not familiar with them.
 
 We deeply considered C++, because it is the language TinyC front end is written
-in. The language is improving much in each revision of the standard.
+in. But, the language is improving much in each revision of the standard.
 Because of that, there is not a single C++ to target---there is anything ranging
 from C-like C++, to very modern C++20, which is sometimes not even fully
 supported, yet (especially by older versions of compilers present for example on
 stable Linux distributions).
 
-Ultimately, we decided to implement the software in C. C can be run and compiled
-basically anywhere. It doesn't support any data structure or paradigm nicely,
-but this often means that we are able to choose the data structures most
-suitable to our exact problem. Everyone studying a TinyC compiler is also
-expected to be familiar with C.
+Ultimately, we decided to implement the software in C. C programs can compiled
+and run
+basically anywhere. While the language doesn't support any data structure or
+paradigm well,
+it often means that we are able to choose the data structures most
+suitable to our exact problem. Hopefully everybody studying a TinyC compiler is
+already familiar with C.
 
 Additionally, a back end written in C, can still be linked to and directly used
 by other projects involved in the Tinyverse.
@@ -5098,11 +5150,6 @@ use physical registers to express {\em machine constraints} (see
 section~\ref[sec:regalloc-constraints]) even before register allocation maps
 virtual registers to physical registers.
 
-Since we want to use the representation for instructions both {\em
-before} and {\em after} register allocation, and also need to express machine
-constraints we have to be able to express physical register as well as virtual
-registers simultaneously.
-
 Representing registers with integers, instead of some kind of rich object, has
 many advantages:
 
@@ -5128,10 +5175,14 @@ decided on the following:
 \begitems \style n
 * Special register value `R_NONE` is assigned the integer 0.
 
-* Physical registers are named symbolically through an enum as `R_XXX` and are
+* Physical registers are named symbolically through an enum as `R_<name>` and are
 assigned the indices 1 through the number of physical registers.
 
 * Virtual registers are all integers larger than the last physical register.
+They are denoted with `t` and their number. For example on x86-64 our first
+virtual register is `t17` (since there are 16 physical registers). But we will
+take the liberty of using any virtual registers in examples, even though on the
+x86-64 they might actually clash with physical registers.
 \enditems
 
 We considered representing virtual registers by the highest bit (or similarly
@@ -5781,6 +5832,28 @@ Figure~\ref[fig:insts] shows examples of a few x86-64 as represented in a linked
 \caption/f A machine block with a few x86-64 instructions linked in a circular
 linked list
 \endinsert
+
+\label[sec:imp-worklist]
+\secc Work lists
+
+Often we found ourselves in need of a data structure like a queue or stack,
+which would additionally allow checks of {\em presence} of elements in the queue
+or stack. Such data structure is called a work list and is used for example for
+liveness data-flow analysis (see section~\ref[sec:imp-liveness]).
+
+A right set implementation is suitable for a work list. Especially in our case,
+where our elements are mostly small integers (indices). A {\em bit set}, is
+very compact, but it doesn't support pushes or pops of elements efficiently.
+
+In the end, we extended Briggs'~\cite[Briggs1993] sparse set data structure into
+a circular buffer. The result is a set, which allows fast presence checks, is
+fast to iterate over (the elements are stored contiguously in an array) and to
+which we can either prepend or append freely.
+
+This one data structure covers almost all our needs for various different stacks,
+queues and work lists. The only downside of the data structure is its memory
+inefficiency, so we notably don't use it to represent interference graphs (see
+section~\ref[sec:imp-regalloc-graphs]).
 
 \label[sec:imp-critical-edge]
 \sec Critical edge splitting
@@ -7783,7 +7856,7 @@ struct RegAllocState {
 	[...]
 	WorkList block_work_list;
 	WorkList live_set;
-	WorkList *live_in;
+	WorkList *live_in; // WorkList for each block
 	[...]
 }
 \endtt
@@ -7835,16 +7908,20 @@ Now that we know which virtual registers are live at different program points,
 we use them to construct the {\em interference graph}.
 
 Formally, two virtual registers interfere when they are live at the same
-time~\cite[Chaitin1981] TODO refer to interference definition. We can find the live-set for each program point by
+time (definition~\ref[def:interference]). We can find the live-set for each program point by
 iterating over all blocks (in any order) and instructions (backwards)
 maintaining a live-set with the `live_step` function. But adding interference
 between all $\ell$ live in the live-set would mean adding $\ell \cdot (\ell - 1)$ at each
 program point---this is both expensive and adds too many edges repeatedly if
 virtual registers are alive for longer periods of times.
 
-Instead Chaitin~\cite[Chaitin1981] suggests to use a different notion of
-interference: \"{\em two virtual registers interfere if one of them is live at
-the definition point of other}" TODO second definition. This translates much better to an
+Instead Chaitin~\cite[Chaitin1981] suggests a more practical notion of
+interference:
+
+\definition[Interference] Two virtual registers {\em interfere} if one of them is
+live at the definition point of other.~\cite[Chaitin1981]
+
+This definition translates much better to an
 implementation, because this means at each instruction adding interference for
 all definitions in that instruction with all $\ell$ members of live-set (thus for
 most instruction this is $\ell$ edges, in general $c \cdot \ell$, where $c$ is a
@@ -8184,7 +8261,7 @@ the algorithm.
 The main loop of IRC interleaves {\em simplification} and {\em conservative
 coalescing}. This leads to more coalescing, while still being as safe as earlier
 approach. The main
-loop's purpose apart from the coalescing is mainly to push all the nodes on to a
+loop's purpose apart from the coalescing is to push all the nodes on to a
 stack, even the potential spills, because we use optimistic coloring. The actual
 coloring of the graph is handled in a later stage, which is common to other
 approaches like Briggs' and uses the order imposed by the stack for
@@ -9253,28 +9330,30 @@ REX prefix byte (see section~\ref[sec:x86-64]).
 \label[sec:runtime]
 \sec Runtime
 
-Programs output by our compiler like all programs will need to interact with the
-operating system in two crucial ways:
+Programs output by our compiler like all non-toy programs will need to interact
+with the operating system in two crucial ways:
 
 \begitems
-* The operating system needs to transfer the control to an entry point of the
+* The operating system needs to transfer the control to the entry point of the
 program.
 * The program will need to call routines provided by the operating system.
 \enditems
 
 Even successfully exitting the program involves a request to the operating
-system (e.g. a call to the `exit` function of standard C). As
-mentioned in~\ref[sec:x86-os], on most platforms the C library is the {\em only}
+system (e.g. through a call to the `exit` function of standard C). As
+mentioned in section~\ref[sec:x86-os], on most platforms the C library is the {\em only}
 way to make requests to the operating system. On others, it is possible to
 perform syscalls directly if they have stable system call interface. Linux is
 known for such stability, but most applications still perform system calls
-through a C library, such as glibc.
+through a C library, such as glibc\urlnote{https://www.gnu.org/software/libc/}.
 
 Startup is also usually handled by the C library. The program loader in the
 Linux kernel jumps to the entry point address listed in the ELF binary, and
 while it passes some data to the program by writing it to its address space, it
-doesn't call `main` nor prepares its arguments. This startup is also handled by
-the {\em runtime component}, which is linked into the application.
+doesn't call `main` nor prepares its arguments. The transition from entry point
+to `main` is handled by the {\em runtime component}\fnote{In C it is sometimes
+associated with the acronym CRT---{\em C runtime}.}, which is linked into the
+application.
 
 In following subsection, we demonstrate how TinyC programs are able to be linked
 with the system C library, and call its functions and how TinyC programs can
@@ -9283,13 +9362,13 @@ perform system calls directly.
 Our implementation supports both behaviours. Though performing system calls
 directly is a bit bare bones, as no further abstractions are provided at the
 moment. Both of the approaches are mainly intended to showcase how TinyC the
-language needs to get extended, since as of now it doesn't support calls to
+language would need to be extended, since as of now it doesn't support calls to
 external functions or variable number of arguments.
 
 \label[sec:runtime-external]
 \secc External C library
 
-As we fully implement the System V ABI, programs produced by us are fully able
+As we fully implement the System V ABI. Programs produced by us are fully able
 to use the existing C libraries. They still have to be linked correctly to the C
 library's runtime. We shall consider the following example:
 
@@ -9311,7 +9390,7 @@ function. As it won't see any definition of it, it will presume it to be an
 external function. 
 * We define a `main` function receiving two arguments. First one is 32-bit,
 passed in register `rdi`, second is 64-bit pointer passed in `rsi` and the
-return value is be saved into `rax`.
+return value is to be saved into `rax`.
 * The external function `puts` gets called with the 0th argument (the program
 name).
 \enditems
@@ -9341,20 +9420,20 @@ was in TinyC: the function will be provided externally and only resolved when
 
 * The `main` function is marked as {\em exported}. This makes the label into a
 symbol in the resulting object file, and thus it will be findable by other
-linked object files or libraries.
+linked object files or libraries, like the C runtime, which calls it.
 
 * The call to `puts` is marked with `wrt ..plt` which makes NASM emit the call as
 call through the {\em procedure linkage table}. We do this to get a {\em position
 independent executable}.
 \enditems
 
-This can then be assembled into an ELF object file with `nasm`:
+The assembly can then be assembled into an ELF object file with `nasm`:
 
 \begtt
 nasm -f elf64 -o prog.o prog.asm
 \endtt
 
-The final executable can be linked together with the system linker `ld`:
+The final executable is then linked together with the system linker `ld`:
 
 \begtt
 ld -pie -m elf_x86_64 -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o prog
@@ -9364,13 +9443,15 @@ ld -pie -m elf_x86_64 -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o prog
 \endtt
 %
 Apart from requesting linking into a position independent executable ELF x86-64
-executable, the ELF interpreter (\"dynamic linker") is set to its standard path.
+executable, the ELF interpreter (\"dynamic linker") is set to its standard
+path~\cite[SysVABI].
 The following three ELF files are linked together:
 
 \begitems
-* `Scrt1.o`, which contains the `_start` entry point. `_start` is marked as
+* `Scrt1.o`, which contains the `_start` symbol. `_start` is marked as
 entry point by the linker's default linker script. The final address of `_start`
-will be the ELF entry point, where the execution will start.
+will be marked in the ELF as the entry point, i.e. the address where the
+kernel will jump to.
 * `prog.o`, our object file, which contains `main`.
 * `/usr/lib/libc.so`, the dynamic library ({\em shared object}) version of the C
 standard library, containing `puts` amongst others. Will be only linked at
@@ -9389,7 +9470,7 @@ respectively). Since our program didn't need them, we didn't need to link them.
 But the C dynamic library {\em could} need them. We are in dangerous zone of
 compiler and C library specific details. It is usually better to use the C
 compiler's driver to figure out the linker command line. Such driver is the
-`gcc` command for the GCC compiler. With the driver, it is also much easier to
+`gcc` command of the GCC compiler. With the driver, it is also much easier to
 use {\em static linking} or an alternative library like {\em musl}:
 
 \begtt
@@ -9403,10 +9484,10 @@ The actual linker invocation can be then found by adding the `-v` flag.
 
 \secc Custom runtime
 
-An equivalent program can be created without running the C library. For
+An equivalent program can be created without using the C library. For
 simplicity and presentation purposes, we will substitute the `puts` function
 with a simple write of 6 characters (without a new line), to avoid having to
-figure out the length of the program name etc. We will just illustrate the
+figure out the length of the program name, etc. We will just illustrate the
 runtime portion which will run the program's `main` function, perform a system
 call and exit the program with `main`'s return value as exit code.
 
@@ -9436,7 +9517,8 @@ _start:
 \endtt
 %
 Since we are guaranteed that the stack is aligned to 16 bytes, we don't have to
-realign it.
+realign it before calling `main` (which, like all functions respecting the System
+V ABI, expects the stack to be 16 byte aligned).
 
 To add system call support, we need to translate from the System V {\em C ABI}
 to the System V {\em Linux kernel ABI} and to perform the system call with the
@@ -9468,11 +9550,11 @@ apparent:
 \begitems
 * The function works for any number of arguments. Six is the maximum
 number of arguments any system call has. If a syscall needs less than 6
-arguments, the kernel won't read the other registers that we set. The argument
-registers don't have to be preserved according to the C calling convention,
-so it doesn't matter that we change them. The read from the stack is benign,
-even if it reads an invalid value---if it isn't a valid value, because there are
-less than 6 arguments, the kernel won't look at it.
+arguments, the extraneous parameters simply won't be read. This is also the
+reason why the read of the 7th parameter from the stack is benign.
+The argument registers don't have to be preserved according to the C calling
+convention, so it doesn't matter that we change them.
+
 * Callee saved registers (`rbp`, `rbx`, and `r12` through `r15`) are preserved,
 since neither our function nor the kernel changes them. (The kernel changes only
 `rcx` and `r11` and only due to them being used implicitly by the `syscall`
@@ -9483,7 +9565,7 @@ register (`rax`).
 
 Essentially we have a variable argument function without using `va_list`. But
 the caller can still pass us arguments using the C ABI and as long as there are
-no more than 7 we understand them (and there shouldn't actually be more than 7).
+no more than 7, we can understand them (and there shouldn't actually be more than 7).
 In TinyC we can make the function available with the following declaration:
 
 \begtt
@@ -9511,11 +9593,15 @@ int write(int fd, void *buf, int count) {
 \endtt
 
 With wrappers for all usual system calls, we can hide the ugly implementation
-details from the users. With the use of the wrappers, entire C library could be
-implemented.
+details from the users.
+
+A few wrappers for system calls like `open`, `close`, `read`, `write` (input and
+output) `mmap`, `munmap` (memory mapping, allocation) and `exit` go a long way
+towards a base on top of which a C library could be implemented.
 
 \sec Live range splitting
 
+\label[sec:imp-middle-opt]
 \sec Middle end
 
 As no complete front end nor middle end for TinyC was available when work on
@@ -9531,18 +9617,18 @@ optimizations that our back end isn't able to currently do.
 \secc Jump threading
 
 We perform a bit of {\em jump threading} optimization, which removes
-some edges needlessly inserted by our simplistic front end. Sometimes in the
-process of redirecting control flow we introduce {\em critical edges}. We
-actually split them later (see section~\ref[sec:imp-critical-edge]), but keeping
+some control flow edges needlessly inserted by our simplistic front end.
+Sometimes by the threading we we introduce {\em critical edges}. We
+split them again later (see section~\ref[sec:imp-critical-edge]), but keeping
 them unsplit at least temporarily allows for simpler control flow on which we do
 the next optimization.
 
-\secc Simple alias analysis
+\label[sec:imp-value-number]
+\secc Value numbering SSA construction
 
 We perform a very weak form of \"alias analysis" on stack slots (what used to be
-TinyC local variables), which lets us often transform them into values
-respecting SSA, and remove the load and store operations that semantically
-happen for all C local variables.
+TinyC local variables) and in simple cases are able to optimize them into values
+respecting SSA, replacing the former loads and stores.
 
 Since values in our implementation translate to virtual registers, this
 essentially means that we replace memory operations by operations on registers.
@@ -9553,7 +9639,7 @@ The simple alias analysis notices that any stack slot, which is only involved in
 operations that either load or store to it, can be treated as a simple variable
 on which we can apply SSA construction. Other uses of the stack slot {\em could}
 mean that the stack slot value (which is a constant, pointer to the stack slot),
-is {\em aliased} and written to by other stores. This is very weak, as it aborts
+is {\em aliased} and written to by other stores. This analysis is very weak, as it aborts
 in cases where there are in fact no aliases. But in our experience it is
 powerful enough and is able to eliminate many {\em scalar} \"stack allocated
 variables". Our analysis doesn't attempt to optimize {\em aggregates} (structs)
@@ -9561,9 +9647,11 @@ or {\em arrays}.
 
 When optimizable stack slots are identified, the stores and loads are regarded
 as assignments and reads, which can be used with any SSA construction method. We
-use Braun's method~\cite[Braun2013], which is simple and
-intuitive---$\phi$-function operands are inserted by querying predecessors.
-Handling of cycles and speed are achieved with elegant memoization.
+use Braun's method~\cite[Braun2013], which can be used for SSA repairs. The
+algorithm is conceptually simple and intuitive: it works like global value
+numbering, but reads $\phi$-function operands by recursively querying
+predecessor blocks. Handling of cycles and speed are achieved with elegant
+memoization.
 
 \label[chap:evaluation]
 \chap Evaluation
@@ -9632,9 +9720,116 @@ instruction, while GCC's RTL is actually tree based.
 Unfortunately, it is not straightforward to compare just the back ends. As both
 compilers (ours and GCC) have very low level and different program
 representations, we can't even generate a code that would be an equivalent
-starting point for both. Our compiler itself has only few middle end optimizations (
+starting point for both. Our compiler itself has only few middle end
+optimizations (see section~\ref[sec:imp-middle-opt]).
 
-Srovnání s GCC apod.
+Still we decided to do at least some comparison against GCC. We focused on a
+simple implementation of the Sieve of Eratosthenes. It exercises quite a few
+components of the implementation:
+
+\begitems
+* `char`s and bit arrays from `int`s,
+* Plenty constants and memory addressing for better use of addressing modes.
+* Control flow in doubly nested loops. If value numbering SSA construction
+(section~\cite[sec:imp-value-number]) is used, then placement of
+cyclic $\phi$-operations in the doubly nested loops is tested.
+\enditems
+
+As a benchmark, the Sieve is mainly CPU bound, not I/O bound, which is a must
+for any similar benchmark. We implemented three versions of the sieve in two
+languages---TinyC and C. The benchmarks had to be implemented separately,
+to keep the behavior the same. For example, while TinyC integers are 64-bit, the
+equivalent type in C on x86-64 is `long`. The three different versions were:
+
+\begitems
+* `sieve`. Using `char` array with a bit per byte.
+* `sieve-bit`. Using `int` (64-bit integer) array with a 64-bits per element.
+* `sieve-bit-cse`. Using `int` (64-bit integer) array with a 64-bits per
+element. Additionally, eliminates a common subexpression.
+\enditems
+
+The first version is the real benchmark we started with. Then we investigated
+how the two compilers would fare with a fairly high number of bit twiddling
+operations. In the bit set implementation, there was also a common
+subexpression, that our compiler is not able to eliminate. We eliminated it
+manually, to try to aid comparison. The results are in
+table~\ref[tab:benchmark].
+
+\midinsert
+%\thistable={\tabiteml={}\tabitemr={}\rulewidth=.2pt}
+%\thistable={\tabiteml={}\tabitemr={}\rulewidth=.2pt}
+\tabskip=-2pt
+\label[tab:benchmark]
+\caption/t Benchmark of Sieve of Eratosthenes [ms]
+\cskip
+\ctable{l c c c c c c c c}{\crtop
+          & \mspan3[c]{GCC} && \mspan4[c]{Our implementation} \crlp{2-4,6-9}
+	       & `-O2` & `-O1`& `-O0` && P, V & V\tnote{Value numbering SSA construction enabled}    &  P\tnote{Peephole optimization enabled}   & --   \crmid
+sieve          & 1477  & 1475 &  2114 && 1622 & 1751 & 2066 & 2730 \cr
+sieve-bit      &  954  &  931 &  1915 && 1475 & 2009 & 1905 & 3060 \cr
+sieve-bit-cse  &  951  &  935 &  1918 && 1269 & 1760 & 1938 & 2705 \crbot
+}
+\typoscale[800/800]
+\tnoteprint
+\endinsert
+
+We tested with various optimization levels in both GCC and in our
+implementation. Since our implementation only has two important optimizations
+(value numbering SSA construction in the middle end and peephole optimization in
+back end), we tested all combinations.
+
+We can see, that the unoptimized version of our compiler was still quite a bit
+slower (2730 ms) than unoptimized GCC version. After looking at the assembly, it
+makes sense. Without optimization of stack slots, both GCC and our
+implementation do a lot of memory operations. But our very naive code
+generations creates a lot of very verbose code, that just runs slower. We
+haven't really intended for peephole optimization to be omitted.
+
+With stack slot elimination, and peephole optimization, we get almost within
+10 \% of GCC, which seems to not be able to make more optimizations to the code
+after the `-O1` level. Surprisingly, the `-O1` is consistently a bit faster, but
+the since the observed deviation is about 8 ms, we can also attribute it to
+measuring error. No immediately obvious differences are in the `-O2` and `-O1`
+code. Looking at the assembly of our compiler's optimized version, it looks like
+a version somebody would write by porting the C code to assembly---there are no
+excessive uses of stack, the register use looks reasonable, and the control flow
+is one-to-one the same as in the TinyC version, which makes sense, since we
+don't do any big control flow transformations.
+
+The big amount of eliminated memory operations is likely the reason why SSA
+construction fares much better individually, then peephole optimization for the
+`sieve` benchmark. Even with our peephole optimizer we don't get much faster
+then GCC's `-O0`. It seems that with GCC's `-O0` doesn't do any stack slot
+elimination, but there are still apparent uses of advanced addressing modes e.g.
+`lea` is used for multiplication by 8.
+
+For the second round of benchmarks with bit set implemented with 64-bit
+integers, we see that GCC is able to be much faster then we are. GCC is much
+better at improving the control flow and the use of arithmetic instructions. But
+an improvement can be seen in the third benchmark, which has the common
+subexpression eliminated. This removes a fair amount of shifts, as the common
+subexpression looks like this (and is in a hoot loop):
+
+\begtt
+not_prime[i >> 6] = not_prime[i >> 6] | (1 << (i & 63));
+\endtt
+%
+This is easily fixable in ordinary C, where there are arithmetic assignment
+operators. In TinyC we simulated the with the following:
+
+\begtt
+int *prim = &not_prime[i >> 6];
+*prim = *prim | (1 << (i & 63));
+\endtt
+
+The elimination depends on elimination of the temporary from stack to actually
+be more efficient. Which is why we see that the peephole optimizing version is a
+bit slower on the CSE benchmark.
+
+We think our back end did well. Most of the difference in speed seems to be
+coming from the middle end.
+
+\sec TinyC extensions
 
 Potřebné Rozšíření TinyC - vararg, unsigned, narrow types, external functions
 
@@ -9760,20 +9955,22 @@ be carefully evaluated before they needlessly complicate things for students.
 \usebib/s (iso690) vlasami6-dip
 }
 
-\glos {DAG} {directed acyclic graph}
-\glos {JIT} {just-in-time (compiler)}
-\glos {SSA} {static single assignment}
-\glos {RISC} {reduced instruction set computer}
-\glos {CISC} {complex instruction set computer}
-\glos {ALU} {arithmetic logic unit}
-\glos {CFG} {control-flow graph}
-\glos {IRC} {iterated register coalescing~\cite[George1996]}
-\glos {IR} {intermediate representation}
-\glos {AST} {abstract syntax tree}
-\glos {OS} {operating system}
+\glos {DAG} {Directed acyclic graph}
+\glos {JIT} {Just-in-time (compiler)}
+\glos {SSA} {Static single assignment}
+\glos {RISC} {Reduced instruction set computer}
+\glos {CISC} {Complex instruction set computer}
+\glos {ALU} {Arithmetic logic unit}
+\glos {CFG} {Control-flow graph}
+\glos {IRC} {Iterated register coalescing~\cite[George1996]}
+\glos {IR} {Intermediate representation}
+\glos {AST} {Abstract syntax tree}
+\glos {OS} {Operating system}
 \glos {GCC} {GNU compiler collection}
 \glos {ELF} {Executable and Linkable Format}
 \glos {PE} {Portable Executable}
+\glos {CRT} {C runtime}
+\glos {CSE} {common subexpression elimination}
 
 \app Acronyms
 \makeglos
