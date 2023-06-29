@@ -14,8 +14,6 @@
 
 \toksapp\everylist{\toksapp\everytt{\hsize=\dimexpr\hsize-\iindent\relax}}
 
-\draft
-
 \def\definition {\numberedpar B{Definition}}
 
 \newcount \_secccnum
@@ -109,13 +107,53 @@
 \department{Department of Theoretical Computer Science}
 \title  {x86-64 native backend for TinyC}
 \titleCZ{x86-64 nativní backend pro TinyC}
-\author{Bc. Michal Vlasák}
-\date{XX.\,XX.\,TODO}
-\supervisor{Ing. Petr Máj}
+\author{Bc.\ Michal Vlasák}
+\date{June 29, 2023}
+\supervisor{Ing.\ Petr Máj}
 \abstractEN {
+This thesis describes a compiler back end compiling TinyC IR to x86-64 native
+machine code. The goal was to create a compiler that would showcase additional
+difficulties imposed by the x86-64 architecture, especially compared to the
+simplified Tiny86 architecture targeted by students in the NI-GEN course.
+
+In the theoretical part a close attention is paid to x86-64's history and the true
+nature of its limitations. Existing compiler back end research is surveyed and
+evaluated with respect to x86-64's capabilities.
+
+A design for a x86-64 TinyC back end is presented. It is based on instruction selection
+by extensive peephole optimization and graph coloring register allocation. The
+implementation itself is presented thoroughly and many practical details are
+considered and explained.
+
+The compiled programs are either able to use the system C runtime, or on Linux
+can be bundled with a custom minimalistic runtime allowing the programs to run
+without any dependencies.
+
+The text of this thesis and the implementation are freely available, and can
+be used not only by NI-GEN students.
 }
 
 \abstractCZ {
+Tato práce popisuje backend překladače, který kompiluje TinyC mezireprezentaci do
+nativních x86-64 instrukcí. Cílem bylo vytvořit překladač, který by ukázal
+složitosti spojené s architekturou x86-64, zvláště pak ve srovnání s
+architekturou Tiny86, kterou používají studenti předmětu NI-GEN.
+
+V teoretické části je dán zvláštní zřetel na historii architektury x86-64 a
+pravou podstatu jejích omezení. Je vyhodnocen dosavadní výzkum v oblasti
+backendů překladačů a to s přihlédnutím k možnostem architektury x86-64.
+
+Práce prezentuje návrh x86-64 TinyC backendu. Ten je založen na výběru instrukcí
+extenzivní peephole optimalizací a na alokaci registrů barvením grafů.
+Implementace samotná je důkladně rozebrána a mnoho praktických detailů je
+zváženo a vysvětleno.
+
+Přeložené programy mohou buď využít systémový runtime jazyka C, nebo na Linuxu
+mohou být rozšířeny o vlastní minimalistický runtime dovolující programům běžet
+bez externích závislostí.
+
+Text této práce a implementace jsou volně dostupné a mohou být použity
+nejen studenty předmětu NI-GEN.
 }
 
 \keywordsEN {%
@@ -149,7 +187,7 @@ the Work in any manner that does not diminish the value of the Work and for any
 purpose (including use for profit). This authorisation is unlimited in time,
 territory and quantity.
 \vskip1cm
-\hfill In Prague on June 28, 2023
+\hfill In Prague on June 29, 2023
 \vskip2mm
 \hfill Michal Vlasák
 \null
@@ -164,21 +202,6 @@ territory and quantity.
 \makefront
 
 \chap Introduction
-
-TODO:
-
-\begitems \style n
-
-* Register classes (byte registers)
-
-* Lowering / překlad z middle endu do back endu chce rozšířit. Vysvětlit všechny
-různé konstrukce jako calling conventions, argumenty, alloca instrukce apod.
-Taky chary a struktury.
-
-* Instruction scheduling -> non-pessimization e.g. setcc + movzx
-
-* Optimalizace flagu u setcc a branchi
-\enditems
 
 %Computers are useful tools that accept programs and input data and produce other
 %data as output. Most computers are based on the binary numeral system---they use
@@ -4647,8 +4670,9 @@ itself, the chances of saturating execution units in a processor are only
 becoming smaller. Instead of specifically {\em optimizing} the instruction order
 for scheduling, we instead try to not introduce unnecessary {\em additional
 dependencies}, which is what makes any code scheduling (static or dynamic) more
-complicated, and the code ultimately slower on a superscalar processor. See for
-example section TODO comparison lowering.
+complicated, and the code ultimately slower on a superscalar processor. Notably
+this includes our use of the `setcc` instruction, where we avoid partial
+dependencies.
 
 More complicated instruction selection mechanisms on specialized IRs have
 problems with ensuring correctness, because they may not be able to find a
@@ -6705,19 +6729,98 @@ support in the front end, our implementation could easily support this by
 translating basic blocks similarly as functions. After all, in assembly they are
 just labels, and the only difference is in calling conventions.}
 
-\secc Labels
-
 \secc Stack slots
 
-\secc Prologue
+Currently stack slots are handled with `Alloca`, which is a weird mix between an
+actual instruction (akin to C's `alloca`) and a constant. We embed `alloca`s
+in control flow, and not hold them separately, like for example function
+arguments. But we also evaluate them as constants, i.e. they don't actually
+allocate memory dynamically.
 
-\secc Epilogue
+We might fully switch to either the dynamic operation or static constant in the
+future. For now it works for ordinary TinyC programs.
+
+\label[sec:imp-lowering-prologue-epilogue]
+\secc Prologue and epilogue
+
+For prologue, we choose to always establish a base pointer `rbp`. The one free
+register that we could gain by not using it as a base pointer is not worth it,
+in our opinion. Establishing the stack frame is very useful for debugging and
+to human readers of the code.
+
+Hence all our functions are wrapped in:
+
+\begtt \optparams
+push rbp
+mov rbp, rsp
+sub rsp, 42
+[...]
+mov rsp, rbp
+pop rbp
+ret
+\endtt
+%
+Additionally, in the prologue, we reserve the needed stack space with a sub
+instruction. As we don't yet known how much stack space will be required
+(because spills may be introduced to the stack), we just add a dummy constant to
+be replaced later. We can't use zero, because peephole optimizer would optimize
+the instruction as unuseful.
+
+Saves and restores of all callee saved registers were already explained
+elsewhere. But importantly we also copy the arguments from the calling
+convention registers to the virtual registers associated with the `Argument`.
+E.g. for the first argument with a value index 17, we might emit the following
+copy instruction:
+
+\begtt
+mov t17, rdi
+\endtt
+
+This is yet another form of live range splitting. Though the situation is a
+little bit different with arguments passed on the stack. There we issue a load
+instruction instead. E.g. for the 7th argument:
+
+\begtt
+mov t23, [rbp+16]
+\endtt
 
 \secc Narrow types
 
+TinyC supports `char`s as well as `int`s. In our implementation we chose to go
+with C's semantics, where most narrow integer types get promoted to `int` before
+any other operation.
+
+As a result, in our type system and implementation, there are only two
+instructions which know about 8-bit `char`s---loads and stores. For this we
+introduce special subkind for 8-bit store (`MOV8`) and a sign extending load
+(`MOVSX8`). The stores naturally restrict the range through the use of 8-bit
+register parts (e.g. `al`). Sign extension is able to read a byte from memory
+and store it into a full 64-bit register.
+
 \secc Signedness
 
-\secc Structs
+Our back end fully supports both signed and unsigned operations. This is
+currently mostly unused, since TinyC the language has only signed types.
+
+Interestingly, adding support for unsigned operations in the back end is just a
+matter of adding the 4 unsigned comparisons to `translate_value`, as well as
+unsigned division:
+
+\begtt
+case VK_UDIV:
+	translate_div(ts, res, ops[0], ops[1], SK_UNSIGNED, DR_QUOTIENT);
+	break;
+case VK_UREM:
+	translate_div(ts, res, ops[0], ops[1], SK_UNSIGNED, DR_REMAINDER);
+	break;
+case VK_ULT:  translate_cmpop(ts, CC_B, res, ops[0], ops[1]); break;
+case VK_ULEQ: translate_cmpop(ts, CC_BE, res, ops[0], ops[1]); break;
+case VK_UGT:  translate_cmpop(ts, CC_A, res, ops[0], ops[1]); break;
+case VK_UGEQ: translate_cmpop(ts, CC_AE, res, ops[0], ops[1]); break;
+\endtt
+
+Instead of performing sign extension with `cqo`, unsigned division can just
+zero out the upper 64-bits of the dividend (`rdx`).
 
 \sec Peephole optimization
 
@@ -10226,5 +10329,36 @@ be carefully evaluated before they needlessly complicate things for students.
 
 \app Acronyms
 \makeglos
+
+\label[app-filelist]
+\app Contents of the electronic attachment
+
+The electronic attachment contains the following directories:
+
+{\let\catcode=\_catcode
+\catcode"60=12
+\input dirtree
+
+\smallskip
+\dirtree{%
+  .1 /.
+  .2 benchmarks\DTcomment{directory with benchmarks}.
+  .3 out\DTcomment{directory with benchmark results}.
+  .3 run_benchmarks.sh\DTcomment{script for running the benchmarks}.
+  .2 examples\DTcomment{directory with examples}.
+  .2 ref\DTcomment{a folder with reference outputs of tests}.
+  .2 src\DTcomment{directory with C sources}.
+  .2 tests\DTcomment{a folder with test files}.
+  .2 text\DTcomment{source code of the text of the thesis}.
+  .3 figures\DTcomment{figures used in the thesis}.
+  .3 vlasami6-dip.pdf\DTcomment{text of the thesis in the PDF format}.
+  .3 vlasami6-dip.tex\DTcomment{\TeX/ source of the thesis}.
+  .3 vlasami6-dip.bib\DTcomment{bibliography in Bib\TeX/}.
+  .2 meson.build\DTcomment{configuration for the Meson\urlnote{https://mesonbuild.com/} build system}.
+  .2 README.md\DTcomment{electronic attachment description}.
+  .2 test.sh\DTcomment{testing script}.
+}
+\bigskip
+}
 
 \bye
