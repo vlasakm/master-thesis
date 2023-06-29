@@ -67,3 +67,18 @@ The `-f` flags can be turned either on or off. Only the non default option is sh
 - `-fno-number-values`, disable SSA construction by value numbering.
 - `-fno-peephole`, disable peephole optimization (both before and after register allocation).
 - `-flinux-freestanding`, provide `syscall` function and don't link with the C library.
+
+### Example usage
+
+```
+meson setup build
+meson compile -C build
+
+# with libc `syscall`
+build/tcg -o syscall examples/syscall.tc
+build/tcg -S -o syscall.asm examples/syscall.tc
+build/tcg -c -o syscall.o examples/syscall.tc
+
+# with custom runtime
+build/tcg -o syscall -flinux-freestanding examples/syscall.tc
+```
