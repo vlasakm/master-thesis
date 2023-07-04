@@ -1,6 +1,0 @@
-access:
-  '*':
-    /:
-      allow:
-        - vlasami6
-        - majpetr
