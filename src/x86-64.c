@@ -41,22 +41,22 @@ static const char *reg_repr8[] = {
 };
 
 static const char *cc_repr[] = {
-	"o",
-	"no",
-	"b",
-	"ae",
-	"z",
-	"nz",
-	"be",
-	"a",
-	"s",
-	"ns",
-	"p",
-	"np",
-	"l",
-	"ge",
-	"le",
-	"g",
+	[CC_O]  = "o",
+	[CC_NO] = "no",
+	[CC_B]  = "b",
+	[CC_AE] = "ae",
+	[CC_Z]  = "z",
+	[CC_NZ] = "nz",
+	[CC_BE] = "be",
+	[CC_A]  = "a",
+	[CC_S]  = "s",
+	[CC_NS] = "ns",
+	[CC_P]  = "p",
+	[CC_NP] = "np",
+	[CC_L]  = "l",
+	[CC_GE] = "ge",
+	[CC_LE] = "le",
+	[CC_G]  = "g",
 };
 
 CondCode
@@ -98,19 +98,18 @@ cc_read_flags(CondCode cc)
 		UNREACHABLE();
 	}
 }
-
 static const char *g1_repr[] = {
-	"add",
-	"or",
-	"adc",
-	"sbb",
-	"and",
-	"sub",
-	"xor",
-	"cmp",
+	[G1_ADD]  = "add",
+	[G1_OR]   = "or",
+	[G1_ADC]  = "adc",
+	[G1_SBB]  = "sbb",
+	[G1_AND]  = "and",
+	[G1_SUB]  = "sub",
+	[G1_XOR]  = "xor",
+	[G1_CMP]  = "cmp",
 
-	"imul",
-	"test",
+	[G1_IMUL] = "imul",
+	[G1_TEST] = "test",
 };
 
 static const char *g2_repr[] = {
