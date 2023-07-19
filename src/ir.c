@@ -477,6 +477,8 @@ print_globals(FILE *f, Module *module)
 	for (size_t i = 0; i < module->global_cnt; i++) {
 		Global *global = module->globals[i];
 		print_str(f, global->name);
+		fprintf(f, ": ");
+		print_type(f, global->base.type);
 		if (global->init) {
 			fprintf(f, " = ");
 			print_value(f, global->init);
