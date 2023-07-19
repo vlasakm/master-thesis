@@ -28,7 +28,8 @@ add2:
 .L0:
 	push rbp
 	mov rbp, rsp
-	lea rax, [rdi-2147483648]
+	mov rax, 2147483648
+	lea rax, [rdi+rax]
 	mov rsp, rbp
 	pop rbp
 	ret
@@ -39,7 +40,8 @@ add3:
 	push rbp
 	mov rbp, rsp
 	mov rax, rdi
-	sub rax, -2147483648 ; W
+	mov rcx, 2147483648
+	sub rax, rcx ; W
 	mov rsp, rbp
 	pop rbp
 	ret
@@ -50,7 +52,18 @@ add4:
 	push rbp
 	mov rbp, rsp
 	mov rax, rdi
-	sub rax, -2147483647 ; W
+	mov rcx, 2147483649
+	sub rax, rcx ; W
+	mov rsp, rbp
+	pop rbp
+	ret
+
+	global add5
+add5:
+.L0:
+	push rbp
+	mov rbp, rsp
+	lea rax, [rdi-2147483648]
 	mov rsp, rbp
 	pop rbp
 	ret
@@ -86,6 +99,10 @@ main:
 	call print
 	mov rdi, 10
 	call add4
+	mov rdi, rax
+	call print
+	mov rdi, 10
+	call add5
 	mov rdi, rax
 	call print
 	xor rax, rax ; W

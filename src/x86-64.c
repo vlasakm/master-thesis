@@ -327,17 +327,16 @@ get_imm64(Inst *inst)
 	return ((u64) inst->ops[1]) | ((u64) inst->ops[2] << 32);
 }
 
-static bool
-is_imm32(u64 value)
-{
-	u32 high = value >> 32;
-	return high == 0 || high == UINT32_MAX;
-}
-
 u64
 sext_imm32(Oper op)
 {
 	return (op & 0x80000000) ? (0xFFFFFFFF00000000 | op) : op;
+}
+
+static bool
+is_imm32(u64 value)
+{
+	return sext_imm32(value & 0xFFFFFFFF) == value;
 }
 
 bool

@@ -18,6 +18,10 @@ int add4(int a) {
     return a - 2147483649;
 }
 
+int add5(int a) {
+    return a + -2147483648;
+}
+
 void print(int a) {
     printf("%ld\n", a);
 }
@@ -31,5 +35,7 @@ int main() {
     print(add3(10));
     // > -2147483639
     print(add4(10));
+    // > -2147483638
+    print(add5(10));
     return 0;
 }
