@@ -12,6 +12,7 @@ typedef enum {
 	TY_CHAR,
 	TY_INT,
 	TY_POINTER,
+	TY_ARRAY,
 	TY_FUNCTION,
 	TY_STRUCT,
 } TypeKind;
@@ -24,6 +25,12 @@ typedef struct {
 	Type base;
 	Type *child;
 } PointerType;
+
+typedef struct {
+	Type base;
+	Type *child;
+	size_t size;
+} ArrayType;
 
 typedef struct {
 	Str name;
@@ -57,6 +64,7 @@ extern Type TYPE_VOID;
 extern Type TYPE_INT;
 extern Type TYPE_CHAR;
 extern PointerType TYPE_CHAR_PTR;
+extern PointerType TYPE_VOID_PTR;
 
 size_t type_size(Type *type);
 size_t type_alignment(Type *type);
@@ -70,6 +78,10 @@ Type *type_pointer(Arena *arena, Type *child);
 bool type_is_pointer(Type *pointer_type);
 
 Type *pointer_child(Type *pointer_type);
+
+Type *type_array(Arena *arena, Type *child, size_t size);
+
+bool type_is_array(Type *type);
 
 Type *type_function(Arena *arena, Type *ret_type, Parameter *parameters, size_t param_cnt, bool vararg);
 

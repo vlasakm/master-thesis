@@ -1,0 +1,35 @@
+// vim: ft=c et sw=4
+
+struct S {
+    int a;
+    char b;
+    int c;
+};
+
+struct Q {
+    int a;
+    char b[2];
+    int c;
+};
+
+int printf(char *, ...);
+
+Q b;
+
+int main() {
+    S a;
+    a.a = 5;
+    a.b = 'a';
+    a.c = 3;
+    b.a = 20;
+    b.b[0] = 'b';
+    b.b[1] = 'c';
+    b.c = 21;
+
+    // > 5 97 3
+    printf("%ld %ld %ld\n", a.a, a.b, a.c);
+    // > 20 98 99 3
+    printf("%ld %ld %ld %ld\n", b.a, b.b[0], b.b[1], b.c);
+
+    return 0;
+}

@@ -6,12 +6,14 @@ G:
 
 	section .bss
 H:
-	resq	1
+	resb	8
 a:
-	resq	2
+	resb	16
 
 	section .text
 
+
+	extern memcpy
 
 	global f
 f:

@@ -15,6 +15,8 @@ $str3:
 	section .text
 
 
+	extern memcpy
+
 	extern printf
 
 	global f

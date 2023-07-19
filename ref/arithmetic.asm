@@ -7,6 +7,8 @@
 	section .text
 
 
+	extern memcpy
+
 	global f1
 f1:
 .L0:

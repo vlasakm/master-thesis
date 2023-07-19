@@ -21,6 +21,8 @@ $str6:
 	section .text
 
 
+	extern memcpy
+
 	extern printf
 
 	global sll

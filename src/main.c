@@ -190,12 +190,12 @@ print_nasm(FILE *f, Module *module)
 	for (size_t i = 0; i < module->global_cnt; i++) {
 		Global *global = module->globals[i];
 		Oper size = type_size(pointer_child(global->base.type));
-		Oper count = size / type_size(&TYPE_INT);
+		Oper count = size;
 		if (!global->init) {
 			//fprintf(f, "\talign 8\n");
 			print_str(f, global->name);
 			fprintf(f, ":\n");
-			fprintf(f, "\tresq\t%"PRIu32"\n", count);
+			fprintf(f, "\tresb\t%"PRIu32"\n", count);
 		}
 	}
 	fprintf(f, "\n");

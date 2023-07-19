@@ -7,6 +7,8 @@
 	section .text
 
 
+	extern memcpy
+
 	global one
 one:
 .L0:

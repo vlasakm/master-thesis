@@ -520,11 +520,20 @@ add_cond_jump(Parser *parser, Value *cond, Block *true_block, Block *false_block
 	op->operands[2] = &false_block->base;
 }
 
+static Type *
+type_for_allocation(Parser *parser, Type *type)
+{
+	if (!type_is_array(type)) {
+		type = type_pointer(parser->arena, type);
+	}
+	return type;
+}
+
 static Value *
 add_alloca(Parser *parser, Type *type)
 {
 	Alloca *alloca = arena_alloc(parser->arena, sizeof(*alloca));
-	value_init(&alloca->base, VK_ALLOCA, type_pointer(parser->arena, type));
+	value_init(&alloca->base, VK_ALLOCA, type_for_allocation(parser, type));
 	append_to_block(parser->current_block, &alloca->base);
 	alloca->size = type_size(type);
 	alloca->optimizable = true;
@@ -535,7 +544,7 @@ static Value *
 create_global(Parser *parser, Str name, Type *type)
 {
 	Global *global = arena_alloc(parser->arena, sizeof(*global));
-	value_init(&global->base, VK_GLOBAL, type_pointer(parser->arena, type));
+	value_init(&global->base, VK_GLOBAL, type_for_allocation(parser, type));
 	global->name = name;
 	global->init = NULL;
 
@@ -544,6 +553,8 @@ create_global(Parser *parser, Str name, Type *type)
 
 	return &global->base;
 }
+
+static Value *create_const(Parser *parser, Type *type, u64 value);
 
 static Value *
 as_rvalue(Parser *parser, CValue cvalue)
@@ -556,11 +567,19 @@ as_rvalue(Parser *parser, CValue cvalue)
 			assert(type_is_pointer(lvalue->type));
 			child = pointer_child(lvalue->type);
 		}
-		if (type_is_integral(child) && child->kind != TY_INT) {
-			child = &TYPE_INT;
-		}
 		if (child->kind == TY_FUNCTION) {
 			return lvalue;
+		}
+		if (type_is_array(lvalue->type)) {
+			// an expression that has type ‘‘array of type’’ is
+			// converted to an expression with type ‘‘pointer to type’’
+			// that points to the initial element of the array object
+			// and is not an lvalue.
+			return lvalue;
+		}
+		if (type_is_integral(child) && child->kind != TY_INT) {
+			// "integer promotion" = sign extending read
+			child = &TYPE_INT;
 		}
 		assert(child->kind != TY_STRUCT);
 
@@ -705,7 +724,11 @@ ident(Parser *parser)
 		parser_error(parser, prev_tok(parser), false, "Name '%.*s' not found", (int) ident.len, ident.str);
 		return rvalue(&NOP);
 	}
-	return lvalue(value);
+	if (type_is_array(value->type)) {
+		return rvalue(value);
+	} else {
+		return lvalue(value);
+	}
 }
 
 static CValue
@@ -945,20 +968,25 @@ static CValue
 indexing(Parser *parser, CValue cleft, int rbp)
 {
 	(void) rbp;
-	eat(parser, TK_LBRACKET);
+	Token tok = eat(parser, TK_LBRACKET);
 	CValue cright = expression(parser);
 	eat(parser, TK_RBRACKET);
 
 	Value *left = as_rvalue(parser, cleft);
 	Value *right = as_rvalue(parser, cright);
 	if (!type_is_pointer(left->type)) {
-		parser_error(parser, parser->lookahead, false, "Expected indexing to subscript a pointer");
+		parser_error(parser, tok, false, "Expected indexing to subscript a pointer");
 	}
 	if (!type_is_integral(right->type)) {
-		parser_error(parser, parser->lookahead, false, "Expected index to be an integer");
+		parser_error(parser, tok, false, "Expected index to be an integer");
 	}
 
-	return lvalue(add_binary(parser, VK_GET_INDEX_PTR, left->type, left, right));
+	Type *type = left->type;
+	if (type_is_array(type)) {
+		type = type_pointer(parser->arena, pointer_child(type));
+	}
+
+	return lvalue(add_binary(parser, VK_GET_INDEX_PTR, type, left, right));
 }
 
 static CValue
@@ -1062,7 +1090,7 @@ member(Parser *parser, CValue cleft, int rbp)
 	}
 	parser_error(parser, parser->prev, false, "Field %.*s not found", (int) name.len, name.str);
 found:;
-	field_type = type_pointer(parser->arena, field_type);
+	field_type = type_for_allocation(parser, field_type);
 	Value *member_index = create_const(parser, &TYPE_INT, i);
 	Value *member_access = add_binary(parser, VK_GET_MEMBER_PTR, field_type, left, member_index);
 	return lvalue(member_access);
@@ -1158,6 +1186,49 @@ seq(Parser *parser, CValue cleft, int rbp)
 	return rvalue(as_rvalue(parser, cright));
 }
 
+CValue
+call_builtin(Parser *parser, Str name, ...)
+{
+	va_list ap;
+	va_start(ap, name);
+	Value *builtin;
+	bool found = env_lookup(&parser->env, name, (void **) &builtin);
+	assert(found);
+	FunctionType *type = type_as_function(builtin->type);
+	size_t param_cnt = type->param_cnt;
+	Operation *call = add_operation(parser, VK_CALL, &TYPE_VOID_PTR.base, 1 + param_cnt);
+	call->operands[0] = builtin;
+	Value **args = &call->operands[1];
+	for (size_t i = 0; i < param_cnt; i++) {
+		args[i] = va_arg(ap, Value *);
+	}
+	va_end(ap);
+	return rvalue(&call->base);
+}
+
+void
+copy_value(Parser *parser, Value *left, CValue cright, Type *type)
+{
+	if (type_is_struct(type)) {
+		Value *right = as_lvalue(parser, cright, "Expected struct lvalue");
+		StructType *struct_type = type_as_struct(type);
+		for (size_t i = 0; i < struct_type->field_cnt; i++) {
+			Type *member_type = struct_type->fields[i].type;
+			Value *member_index = create_const(parser, &TYPE_INT, i);
+			Type *ptr_type = type_for_allocation(parser, member_type);
+			Value *left_field = add_binary(parser, VK_GET_MEMBER_PTR, ptr_type, left, member_index);
+			Value *right_field = add_binary(parser, VK_GET_MEMBER_PTR, ptr_type, right, member_index);
+			copy_value(parser, left_field, lvalue(right_field), member_type);
+		}
+	} else if (type_is_array(type)) {
+		Value *right = as_rvalue(parser, cright);
+		call_builtin(parser, STR("memcpy"), left, right, create_const(parser, &TYPE_INT, type_size(type)));
+	} else {
+		Value *right = as_rvalue(parser, cright);
+		add_binary(parser, VK_STORE, &TYPE_VOID, left, right);
+	}
+}
+
 static CValue
 assign(Parser *parser, CValue cleft, int rbp)
 {
@@ -1168,22 +1239,7 @@ assign(Parser *parser, CValue cleft, int rbp)
 	if (!types_compatible(pointer_child(left->type), right_type)) {
 		parser_error(parser, equal, false, "Assigned value has incorrect type");
 	}
-
-	if (type_is_struct(right_type)) {
-		Value *right = as_lvalue(parser, cright, "Expected struct lvalue");
-		StructType *struct_type = type_as_struct(right_type);
-		for (size_t i = 0; i < struct_type->field_cnt; i++) {
-			Type *member_type = struct_type->fields[i].type;
-			Value *member_index = create_const(parser, &TYPE_INT, i);
-			Value *left_field = add_binary(parser, VK_GET_MEMBER_PTR, member_type, left, member_index);
-			Value *right_field = add_binary(parser, VK_GET_MEMBER_PTR, member_type, right, member_index);
-			Value *right_field_value = add_unary(parser, VK_LOAD, member_type, right_field);
-			add_binary(parser, VK_STORE, &TYPE_VOID, left_field, right_field_value);
-		}
-	} else {
-		Value *right = as_rvalue(parser, cright);
-		add_binary(parser, VK_STORE, &TYPE_VOID, left, right);
-	}
+	copy_value(parser, left, cright, right_type);
 	return lvalue(left);
 }
 
@@ -1562,12 +1618,38 @@ function_declaration(Parser *parser, Function *function)
 }
 
 static void
+parse_type_suffix(Parser *parser, Type **type)
+{
+	for (;;) {
+		switch (peek(parser)) {
+		case TK_LBRACKET: {
+			eat(parser, TK_LBRACKET);
+			CValue constant = literal(parser);
+			if (constant.lvalue || !type_is_numeric(constant.value->type)) {
+				parser_error(parser, parser->prev, false, "Bad array size");
+			}
+			size_t size = ((Constant *) constant.value)->k;
+			*type = type_array(parser->arena, *type, size);
+			eat(parser, TK_RBRACKET);
+			break;
+		}
+		default:
+			return;
+		}
+	}
+}
+
+static void
 global_declaration(Parser *parser, Str name, Type *type)
 {
 	Value *addr = create_global(parser, name, type);
 	Global *global = (Global *) addr;
+	parse_type_suffix(parser, &type);
 	if (try_eat(parser, TK_EQUAL)) {
 		global->init = as_rvalue(parser, literal(parser));
+		if (global->init->type != type) {
+			parser_error(parser, parser->prev, false, "Global initializer has wrong type");
+		}
 	}
 	env_define(&parser->env, name, addr);
 }
@@ -1575,9 +1657,11 @@ global_declaration(Parser *parser, Str name, Type *type)
 static void
 variable_declaration(Parser *parser)
 {
+	assert(parser->current_function);
+
 	Type *type = parse_type(parser, false);
 	Str name = eat_identifier(parser);
-	assert(parser->current_function);
+	parse_type_suffix(parser, &type);
 	Value *addr = add_alloca(parser, type);
 	if (peek(parser) == TK_EQUAL) {
 		assign(parser, lvalue(addr), 2);
@@ -1641,6 +1725,7 @@ struct_declaration(Parser *parser)
 	while (!try_eat(parser, TK_RBRACE)) {
 		Type *field_type = parse_type(parser, false);
 		Str field_name = eat_identifier(parser);
+		parse_type_suffix(parser, &field_type);
 
 		Field field = {
 			.name = field_name,
@@ -1715,6 +1800,16 @@ global_declarations(Parser *parser, Type *type, Str name)
 	}
 }
 
+Function *
+add_named_function(Parser *parser, Str name, FunctionType *fun_type)
+{
+	Function *function = create_function(parser->arena, name, &fun_type->base);
+	function->base.index = garena_cnt(&parser->functions, Function *);
+	garena_push_value(&parser->functions, Function *, function);
+	env_define(&parser->env, name, &function->base);
+	return function;
+}
+
 static void
 parse_program(Parser *parser)
 {
@@ -1738,10 +1833,7 @@ parse_program(Parser *parser)
 			FunctionType *fun_type = function_declarator(parser, type, false);
 			Function *function = NULL;
 			if (!env_lookup(&parser->env, name, (void **) &function)) {
-				function = create_function(parser->arena, name, &fun_type->base);
-				function->base.index = garena_cnt(&parser->functions, Function *);
-				garena_push_value(&parser->functions, Function *, function);
-				env_define(&parser->env, name, &function->base);
+				function = add_named_function(parser, name, fun_type);
 			}
 			if (try_eat(parser, TK_SEMICOLON)) {
 				break;
@@ -1820,6 +1912,33 @@ expression_bp(Parser *parser, int bp)
 	return left;
 }
 
+static FunctionType memcpy_type = {
+	.base = { .kind = TY_FUNCTION },
+	.vararg = false,
+	.ret_type = &TYPE_VOID_PTR.base,
+	.param_cnt = 3,
+	.params = (Parameter[]) {
+		{ .name = STR("dest"), .type = &TYPE_VOID_PTR.base },
+		{ .name = STR("src"),  .type = &TYPE_VOID_PTR.base },
+		{ .name = STR("size"), .type = &TYPE_INT },
+	},
+};
+
+void
+add_builtins(Parser *parser)
+{
+	static struct {
+		Str name;
+		Type *type;
+	} builtins[] = {
+		{ .name = STR("memcpy"), &memcpy_type.base },
+	};
+
+	for (size_t i = 0; i < ARRAY_LEN(builtins); i++) {
+		add_named_function(parser, builtins[i].name, (FunctionType *) builtins[i].type);
+	}
+}
+
 Module *
 parse(Arena *arena, GArena *scratch, Str source, void (*error_callback)(void *user_data, const u8 *err_pos, const char *msg, va_list ap), void *user_data)
 {
@@ -1837,6 +1956,7 @@ parse(Arena *arena, GArena *scratch, Str source, void (*error_callback)(void *us
 	discard(&parser);
 
 	env_push(&parser.env);
+	add_builtins(&parser);
 	parse_program(&parser);
 	env_pop(&parser.env);
 	env_free(&parser.env);

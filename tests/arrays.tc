@@ -1,0 +1,44 @@
+// vim: ft=c et sw=4
+
+struct T {
+    int arr[5];
+};
+
+struct S {
+    T t;
+};
+
+int printf(char *, ...);
+
+void print_arr(int *arr) {
+    for (int i = 0; i < 5; i++) {
+        printf("%ld, ", arr[i]);
+    }
+    printf("\n");
+}
+
+S tmp;
+
+int main() {
+    int arr[5];
+    S a;
+    S b;
+    for (int i = 0; i < 5; i++) {
+        arr[i] = i;
+        a.t.arr[i] = i * 2;
+        b.t.arr[i] = i * 3;
+    }
+
+    tmp = b;
+    b = a;
+    a = tmp;
+
+    // > 0, 1, 2, 3, 4, 
+    print_arr(arr);
+    // > 0, 3, 6, 9, 12, 
+    print_arr(a.t.arr);
+    // > 0, 2, 4, 6, 8, 
+    print_arr(b.t.arr);
+
+    return 0;
+}

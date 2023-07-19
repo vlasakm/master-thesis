@@ -4,6 +4,7 @@ Type TYPE_VOID = { .kind = TY_VOID };
 Type TYPE_INT = { .kind = TY_INT };
 Type TYPE_CHAR = { .kind = TY_CHAR };
 PointerType TYPE_CHAR_PTR = { .base = { .kind = TY_POINTER, }, .child = &TYPE_CHAR };
+PointerType TYPE_VOID_PTR = { .base = { .kind = TY_POINTER, }, .child = &TYPE_VOID };
 
 size_t
 type_size(Type *type)
@@ -19,6 +20,10 @@ type_size(Type *type)
 		break;
 	case TY_STRUCT:
 		return ((StructType *) type)->size;
+	case TY_ARRAY: {
+		ArrayType *array = (ArrayType *) type;
+		return type_size(array->child) * array->size;
+	}
 	}
 	UNREACHABLE();
 }
@@ -35,6 +40,8 @@ type_alignment(Type *type)
 	case TY_FUNCTION:
 		UNREACHABLE();
 		break;
+	case TY_ARRAY:
+		return type_alignment(pointer_child(type));
 	case TY_STRUCT:
 		return ((StructType *) type)->alignment;
 	}
@@ -77,16 +84,49 @@ type_pointer(Arena *arena, Type *child)
 bool
 type_is_pointer(Type *pointer_type)
 {
-	return pointer_type->kind == TY_POINTER;
+	switch (pointer_type->kind) {
+	case TY_ARRAY:
+	case TY_POINTER:
+		return true;
+	default:
+		return false;
+	}
 }
 
 Type *
 pointer_child(Type *pointer_type)
 {
-	if (!type_is_pointer(pointer_type)) {
+	switch (pointer_type->kind) {
+	case TY_ARRAY:
+		return ((ArrayType *) pointer_type)->child;
+	case TY_POINTER:
+		return ((PointerType *) pointer_type)->child;
+	default:
 		return &TYPE_VOID;
 	}
-	return ((PointerType *) pointer_type)->child;
+}
+
+Type *
+type_array(Arena *arena, Type *child, size_t size)
+{
+	ArrayType *arr_type = arena_alloc(arena, sizeof(*arr_type));
+	arr_type->base.kind = TY_ARRAY;
+	arr_type->child = child;
+	arr_type->size = size;
+	return &arr_type->base;
+}
+
+bool
+type_is_array(Type *type)
+{
+	return type->kind == TY_ARRAY;
+}
+
+size_t
+type_array_size(Type *array_type)
+{
+	assert(array_type->kind == TY_ARRAY);
+	return ((ArrayType *) array_type)->size;
 }
 
 Type *
@@ -148,33 +188,6 @@ type_function_return_type(Type *type)
 }
 
 Type *
-type_struct(Arena *arena, Field *fields, size_t field_cnt)
-{
-	StructType *struct_type = arena_alloc(arena, sizeof(*struct_type));
-	struct_type->base.kind = TY_STRUCT;
-	struct_type->fields = fields;
-	struct_type->field_cnt = field_cnt;
-
-	size_t offset = 0;
-	size_t max_alignment = 0;
-
-	for (size_t i = 0; i < field_cnt; i++) {
-		size_t field_align = type_alignment(fields[i].type);
-		if (field_align > max_alignment) {
-			max_alignment = field_align;
-		}
-		offset = align(offset, field_align);
-		fields[i].offset = offset;
-		offset += type_size(fields[i].type);
-	}
-
-	struct_type->size = offset;
-	struct_type->alignment = max_alignment;
-
-	return &struct_type->base;
-}
-
-Type *
 type_struct_forward(Arena *arena)
 {
 	StructType *struct_type = arena_alloc(arena, sizeof(*struct_type));
@@ -193,13 +206,20 @@ type_struct_define(Type *type, Field *fields, size_t field_cnt)
 	struct_type->field_cnt = field_cnt;
 
 	size_t offset = 0;
+	size_t max_alignment = 0;
+
 	for (size_t i = 0; i < field_cnt; i++) {
-		// TODO: align
+		size_t field_align = type_alignment(fields[i].type);
+		if (field_align > max_alignment) {
+			max_alignment = field_align;
+		}
+		offset = align(offset, field_align);
 		fields[i].offset = offset;
 		offset += type_size(fields[i].type);
 	}
 
 	struct_type->size = offset;
+	struct_type->alignment = max_alignment;
 
 	return &struct_type->base;
 }
@@ -277,6 +297,10 @@ print_type(FILE *f, Type *type)
 		break;
 	case TY_POINTER:
 		fprintf(f, "*");
+		print_type(f, pointer_child(type));
+		break;
+	case TY_ARRAY:
+		fprintf(f, "[%zu]", ((ArrayType *) type)->size);
 		print_type(f, pointer_child(type));
 		break;
 	case TY_FUNCTION: {

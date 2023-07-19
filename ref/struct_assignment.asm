@@ -9,6 +9,8 @@ $str0:
 	section .text
 
 
+	extern memcpy
+
 	extern printf
 
 	global main

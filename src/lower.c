@@ -317,6 +317,7 @@ translate_prologue(TranslationState *ts)
 			UNREACHABLE();
 		case TY_INT:
 		case TY_POINTER:
+		case TY_ARRAY:
 			if (gpr_index < ARRAY_LEN(argument_regs) - 1) {
 				add_copy(ts, VINDEX(argument), argument_regs[gpr_index]);
 				gpr_index++;

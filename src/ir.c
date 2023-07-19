@@ -491,7 +491,7 @@ get_member(Value *value)
 	assert(value->kind == VK_GET_MEMBER_PTR);
 	Operation *operation = (void*) value;
 	PointerType *pointer_type = (void *) operation->operands[0]->type;
-	assert(pointer_type->base.kind == TY_POINTER);
+	assert(type_is_pointer((Type *) pointer_type));
 	StructType *struct_type = (void *) pointer_type->child;
 	assert(struct_type->base.kind == TY_STRUCT);
 	assert(operation->operands[1]->kind == VK_CONSTANT);
