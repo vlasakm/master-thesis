@@ -1,6 +1,8 @@
 	default rel
 
 	section .data
+$str0:
+	db	`%ld\n`,0
 
 	section .bss
 
@@ -8,6 +10,8 @@
 
 
 	extern memcpy
+
+	extern printf
 
 	global add_one
 add_one:
@@ -85,6 +89,11 @@ main:
 	mov rdi, 3
 	mov rsi, 4
 	call f
+	mov rsi, rax
+	lea rdi, [$str0]
+	xor rax, rax ; W
+	call printf wrt ..plt
+	xor rax, rax ; W
 	mov rsp, rbp
 	pop rbp
 	ret

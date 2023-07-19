@@ -1,5 +1,7 @@
 // vim: ft=c et sw=4
 
+int printf(char *, ...);
+
 typedef int (*main_type)(int);
 
 int G = 5;
@@ -31,19 +33,7 @@ void local_offset() {
     a.a = b.a;
 }
 
-//S identity(S a) {
-//    return a;
-//}
-//
-//int test() {
-//    S a, S b;
-//    a.a = 3;
-//    a.b = 4;
-//    b = identity(a);
-//    return b.a + b.b;
-//}
-
-int main() {
+int test() {
     S s;
     S arr_;
     S *arr = &arr_;
@@ -51,5 +41,11 @@ int main() {
     arr->b = 5;
     G = G + f() + H + arr->b;
     return G;
-    //return G - s.b == arr->b;
+}
+
+int main() {
+    test();
+    // > 11
+    printf("%ld\n", G);
+    return 0;
 }

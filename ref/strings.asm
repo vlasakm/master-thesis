@@ -3,6 +3,8 @@
 	section .data
 $str0:
 	db	`abcd`,0
+$str1:
+	db	`%s\n`,0
 
 	section .bss
 
@@ -10,6 +12,8 @@ $str0:
 
 
 	extern memcpy
+
+	extern printf
 
 	global main
 main:
@@ -21,7 +25,11 @@ main:
 	movsx rcx, byte [rax]
 	test rcx, rcx ; WO
 	jnz .L3 ; R
-	movsx rax, byte [$str0]
+	lea rdi, [$str1]
+	lea rsi, [$str0]
+	xor rax, rax ; W
+	call printf wrt ..plt
+	xor rax, rax ; W
 	mov rsp, rbp
 	pop rbp
 	ret

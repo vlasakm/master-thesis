@@ -1,5 +1,7 @@
 // vim: ft=c et sw=4
 
+int printf(char *, ...);
+
 int one() {
     return 1;
 }
@@ -13,6 +15,12 @@ int fun(int n) {
     return a;
 }
 
-int main() {
+int test() {
     return 20 * one() + fun(10) + one() + fun(10) + one();
+}
+
+int main() {
+    // > 42
+    printf("%ld\n", test());
+    return 0;
 }

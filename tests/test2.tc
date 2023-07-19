@@ -1,5 +1,13 @@
 // vim: ft=c et sw=4
 
-int main() {
+int printf(char *, ...);
+
+int test() {
     return 4 + 10 / (5 - 3);
+}
+
+int main() {
+    // > 9
+    printf("%ld\n", test());
+    return 0;
 }

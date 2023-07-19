@@ -1,5 +1,7 @@
 // vim: ft=c et sw=4
 
+int printf(char *, ...);
+
 int add_one(int a) {
     return a + 1;
 }
@@ -22,6 +24,7 @@ int f(int c, int d) {
 }
 
 int main() {
-    // 127
-    return f(3, 4);
+    // > 127
+    printf("%ld\n", f(3, 4));
+    return 0;
 }

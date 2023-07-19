@@ -1,5 +1,7 @@
 // vim: ft=c et sw=4
 
+int printf(char *, ...);
+
 int f(int a) {
     int b = 3;
     if (a) {
@@ -17,5 +19,7 @@ int g(int a) {
 }
 
 int main() {
-    return f(1) + g(0);
+    // > 4 3
+    printf("%ld %ld\n", f(1), g(0));
+    return 0;
 }

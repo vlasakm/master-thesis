@@ -1,6 +1,8 @@
 	default rel
 
 	section .data
+$str0:
+	db	`%ld\n`,0
 
 	section .bss
 
@@ -8,6 +10,20 @@
 
 
 	extern memcpy
+
+	extern printf
+
+	global print_res
+print_res:
+.L0:
+	push rbp
+	mov rbp, rsp
+	mov rsi, rdi
+	lea rdi, [$str0]
+	call printf wrt ..plt
+	mov rsp, rbp
+	pop rbp
+	ret
 
 	global f
 f:
@@ -30,18 +46,15 @@ main:
 	mov rsi, 2
 	mov rdx, 3
 	call f
-	xor rcx, rcx ; W
-	cmp rax, 2 ; WO
-	jnz .L2 ; R
+	mov rdi, rax
+	call print_res
 	xor rdi, rdi ; W
 	mov rsi, 2
 	mov rdx, 3
 	call f
-	xor rcx, rcx ; W
-	cmp rax, 3 ; WO
-	setz cl ; R
-.L2:
-	mov rax, rcx
+	mov rdi, rax
+	call print_res
+	xor rax, rax ; W
 	mov rsp, rbp
 	pop rbp
 	ret

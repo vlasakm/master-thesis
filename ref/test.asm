@@ -1,6 +1,8 @@
 	default rel
 
 	section .data
+$str0:
+	db	`%ld\n`,0
 
 	section .bss
 
@@ -8,6 +10,8 @@
 
 
 	extern memcpy
+
+	extern printf
 
 	global one
 one:
@@ -36,8 +40,8 @@ fun:
 	sub rdi, 1 ; W
 	jmp .L1
 
-	global main
-main:
+	global test
+test:
 .L0:
 	push rbp
 	mov rbp, rsp
@@ -57,6 +61,21 @@ main:
 	call one
 	lea rax, [rbx+rax]
 	mov rbx, [rbp-8]
+	mov rsp, rbp
+	pop rbp
+	ret
+
+	global main
+main:
+.L0:
+	push rbp
+	mov rbp, rsp
+	call test
+	mov rsi, rax
+	lea rdi, [$str0]
+	xor rax, rax ; W
+	call printf wrt ..plt
+	xor rax, rax ; W
 	mov rsp, rbp
 	pop rbp
 	ret

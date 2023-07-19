@@ -1,9 +1,19 @@
 // vim: ft=c et sw=4
 
+int printf(char *, ...);
+
+void print_res(int num) {
+    printf("%ld\n", num);
+}
+
 int f(int a, int b, int c) {
     return a ? b : c;
 }
 
 int main() {
-    return f(1, 2, 3) == 2 && f(0, 2, 3) == 3;
+    // > 2
+    print_res(f(1, 2, 3));
+    // > 3
+    print_res(f(0, 2, 3));
+    return 0;
 }

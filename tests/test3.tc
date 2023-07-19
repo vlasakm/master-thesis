@@ -1,3 +1,13 @@
-int main() {
+// vim: ft=c et sw=4
+
+int printf(char *, ...);
+
+int test() {
     return 1 + 2 + 3 + 4;
+}
+
+int main() {
+    // > 10
+    printf("%ld\n", test());
+    return 0;
 }

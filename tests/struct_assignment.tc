@@ -12,6 +12,7 @@ int main() {
     a.a = 2;
     a.b = 3;
     S b = a;
+    // > 2 3
     printf("%ld %ld\n", b.a, b.b);
     return 0;
 }

@@ -3,6 +3,7 @@
 int printf(char *, ...);
 
 int main() {
+    // > hello world 20
     printf("hello world %d\n", 20);
     return 0;
 }

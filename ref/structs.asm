@@ -3,6 +3,8 @@
 	section .data
 G:
 	dq	5
+$str0:
+	db	`%ld\n`,0
 
 	section .bss
 H:
@@ -14,6 +16,8 @@ a:
 
 
 	extern memcpy
+
+	extern printf
 
 	global f
 f:
@@ -57,8 +61,8 @@ local_offset:
 	pop rbp
 	ret
 
-	global main
-main:
+	global test
+test:
 .L0:
 	push rbp
 	mov rbp, rsp
@@ -72,6 +76,21 @@ main:
 	add rax, [H] ; W
 	add rax, [rbp-24] ; W
 	mov [G], rax
+	mov rsp, rbp
+	pop rbp
+	ret
+
+	global main
+main:
+.L0:
+	push rbp
+	mov rbp, rsp
+	call test
+	mov rsi, [G]
+	lea rdi, [$str0]
+	xor rax, rax ; W
+	call printf wrt ..plt
+	xor rax, rax ; W
 	mov rsp, rbp
 	pop rbp
 	ret

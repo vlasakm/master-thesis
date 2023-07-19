@@ -1,6 +1,8 @@
 	default rel
 
 	section .data
+$str0:
+	db	`%ld\n`,0
 
 	section .bss
 
@@ -9,12 +11,29 @@
 
 	extern memcpy
 
+	extern printf
+
+	global test
+test:
+.L0:
+	push rbp
+	mov rbp, rsp
+	mov rax, 21
+	mov rsp, rbp
+	pop rbp
+	ret
+
 	global main
 main:
 .L0:
 	push rbp
 	mov rbp, rsp
-	mov rax, 21
+	call test
+	mov rsi, rax
+	lea rdi, [$str0]
+	xor rax, rax ; W
+	call printf wrt ..plt
+	xor rax, rax ; W
 	mov rsp, rbp
 	pop rbp
 	ret
