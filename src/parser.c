@@ -1252,8 +1252,6 @@ condition(Parser *parser)
 		parser_error(parser, parser->prev, false, "Condition must have numeric or pointer type");
 	}
 	return cond;
-	//Value *zero = create_const(parser, 0);
-	//return add_binary(parser, VK_NEQ, cond, zero);
 }
 
 static void statement(Parser *parser);
