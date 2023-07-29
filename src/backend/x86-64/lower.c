@@ -1,5 +1,5 @@
-#include "ir.h"
-#include "inst.h"
+#include "../../middleend/ir.h"
+#include "../inst.h"
 #include "x86-64.h"
 
 typedef struct {

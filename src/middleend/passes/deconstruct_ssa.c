@@ -1,4 +1,4 @@
-#include "ir.h"
+#include "../ir.h"
 
 void
 deconstruct_ssa(Arena *arena, Function *function)

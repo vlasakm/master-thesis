@@ -1,7 +1,7 @@
 #pragma once
 
-#include "utils.h"
-#include "ir.h"
+#include "../utils/utils.h"
+#include "../middleend/ir.h"
 
 typedef struct Inst Inst;
 struct Inst {

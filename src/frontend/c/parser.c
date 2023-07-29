@@ -1,6 +1,6 @@
 #include "parser.h"
-#include "table.h"
-#include "environment.h"
+#include "../../utils/table.h"
+#include "../../utils/environment.h"
 
 typedef struct {
 	const u8 *pos;

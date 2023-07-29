@@ -1,6 +1,6 @@
 #pragma once
 
-#include "inst.h"
+#include "../inst.h"
 
 #define IREG(inst)     ((inst)->ops[0])
 #define IREG1(inst)    ((inst)->ops[0])

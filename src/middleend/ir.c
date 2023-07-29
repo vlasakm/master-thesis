@@ -1,5 +1,5 @@
 #include "ir.h"
-#include "utils.h"
+#include "../utils/utils.h"
 
 char *value_kind_repr[] = {
 #define REPR(kind, repr) repr,

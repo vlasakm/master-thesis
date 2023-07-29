@@ -1,9 +1,9 @@
-#include "arena.h"
+#include "../utils/arena.h"
+#include "../utils/worklist.h"
+#include "../utils/bitset.h"
+#include "../utils/utils.h"
 #include "inst.h"
-#include "worklist.h"
-#include "bitset.h"
-#include "utils.h"
-#include "x86-64.h"
+#include "x86-64/x86-64.h"
 
 #include "regalloc.h"
 

@@ -5,13 +5,18 @@
 #include <errno.h>
 #include <unistd.h>
 
-#include "utils.h"
-#include "arena.h"
-#include "str.h"
-#include "x86-64.h"
-#include "inst.h"
-#include "parser.h"
-#include "regalloc.h"
+#include "utils/utils.h"
+#include "utils/arena.h"
+#include "utils/str.h"
+
+#include "frontend/c/parser.h"
+
+#include "middleend/ir.h"
+#include "middleend/passes.h"
+
+#include "backend/inst.h"
+#include "backend/regalloc.h"
+#include "backend/x86-64/x86-64.h"
 
 typedef struct {
 	bool assemble;

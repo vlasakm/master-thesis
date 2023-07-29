@@ -1,4 +1,4 @@
-#include "ir.h"
+#include "../ir.h"
 
 void
 split_critical_edges(Arena *arena, Function *function)

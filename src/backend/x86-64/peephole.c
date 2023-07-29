@@ -1,5 +1,5 @@
-#include "utils.h"
-#include "inst.h"
+#include "../../utils/utils.h"
+#include "../inst.h"
 #include "x86-64.h"
 
 bool

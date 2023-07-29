@@ -3,9 +3,9 @@
 #include <stddef.h>
 #include <stdbool.h>
 
-#include "utils.h"
-#include "str.h"
-#include "arena.h"
+#include "../utils/utils.h"
+#include "../utils/str.h"
+#include "../utils/arena.h"
 
 typedef enum {
 	TY_VOID,

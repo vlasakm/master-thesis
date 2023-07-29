@@ -5,9 +5,9 @@ typedef struct MFunction MFunction;
 typedef struct Block Block;
 typedef struct MBlock MBlock;
 
-#include "utils.h"
-#include "arena.h"
-#include "str.h"
+#include "../utils/utils.h"
+#include "../utils/arena.h"
+#include "../utils/str.h"
 #include "type.h"
 
 #define VALUE_KINDS(_) \
@@ -247,24 +247,3 @@ typedef struct {
 void print_globals(FILE *f, Module *module);
 
 Field *get_member(Value *value);
-
-
-// IR passes (each in its own file)
-
-// value_numbering.c
-void value_numbering(Arena *arena, Function *function);
-
-// merge_blocks.c
-void merge_blocks(Arena *arena, Function *function);
-
-// thread_jumps.c
-void thread_jumps(Arena *arena, Function *function);
-
-// split_critical_edges.c
-void split_critical_edges(Arena *arena, Function *function);
-
-// single_exit.c
-void single_exit(Arena *arena, Function *function);
-
-// deconstruct_ssa.c
-void deconstruct_ssa(Arena *arena, Function *function);

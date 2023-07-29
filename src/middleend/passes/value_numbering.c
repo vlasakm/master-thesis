@@ -1,4 +1,4 @@
-#include "ir.h"
+#include "../ir.h"
 
 static void
 get_uses(Function *function)

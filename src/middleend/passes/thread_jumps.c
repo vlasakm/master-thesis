@@ -1,4 +1,4 @@
-#include "ir.h"
+#include "../ir.h"
 
 // NOTE: May introduce critical edges.
 void

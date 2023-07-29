@@ -1,5 +1,5 @@
 #include "inst.h"
-#include "x86-64.h"
+#include "x86-64/x86-64.h"
 
 MFunction *
 mfunction_create(Arena *arena, Function *function, GArena *labels)
