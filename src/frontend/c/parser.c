@@ -1910,16 +1910,18 @@ expression_bp(Parser *parser, int bp)
 	return left;
 }
 
+static Parameter memcpy_params[] = {
+	{ .name = STR("dest"), .type = &TYPE_VOID_PTR.base },
+	{ .name = STR("src"),  .type = &TYPE_VOID_PTR.base },
+	{ .name = STR("size"), .type = &TYPE_INT },
+};
+
 static FunctionType memcpy_type = {
 	.base = { .kind = TY_FUNCTION },
 	.vararg = false,
 	.ret_type = &TYPE_VOID_PTR.base,
 	.param_cnt = 3,
-	.params = (Parameter[]) {
-		{ .name = STR("dest"), .type = &TYPE_VOID_PTR.base },
-		{ .name = STR("src"),  .type = &TYPE_VOID_PTR.base },
-		{ .name = STR("size"), .type = &TYPE_INT },
-	},
+	.params = memcpy_params,
 };
 
 void
