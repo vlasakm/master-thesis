@@ -36,10 +36,10 @@ ROOT_DIR=$(dirname $(readlink -f "$0"))
 BUILD_DIR="/tmp/build-tcg"
 
 # Where the tests are
-INPUT_DIR="$ROOT_DIR/tests"
+INPUT_DIR="$ROOT_DIR/tests/in"
 
 # Where the reference assembly outputs are
-REF_DIR="$ROOT_DIR/ref"
+REF_DIR="$ROOT_DIR/tests/ref"
 
 # Where all output is saved to
 OUTPUT_DIR="$ROOT_DIR/out"
@@ -96,6 +96,7 @@ run_test() {
 	test=${2%%.*} # e.g. "arrays" or "arrays.tc" or "arrays.tc.test"
 
 	mkdir -p "$OUTPUT_DIR/$type" || die "failed to create output dir"
+	echo "Signature: 8a477f597d28d172789f06886806bc55" > "$OUTPUT_DIR/CACHEDIR.TAG"
 
 	in="$INPUT_DIR/$test"
 	out="$OUTPUT_DIR/$type/$test"
