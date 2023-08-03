@@ -71,6 +71,7 @@ print_mfunction(FILE *f, MFunction *mfunction)
 			fprintf(f, "\n");
 		}
 	}
+	fprintf(f, "\n\n");
 }
 
 
