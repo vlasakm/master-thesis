@@ -430,7 +430,6 @@ print_function(FILE *f, Function *function)
 		}
 	}
 	validate_function(function);
-	fprintf(f, "\n\n");
 }
 
 bool

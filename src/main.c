@@ -96,6 +96,13 @@ parse_source(ErrorContext *ec, Arena *arena, Str source)
 		arena_restore(arena, arena_start);
 		longjmp(ec->loc, 1);
 	}
+
+	if (DUMP) {
+		fprintf(stderr, "After parsing:\n");
+		print_module(stderr, module);
+		fprintf(stderr, "\n\n");
+	}
+
 	return module;
 }
 

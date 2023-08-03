@@ -70,7 +70,6 @@ print_mfunction(FILE *f, MFunction *mfunction)
 	}
 }
 
-
 void
 dump_mfunction_after_pass(MFunction *mfunction, const char *pass_name)
 {

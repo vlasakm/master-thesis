@@ -83,3 +83,14 @@ Build and run time dependencies:
 Run time dependencies:
 
  - [`nasm`](https://www.nasm.us/), for assembling support (i.e. not `-S`)
+
+
+## Insight
+
+The compiler stays mostly silent. To get more insight into the passes that
+constitute it, set the `DUMP` environment variable, which will print functions
+after each pass. For example:
+
+```
+DUMP=1 build/tcg tests/in/critical_edge.tc
+```
