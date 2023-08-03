@@ -625,10 +625,7 @@ rewrite_program(RegAllocState *ras)
 		}
 	}
 
-	if (DUMP) {
-		fprintf(stderr, "Function %.*s after spill insertion:\n", (int) mfunction->func->name.len, mfunction->func->name.str);
-		print_mfunction(stderr, mfunction);
-	}
+	dump_mfunction_after_pass(mfunction, "spill insertion");
 }
 
 void
@@ -648,10 +645,7 @@ apply_reg_assignment(RegAllocState *ras)
 		}
 	}
 
-	if (DUMP) {
-		fprintf(stderr, "Function %.*s after register assignment:\n", (int) mfunction->func->name.len, mfunction->func->name.str);
-		print_mfunction(stderr, mfunction);
-	}
+	dump_mfunction_after_pass(mfunction, "register assignment");
 }
 
 void

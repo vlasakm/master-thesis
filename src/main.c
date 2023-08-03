@@ -92,11 +92,6 @@ parse_source(ErrorContext *ec, Arena *arena, Str source)
 	Module *module = parse(arena, &scratch, source, parser_verror, ec);
 	garena_free(&scratch);
 
-	if (DUMP) {
-		fprintf(stderr, "After parsing:\n");
-		print_module(stderr, module);
-	}
-
 	if (!module) {
 		arena_restore(arena, arena_start);
 		longjmp(ec->loc, 1);

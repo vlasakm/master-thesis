@@ -872,10 +872,7 @@ peephole(MFunction *mfunction, Arena *arena, bool last_pass)
 		}
 	}
 
-	if (DUMP) {
-		fprintf(stderr, "Function %.*s after peephole optimization:\n", (int) mfunction->func->name.len, mfunction->func->name.str);
-		print_mfunction(stderr, mfunction);
-	}
+	dump_mfunction_after_pass(mfunction, "peephole optimization");
 }
 
 // Remove:
@@ -898,8 +895,5 @@ cleanup(MFunction *mfunction)
 		}
 	}
 
-	if (DUMP) {
-		fprintf(stderr, "Function %.*s after cleanup:\n", (int) mfunction->func->name.len, mfunction->func->name.str);
-		print_mfunction(stderr, mfunction);
-	}
+	dump_mfunction_after_pass(mfunction, "cleanup");
 }

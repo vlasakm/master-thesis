@@ -66,6 +66,8 @@ void mfunction_free(MFunction *mfunction);
 Oper mfunction_reserve_stack_space(MFunction *mfunction, size_t size, size_t alignment);
 void mfunction_finalize_stack(MFunction *mfunction);
 void print_mfunction(FILE *f, MFunction *mfunction);
+void dump_mfunction_after_pass(MFunction *mfunction, const char *pass_name);
+
 
 MBlock *mblock_create(Arena *arena, Block *block);
 

@@ -67,8 +67,5 @@ deconstruct_ssa(Arena *arena, Function *function)
 		}
 	}
 
-	if (DUMP) {
-		fprintf(stderr, "Function %.*s after SSA deconstruction:\n", (int) function->name.len, function->name.str);
-		print_function(stderr, function);
-	}
+	dump_function_after_pass(function, "SSA deconstruction");
 }

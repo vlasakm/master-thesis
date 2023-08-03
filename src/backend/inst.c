@@ -35,10 +35,7 @@ mfunction_finalize_stack(MFunction *mfunction)
 		IIMM(mfunction->make_stack_space) = mfunction->stack_space;
 	}
 
-	if (DUMP) {
-		fprintf(stderr, "Function %.*s after stack finalization:\n", (int) mfunction->func->name.len, mfunction->func->name.str);
-		print_mfunction(stderr, mfunction);
-	}
+	dump_mfunction_after_pass(mfunction, "stack finalization");
 }
 
 void
@@ -71,9 +68,19 @@ print_mfunction(FILE *f, MFunction *mfunction)
 			fprintf(f, "\n");
 		}
 	}
-	fprintf(f, "\n\n");
 }
 
+
+void
+dump_mfunction_after_pass(MFunction *mfunction, const char *pass_name)
+{
+	Str fun_name = mfunction->func->name;
+	if (DUMP) {
+		fprintf(stderr, "Function %.*s after %s:\n", (int) fun_name.len, fun_name.str, pass_name);
+		print_mfunction(stderr, mfunction);
+		fprintf(stderr, "\n\n");
+	}
+}
 
 MBlock *
 mblock_create(Arena *arena, Block *block)

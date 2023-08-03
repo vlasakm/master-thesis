@@ -267,10 +267,7 @@ index_values(Function *function, size_t start_index)
 	}
 	function->value_cnt = index;
 
-	if (DUMP) {
-		fprintf(stderr, "Function %.*s after indexing of values:\n", (int) function->name.len, function->name.str);
-		print_function(stderr, function);
-	}
+	dump_function_after_pass(function, "indnexing of values");
 
 	return index;
 }
@@ -519,6 +516,17 @@ print_module(FILE *f, Module *module)
 
 		print_function(f, function);
 		fprintf(f, "\n\n");
+	}
+}
+
+void
+dump_function_after_pass(Function *function, const char *pass_name)
+{
+	Str fun_name = function->name;
+	if (DUMP) {
+		fprintf(stderr, "Function %.*s after %s:\n", (int) fun_name.len, fun_name.str, pass_name);
+		print_function(stderr, function);
+		fprintf(stderr, "\n\n");
 	}
 }
 

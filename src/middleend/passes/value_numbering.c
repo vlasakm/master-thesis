@@ -347,8 +347,5 @@ value_numbering(Arena *arena, Function *function)
 	free_uses(function);
 	validate_function(function);
 
-	if (DUMP) {
-		fprintf(stderr, "Function %.*s after value numbering:\n", (int) function->name.len, function->name.str);
-		print_function(stderr, function);
-	}
+	dump_function_after_pass(function, "value numbering");
 }
