@@ -34,6 +34,11 @@ mfunction_finalize_stack(MFunction *mfunction)
 	if (mfunction->make_stack_space) {
 		IIMM(mfunction->make_stack_space) = mfunction->stack_space;
 	}
+
+	if (DUMP) {
+		fprintf(stderr, "Function %.*s after stack finalization:\n", (int) mfunction->func->name.len, mfunction->func->name.str);
+		print_mfunction(stderr, mfunction);
+	}
 }
 
 void

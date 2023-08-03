@@ -266,6 +266,12 @@ index_values(Function *function, size_t start_index)
 		}
 	}
 	function->value_cnt = index;
+
+	if (DUMP) {
+		fprintf(stderr, "Function %.*s after indexing of values:\n", (int) function->name.len, function->name.str);
+		print_function(stderr, function);
+	}
+
 	return index;
 }
 
@@ -484,6 +490,34 @@ print_globals(FILE *f, Module *module)
 			print_value(f, global->init);
 		}
 		fprintf(f, "\n");
+	}
+}
+
+void
+print_module(FILE *f, Module *module)
+{
+	print_globals(f, module);
+	fprintf(f, "\n\n");
+
+	// Print strings
+	for (size_t i = 0; i < module->string_cnt; i++) {
+		StringLiteral *string = module->strings[i];
+		fprintf(f, "$str%zu = \"", i);
+		print_str(f, string->str);
+		fprintf(f, "\"\n");
+	}
+	fprintf(f, "\n\n");
+
+	// Print functions
+	for (size_t i = 0; i < module->function_cnt; i++) {
+		Function *function = module->functions[i];
+		// Skip external functions
+		if (!function_is_fully_defined(function)) {
+			continue;
+		}
+
+		print_function(f, function);
+		fprintf(f, "\n\n");
 	}
 }
 

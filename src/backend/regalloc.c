@@ -624,6 +624,11 @@ rewrite_program(RegAllocState *ras)
 			for_each_def(inst, insert_stores_of_spilled, ss);
 		}
 	}
+
+	if (DUMP) {
+		fprintf(stderr, "Function %.*s after spill insertion:\n", (int) mfunction->func->name.len, mfunction->func->name.str);
+		print_mfunction(stderr, mfunction);
+	}
 }
 
 void
@@ -641,6 +646,11 @@ apply_reg_assignment(RegAllocState *ras)
 				inst->ops[i] = ras->reg_assignment[get_alias(ras, inst->ops[i])];
 			}
 		}
+	}
+
+	if (DUMP) {
+		fprintf(stderr, "Function %.*s after register assignment:\n", (int) mfunction->func->name.len, mfunction->func->name.str);
+		print_mfunction(stderr, mfunction);
 	}
 }
 

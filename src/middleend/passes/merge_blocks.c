@@ -54,4 +54,9 @@ merge_blocks(Arena *arena, Function *function)
 
 	// Recompute function->post_order, since we invalidated it.
 	compute_postorder(function);
+
+	if (DUMP) {
+		fprintf(stderr, "Function %.*s after merging blocks:\n", (int) function->name.len, function->name.str);
+		print_function(stderr, function);
+	}
 }

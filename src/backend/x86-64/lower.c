@@ -623,5 +623,11 @@ translate_function(Arena *arena, GArena *labels, Function *function)
 
 	mfunction->vreg_cnt = ts->index;
 	function->mfunction = mfunction;
+
+	if (DUMP) {
+		fprintf(stderr, "Function %.*s after lowering:\n", (int) mfunction->func->name.len, mfunction->func->name.str);
+		print_mfunction(stderr, mfunction);
+	}
+
 	return mfunction;
 }

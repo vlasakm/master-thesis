@@ -246,4 +246,7 @@ typedef struct {
 
 void print_globals(FILE *f, Module *module);
 
+void print_module(FILE *f, Module *module);
+
+
 Field *get_member(Value *value);

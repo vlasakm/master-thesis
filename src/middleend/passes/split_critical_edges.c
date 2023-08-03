@@ -40,4 +40,9 @@ split_critical_edges(Arena *arena, Function *function)
 
 	// Recompute function->post_order, since we invalidated it.
 	compute_postorder(function);
+
+	if (DUMP) {
+		fprintf(stderr, "Function %.*s after splitting of critical edges:\n", (int) function->name.len, function->name.str);
+		print_function(stderr, function);
+	}
 }

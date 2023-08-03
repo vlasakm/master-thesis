@@ -24,4 +24,9 @@ deconstruct_ssa(Arena *arena, Function *function)
 			change_to_identity(phi, dummy);
 		}
 	}
+
+	if (DUMP) {
+		fprintf(stderr, "Function %.*s after SSA deconstruction:\n", (int) function->name.len, function->name.str);
+		print_function(stderr, function);
+	}
 }

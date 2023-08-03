@@ -92,6 +92,11 @@ parse_source(ErrorContext *ec, Arena *arena, Str source)
 	Module *module = parse(arena, &scratch, source, parser_verror, ec);
 	garena_free(&scratch);
 
+	if (DUMP) {
+		fprintf(stderr, "After parsing:\n");
+		print_module(stderr, module);
+	}
+
 	if (!module) {
 		arena_restore(arena, arena_start);
 		longjmp(ec->loc, 1);
@@ -283,6 +288,7 @@ module_free(Module *module)
 	garena_free(&module->labels);
 }
 
+int DUMP;
 
 int
 main(int argc, char **argv)
@@ -297,6 +303,9 @@ main(int argc, char **argv)
 	if (setjmp(ec.loc) != 0) {
 		goto end;
 	}
+
+	char *dump_env_var = getenv("DUMP");
+	DUMP = dump_env_var && dump_env_var[0] != '\0';
 
 	Config c_ = {
 		.assemble = true,
