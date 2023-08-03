@@ -1,5 +1,27 @@
 #include "../ir.h"
 
+//     g:
+//             v17: int = argument 0
+//     block0:
+//             branch v17, block2, block3
+//     block3: block0
+//             ret 3
+//     block2: block0
+//             ret 4
+//
+//
+//     g:
+//             v17: int = argument 0
+//     block0:
+//             branch v17, block2, block3
+//     block3: block0
+//             jump block5
+//     block2: block0
+//             jump block5
+//     block5: block3, block2
+//             v28: int = phi 3, 4
+//             ret v28
+
 typedef struct {
 	Block *block;
 	Value *value;

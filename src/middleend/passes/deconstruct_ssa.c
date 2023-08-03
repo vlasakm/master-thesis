@@ -1,5 +1,47 @@
 #include "../ir.h"
 
+// Deconstruct SSA form
+//  - introduce "identity" (copy) instructions in predecessors to simulate phi
+//  functions
+//  - necessary for the lowering to backend, since it doesn't have phi
+//  instructions
+//  - we introduce don't delete the phi, but instead replace it with a copy
+//  ("identity") instruction, this prevents the lost copy and swap problems
+//
+// Example, from:
+//
+//     f:
+//             v17: int = argument 0
+//     block0:
+//             branch v17, block2, block5
+//     block5: block0
+//             jump block4
+//     block2: block0
+//             jump block4
+//     block4: block2, block5
+//             v30: int = phi 4, 3
+//             ret v30
+//
+// to:
+//
+//     f:
+//             v17: int = argument 0
+//     block0:
+//             branch v17, block2, block5
+//     block5: block0
+//             v32: int = identity 3
+//             jump block4
+//     block2: block0
+//             v32: int = identity 4
+//             jump block4
+//     block4: block2, block5
+//             v30: int = identity v32
+//             ret v30
+//
+// The integer constants 3 and 4 are now moved into a newly created common
+// "register" 32 in both blocks 2 and 5. The original register of the phi got
+// reused for the identity (copy) instruction.
+
 void
 deconstruct_ssa(Arena *arena, Function *function)
 {
