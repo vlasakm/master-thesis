@@ -98,7 +98,6 @@ add_set_zero(TranslationState *ts, Oper oper)
 {
 	// Set zero with `mov` so that we don't introduce additional constraints
 	// on the register through XOR register uses.
-	// TODO: xor oper, oper
 	Inst *inst = add_inst(ts, IK_MOV, MOV, M_CI);
 	IREG(inst) = oper;
 	set_imm64(inst, 0);
